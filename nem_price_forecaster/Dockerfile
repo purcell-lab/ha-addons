@@ -20,6 +20,7 @@ RUN apt-get update \
       python3-venv \
       libgomp1 \
       ca-certificates \
+      jq \
  && rm -rf /var/lib/apt/lists/* \
  && ln -sf /usr/bin/python3 /usr/local/bin/python \
  && ln -sf /usr/bin/pip3 /usr/local/bin/pip
