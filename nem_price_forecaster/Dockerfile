@@ -5,13 +5,15 @@
 # point and data directory are adapted for the Supervisor environment.
 #
 # Build args injected by the Supervisor builder:
-#   BUILD_FROM  — e.g. homeassistant/amd64-base-python:3.12-alpine3.19
+#   BUILD_FROM  — e.g. ghcr.io/home-assistant/amd64-base-debian:bookworm-2026.02.0
 
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# System deps for LightGBM (libgomp) — Alpine uses musl so we need libgomp-dev
-RUN apk add --no-cache libgomp
+# System deps for LightGBM (libgomp1) on Debian/glibc.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies into the image's Python environment
 # We install into the system Python, not a venv, so the CMD below works cleanly.

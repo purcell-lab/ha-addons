@@ -1,8 +1,13 @@
 # HA Add-on build configuration
-# Pinned to actively maintained ghcr.io base images (the docker.io/homeassistant
-# base-python images stopped publishing new tags in 2023). Python 3.12 on
-# Alpine 3.20 is the latest published tag at time of writing.
+#
+# Switched from Alpine/musl base-python to Debian/glibc base-debian so that
+# manylinux wheels for scikit-learn, lightgbm, and darts install cleanly.
+# Alpine has no published musllinux wheels for sklearn/lightgbm and the HA
+# base-python image ships without a C toolchain, so source builds fail.
+#
+# armv7 is intentionally not built: the modern ML stack (sklearn 1.9 +
+# lightgbm + darts) is impractical on 32-bit ARM and the dated bookworm tag
+# is not published for that arch.
 build_from:
-  aarch64: "ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.20"
-  amd64: "ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20"
-  armv7: "ghcr.io/home-assistant/armv7-base-python:3.12-alpine3.20"
+  amd64: "ghcr.io/home-assistant/amd64-base-debian:bookworm-2026.02.0"
+  aarch64: "ghcr.io/home-assistant/aarch64-base-debian:bookworm-2026.02.0"
