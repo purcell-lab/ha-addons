@@ -1,7 +1,8 @@
 # HA Add-on build configuration
-# Specifies the official HA base images for each supported architecture.
-# The Supervisor's builder uses these as the BUILD_FROM arg in the Dockerfile.
+# Pinned to actively maintained ghcr.io base images (the docker.io/homeassistant
+# base-python images stopped publishing new tags in 2023). Python 3.12 on
+# Alpine 3.20 is the latest published tag at time of writing.
 build_from:
-  aarch64: "homeassistant/aarch64-base-python:3.12-alpine3.19"
-  amd64: "homeassistant/amd64-base-python:3.12-alpine3.19"
-  armv7: "homeassistant/armv7-base-python:3.12-alpine3.19"
+  aarch64: "ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.20"
+  amd64: "ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20"
+  armv7: "ghcr.io/home-assistant/armv7-base-python:3.12-alpine3.20"
