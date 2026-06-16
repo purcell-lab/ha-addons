@@ -21,7 +21,7 @@ description: >
   PD7DAY + isotonic calibration, Darts LightGBM, or a blended darts_naive_blend
   model (default). Publishes import/export price forecasts as HA sensor attributes
   for EMHASS, automations, and dashboards.
-version: "0.3.0"
+version: "0.3.1"
 slug: "nem_price_forecaster"
 init: false
 arch:
