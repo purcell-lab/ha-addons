@@ -164,6 +164,10 @@ class DartsLightGBMPriceForecaster:
         # Track whether the trained model expects weather columns, so
         # predict() can match the training feature set.
         self._training_has_weather: bool = False
+        # Track whether the trained model included PD7DAY past-covariate column,
+        # so predict() can match the training feature set (calendar-only=7 cols,
+        # calendar+pd7day=8 cols).
+        self._training_has_pd7day: bool = False
 
     # ------------------------------------------------------------------
     # Training
@@ -243,8 +247,10 @@ class DartsLightGBMPriceForecaster:
                 # (see module docstring for full explanation)
                 pd7day_past_values = self._align_pd7day_to_times(regular_times, pd7day_history)
                 past_cov_values = np.column_stack([calendar_values, pd7day_past_values])
+                training_has_pd7day = True
             else:
                 past_cov_values = calendar_values
+                training_has_pd7day = False
 
             past_covariate_ts = TimeSeries.from_times_and_values(
                 times_index,
@@ -319,13 +325,15 @@ class DartsLightGBMPriceForecaster:
         self._is_trained = True
         self._training_observation_count = len(observations)
         self._training_has_weather = bool(has_weather)
+        self._training_has_pd7day = bool(training_has_pd7day)
         _LOGGER.info(
             "DartsLightGBMPriceForecaster trained: %d observations, lags=%d, "
-            "output_chunk=%d, weather_covariates=%s",
+            "output_chunk=%d, weather_covariates=%s, pd7day_covariate=%s",
             len(observations),
             self._lags,
             self._output_chunk_length,
             self._training_has_weather,
+            self._training_has_pd7day,
         )
 
     # ------------------------------------------------------------------
@@ -408,10 +416,25 @@ class DartsLightGBMPriceForecaster:
             # Calendar (lagged) + converged PD7DAY (lagged) for the input window
             calendar_input = _build_calendar_covariate_values(tail_times)
 
-            if pd7day_forecast and len(pd7day_forecast) > 0:
-                pd7day_input_values = self._align_pd7day_to_times(tail_times, pd7day_forecast)
+            # Match the trained feature shape: only include PD7DAY column if the
+            # model was trained with it.  Otherwise we'd feed an 8-component past
+            # covariate to a 7-component-trained LightGBMModel and Darts would
+            # raise: "The number of components of the target series and the
+            # covariates provided for prediction doesn't match..."
+            if self._training_has_pd7day:
+                if pd7day_forecast and len(pd7day_forecast) > 0:
+                    pd7day_input_values = self._align_pd7day_to_times(tail_times, pd7day_forecast)
+                else:
+                    # Model trained with PD7DAY but none available now — pad with zeros
+                    # so the column count still matches training.
+                    _LOGGER.debug(
+                        "DartsLightGBMPriceForecaster: model trained with PD7DAY but "
+                        "no PD7DAY forecast available; padding pd7day column with zeros"
+                    )
+                    pd7day_input_values = np.zeros(len(tail_times), dtype=np.float64)
                 past_input_cov = np.column_stack([calendar_input, pd7day_input_values])
             else:
+                # Trained calendar-only — ignore any PD7DAY forecast at predict time.
                 past_input_cov = calendar_input
 
             # Past covariate series spans only the input window (no future extension required)
@@ -501,6 +524,7 @@ class DartsLightGBMPriceForecaster:
                 _json.dump(
                     {
                         "training_has_weather": self._training_has_weather,
+                        "training_has_pd7day": self._training_has_pd7day,
                         "training_observation_count": self._training_observation_count,
                         "lags": self._lags,
                         "output_chunk_length": self._output_chunk_length,
@@ -539,22 +563,27 @@ class DartsLightGBMPriceForecaster:
                     with open(meta_path, encoding="utf-8") as meta_file:
                         meta = _json.load(meta_file)
                     self._training_has_weather = bool(meta.get("training_has_weather", False))
+                    self._training_has_pd7day = bool(meta.get("training_has_pd7day", False))
                     self._training_observation_count = int(
                         meta.get("training_observation_count", 0)
                     )
                 except Exception as meta_error:
                     _LOGGER.debug(
-                        "Price Darts model meta load failed (%s); assuming no weather", meta_error
+                        "Price Darts model meta load failed (%s); assuming no weather/pd7day",
+                        meta_error,
                     )
                     self._training_has_weather = False
+                    self._training_has_pd7day = False
             else:
-                # Legacy save (no metadata) — assume no weather to be safe
+                # Legacy save (no metadata) — assume no weather/pd7day to be safe
                 # (will trigger zero-padding on predict, not a dimension mismatch)
                 self._training_has_weather = False
+                self._training_has_pd7day = False
             _LOGGER.info(
-                "Price Darts model loaded from %s (training_has_weather=%s)",
+                "Price Darts model loaded from %s (training_has_weather=%s, training_has_pd7day=%s)",
                 model_path,
                 self._training_has_weather,
+                self._training_has_pd7day,
             )
             return True
         except Exception as load_error:
