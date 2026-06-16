@@ -28,7 +28,7 @@ arch:
   - amd64
   - aarch64
 homeassistant_api: false
-hassio_api: false
+hassio_api: true
 map:
   - type: share
     read_only: false
