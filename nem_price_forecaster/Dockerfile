@@ -10,15 +10,25 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# System deps for LightGBM (libgomp1) on Debian/glibc.
+# base-debian is bare Debian (no Python). Install Python 3.11 from bookworm
+# and libgomp1 for LightGBM. Bookworm ships cp311, which has manylinux
+# wheels on PyPI for numpy, scikit-learn, lightgbm, and darts.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends \
+      python3 \
+      python3-pip \
+      python3-venv \
+      libgomp1 \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && ln -sf /usr/bin/python3 /usr/local/bin/python \
+ && ln -sf /usr/bin/pip3 /usr/local/bin/pip
 
 # Install Python dependencies into the image's Python environment
 # We install into the system Python, not a venv, so the CMD below works cleanly.
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+RUN pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+ && rm /tmp/requirements.txt
 
 # Copy sidecar application code
 WORKDIR /app
