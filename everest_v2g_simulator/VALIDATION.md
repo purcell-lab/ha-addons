@@ -173,6 +173,12 @@ namespace on global or link-local addresses.
   11 kW rating; HA's meter showed 11.0 kW. The documented transient
   (13.5 kW) is at a direction change; this one was at the start of
   charging and larger. Cause not established.
+- Third run (2026-10-11 08:19 AEST, transaction
+  `7b334b66-c101-47b2-95a3-482efe961b42`, profile 210303): the same
+  result. +6,000 W from 0 s (33.3 Wh import, 33.3 Wh expected), -5,000 W
+  by 23.8 s (26.3 Wh export), +3,000 W by 43.8 s (25.0 Wh over 30 s, 25.0
+  Wh expected). HA's stop closed the transaction at once and the self-test
+  passed. No status sample above the rating this time.
 - CI flake (PR #16, amd64, 2026-10-11): in `v2g21` the station accepted the
   profile but the first +6,000 W step never applied (11,000 W throughout);
   the -5,000 W and +3,000 W steps applied on time. A re-run passed. Not
