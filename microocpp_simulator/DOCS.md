@@ -1,0 +1,111 @@
+# MicroOCPP Simulator
+
+A native **OCPP 2.0.1 JSON** simulated charging station with two EVSEs, each
+with one connector (shown as connectors 1 and 2 in the upstream UI).
+It runs independently of your browser. This first App release deliberately
+uses MicroOCPP's limited 2.0.1 implementation. It does not provide full
+2.0.1 smart charging, V2G, TLS or wallet/payment functions.
+
+## Safe first start
+
+1. Install the App from this repository after the PR is merged.
+2. Keep `backend_url` empty. Start manually and open the web UI.
+3. Verify the interface works while the OCPP connection stays disconnected.
+4. Prepare a separate **test** CSMS endpoint/HA OCPP entry. Confirm all
+   `SIM-*` devices are excluded from real charger automations, driver
+   registration and BSV settlement. The App cannot enforce those exclusions
+   in another integration.
+5. Set `backend_url` to the verified `ws://test-host:port[/base-path]`, without
+   the station ID. Use `homeassistant` only when that is the confirmed
+   reachable HA OCPP server. Do not guess the port or reuse the real CPID.
+6. Set a unique `SIM-` charge-point ID and
+   `acknowledge_test_isolation: true`. Restart the App.
+7. Confirm the negotiated protocol and BootNotification in the test CSMS.
+   In the simulator UI set the connector plug/ready controls and present a
+   dedicated test RFID token accepted by the test CSMS.
+
+An empty backend always disables the connection, including after an earlier
+configured run. No public echo endpoint, real station identity or live host
+address is built into the App.
+
+## Options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `backend_url` | Empty | OCPP base URL, without appended CPID. Initial release accepts only credential-free `ws` on an explicit port. |
+| `charge_point_id` | `SIM-MICROOCPP-01` | Required `SIM-` namespace, up to 40 suffix characters. |
+| `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty backend. |
+
+Use only on an isolated trusted test network. There is **no TLS or Basic Auth
+support in this packaging release**; do not send real RFID identifiers or
+use it across an untrusted/public network. TLS validation and secret handling
+need a separate reviewed increment rather than an insecure skip-verify flag.
+
+The UI uses Home Assistant Ingress authentication. Port 8000 is loopback-only;
+port 8099 accepts only the Supervisor Ingress peer. No host ports, host
+networking, hardware access, HA API token or Docker socket are requested.
+Do not add an external port mapping or disable protection mode.
+
+## UI and configuration boundaries
+
+The upstream UI is retained, but network/configuration/reset POST APIs are
+blocked. Only connector plug/ready and transaction/RFID actions may be
+submitted through the UI; use the App Configuration tab for its endpoint.
+Upstream advanced controls outside this scope can show a denied request.
+The upstream WebSocket settings page is informational, not an alternate
+configuration route.
+
+The station supports two connectors; use connector 1 for the first test.
+Do not associate a test token with a production driver or real budget.
+On a fresh data directory, sampled import energy, power, current, voltage
+and SoC are enabled at transaction start/end and ten-second updates.
+The test CSMS may change the device-model sampling settings.
+
+The current build does not implement 2.0.1 `SetChargingProfile`. Its
+explicit unsupported response is covered by the smoke test. Do not use
+this App as proof of TxProfile execution; that needs the EVerest stage.
+
+## Persistence and restart
+
+`/data/mo_store` holds protocol state and configuration. Startup updates only
+App-managed keys, retains other records and resets plug/ready booleans to
+false. The upstream energy accumulator is in memory, so a process restart
+is a metering discontinuity, not an uninterrupted revenue-meter session.
+Test CSMS reconciliation of interrupted transactions explicitly.
+
+The first configured endpoint and identity are bound in
+`/data/test-identity.json`. Changing either is refused to avoid sending
+stored transaction records to another station/backend. An empty backend
+pauses networking without deleting this binding.
+
+For a genuinely new test destination, stop the App, archive its data and
+reset/reinstall its data using your normal HA administration procedure.
+Never erase data simply to hide an unresolved test transaction. No automatic
+state deletion or live HA configuration edits are performed.
+
+Both child processes are supervised. A child exit fails the App rather than
+leaving a misleading half-running UI; normal shutdown gives both processes
+up to eight seconds before forced cleanup. Boot is manual. A CSMS Reset
+can stop the App; restart it explicitly during this first testing stage.
+
+## Validation and installation gates
+
+The PR contains focused option/persistence tests, native simulator smoke
+tests and separate amd64/aarch64 Docker build checks. No image is pushed
+and no App is installed by the workflow.
+
+Before live-host acceptance:
+
+- Confirm the HA version accepts this App manifest and its Ingress peer.
+- Build on the actual host architecture; allow time for the C++ dependency build.
+- Confirm UI requests stay beneath the Ingress URL, including on a phone.
+- Check a full test-only charging lifecycle and sampled transaction meter data.
+- Confirm the documented unsupported profile response is not shown as success.
+- Stop/start the App and reconcile the explicit metering discontinuity.
+- Confirm no test data enters production settlement or control automations.
+
+## Scope and future increments
+
+Keep full 2.0.1 smart charging, V2G, authenticated/TLS OCPP, deterministic metering and fleet
+scenarios outside this baseline PR. See [UPSTREAM.md](UPSTREAM.md) for the
+pin, source distribution, licensing and exact upstream changes.
