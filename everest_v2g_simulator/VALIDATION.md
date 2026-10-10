@@ -133,6 +133,16 @@ namespace on global or link-local addresses.
   HA OCPP 2.1 status gap), so turning it off sent no stop; unplugging ended
   the transaction (TxStopPoints EVConnected). The self-test afterwards
   passed and the charger was not ignoring discovery.
+- Second session on HA OS with 0.1.2 (2026-10-11 06:30): plug-in reached
+  discovery in 2.6 s, DC_BPT, then 11,000 W after RequestStartTransaction.
+  An `everest_v2g_command` `stop` ended it from the EV side; HA's
+  transaction opened at 06:30:37 and closed at 06:31:48 on time. Meter
+  start 0.451 kWh and final register 0.613 kWh give about 0.16 kWh, which
+  fits 52 s at 11 kW (HA's session-energy sensor showed the register). The
+  self-test afterwards passed. The first session's transaction reached HA
+  only at 06:19:37, when the App logged a dropped OCPP message after
+  retries; that delay, not the switch state alone, explains why HA could
+  not stop it. Its cause is not established.
 
 ## Not claimed
 
