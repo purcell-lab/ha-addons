@@ -370,10 +370,15 @@ class NetguardTest(unittest.TestCase):
         self.assertTrue(rules.startswith("add table inet ha_everest_v2g\ndelete table inet ha_everest_v2g\n"))
         self.assertIn("ip saddr 172.30.32.2 tcp dport 8099 counter accept", rules)
         self.assertIn('iifname { "v2g0", "v2g1" } counter accept', rules)
-        self.assertTrue(rules.rstrip().endswith('counter comment "dropped by policy"\n  }\n}'))
+        inbound, outbound = rules.split("  chain output {")
+        self.assertTrue(inbound.rstrip().endswith('counter comment "dropped by policy"\n  }'))
         self.assertIn("ct state established,related counter accept", rules)
         for open_port in ("15118", "50000", "dport 1883"):
-            self.assertNotIn(open_port, rules)
+            self.assertNotIn(open_port, inbound)
+        # Outbound: only discovery off the private link is dropped.
+        self.assertIn("policy accept;", outbound)
+        self.assertIn('oifname != { "lo", "v2g0", "v2g1" } udp dport 15118 counter drop', outbound)
+        self.assertEqual(outbound.count("drop"), 1)
 
     def test_link_local_skips_tentative_and_global(self):
         self.assertEqual(netguard.link_local("v2g0", IF_INET6), "fe80:0000:0000:0000:a8bb:ccff:fe00:0001")

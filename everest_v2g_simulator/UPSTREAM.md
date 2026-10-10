@@ -45,9 +45,17 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
   any charging target below it, even on this DC EVSE.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
 
-## Local patch
+## Local patches
 
-`patch_josev.py` runs at image build and edits one file,
+`patch_josev.py` runs at image build and edits two files.
+
+Josev `iso15118/evcc/transport/udp_client.py`: upstream computes the
+interface index but leaves `IPV6_MULTICAST_IF` commented out, so the EV's
+SDP request to `FF02::1` leaves by the kernel's first multicast route. That
+is the private link only when no other interface exists. The patch sets
+the option, so requests always leave by `v2g1`.
+
+
 `PyEvJosev/module.py` from everest-core 2025.10.0. Upstream runs one Josev
 EVCC per plug-in with `asyncio.run()`. After `SDPFailedError` Josev logs
 the error and keeps waiting, so `asyncio.run()` never returns and no later
@@ -74,7 +82,10 @@ VALIDATION.md:
 4. EnergyManager applies the board's AC minimum current to a DC EVSE.
 5. libocpp aborts on a GetCertificateStatus reply without `status`.
 6. PyEvJosev never starts a new EV stack after a failed discovery
-   (Local patch).
+   (Local patches).
+9. Josev's UDP client does not set `IPV6_MULTICAST_IF`, so SDP leaves by
+   the first multicast route instead of the configured interface (Local
+   patches).
 7. libiso15118 v0.9.0 `TbdController` creates a session for each answered
    SDP request and ignores all later requests until it ends. A session
    whose peer never connects never ends, so one stray SDP request blocks

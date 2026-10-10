@@ -128,9 +128,28 @@ def firewall_counters(run=subprocess.run):
     return {"table": netguard.TABLE, "rules": rules}
 
 
+def multicast_routes(text=None):
+    """Interfaces of the ff00::/8 multicast routes, in kernel lookup order.
+
+    A socket that sends to ff02::1 without choosing an interface (upstream
+    Josev) leaves by the first one. On Home Assistant OS that is eth0, so
+    the charger on v2g0 never sees the request."""
+    if text is None:
+        text = _read(PROC / "net/ipv6_route") or ""
+    found = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 10 and parts[0] == "ff" + "0" * 30 and parts[1] == "08" and parts[9] not in found:
+            found.append(parts[9])
+    return found
+
+
 def snapshot(run=subprocess.run):
     addrs, groups = addresses(), multicast_groups()
+    routes = multicast_routes()
     return {
+        "unscoped_multicast_interface": routes[0] if routes else None,
+        "multicast_routes": routes,
         "links": {name: dict(link_state(name), addresses=addrs.get(name, []),
                              multicast=groups.get(name, [])) for name in LINKS},
         "all_sysctl": {key: _read(PROC / "sys/net/ipv6/conf/all" / key) for key in SYSCTLS},
@@ -269,7 +288,8 @@ def selftest(capture=True, settle=CHARGER_CLOSE_S):
     released = all(p.get("released") for p in (unicast, multicast) if p["result"] == "reply")
     return {"secc_address": secc, "unicast": unicast, "multicast": multicast, "capture": seen,
             "pass": unicast["result"] == "reply" and multicast["result"] == "reply" and released,
-            "sessions_released": released, "at": time.time()}
+            "sessions_released": released, "unscoped_multicast_interface": (multicast_routes() or [None])[0],
+            "at": time.time()}
 
 
 def summary(result):
@@ -281,6 +301,8 @@ def summary(result):
             parts.append(f"{name}=[{' '.join(kinds) or 'none'}]")
         else:
             parts.append(f"{name}=capture-unavailable")
+    if result.get("unscoped_multicast_interface"):
+        parts.append(f"unscoped-multicast-via={result['unscoped_multicast_interface']}")
     if not result.get("sessions_released", True):
         parts.append("session-release=failed")
     if result.get("charger_sdp_blocked"):

@@ -112,10 +112,19 @@ namespace on global or link-local addresses.
   first failure there, which had no `Got SDP request` line.
 - Field finding that led to 0.1.1: on Home Assistant OS the EV's SDP
   requests timed out although the SDP server had started on `v2g0` and
-  link-local addresses were present; the same image passes in CI. The
-  0.1.0 EV stack then idled, so later plug-ins did nothing. The self-test
-  result and packet counts on HA OS are the next evidence; the cause is not
-  yet established.
+  link-local addresses were present; the same image passed in CI. The
+  0.1.0 EV stack then idled, so later plug-ins did nothing.
+- Cause, established with 0.1.1 on HA OS (2026-10-10): the start-up
+  self-test passed on both paths, yet the simulated EV's requests still
+  timed out. Upstream Josev sends to `FF02::1` without choosing an
+  interface (its `IPV6_MULTICAST_IF` line is commented out), so the kernel
+  uses the first multicast route. CI's acceptance container has no network,
+  so that is the private link; on HA OS it is `eth0` on the Supervisor
+  network. Reproduced in a network namespace with a second interface: the
+  unscoped request left by that interface, and with the interface set it
+  went from `v2g1` to `v2g0`. 0.1.1 patches Josev to use `v2g1`, drops any
+  SDP that would leave by another interface, and CI repeats `recovery`
+  with a bridge network attached (an `eth0`, as on HA OS).
 
 ## Not claimed
 

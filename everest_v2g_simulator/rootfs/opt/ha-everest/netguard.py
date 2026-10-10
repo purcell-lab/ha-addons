@@ -38,6 +38,10 @@ table inet {TABLE} {{
     icmpv6 type {{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert }} counter accept comment "neighbour discovery"
     counter comment "dropped by policy"
   }}
+  chain output {{
+    type filter hook output priority filter; policy accept;
+    oifname != {{ "lo", "{SECC_LINK}", "{EVCC_LINK}" }} udp dport 15118 counter drop comment "SDP kept on the private link"
+  }}
 }}
 """
 

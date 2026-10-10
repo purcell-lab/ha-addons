@@ -17,12 +17,17 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   test -z "$(find / -xdev \( -name "*.key" -o -name "*LEAF*" -o -name "*.p12" \) \
     -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
   grep -q "ha-everest: EV ISO 15118 stack stopped" /opt/everest/libexec/everest/modules/PyEvJosev/module.py
+  grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
   java -version 2>&1 | head -1; nft --version'
 
 echo "== Offline, discovery recovery, OCPP 2.1 V2G, 2.0.1 fallback and pinned 2.0.1 acceptance (no network)"
 docker tag "$IMAGE" everest-v2g:test
 docker build -q -t everest-v2g:smoke -f "$TESTS/Dockerfile.smoke" .
 docker run --rm --network none --cap-add NET_ADMIN everest-v2g:smoke
+echo "== Discovery with a second interface (eth0, as on Home Assistant OS)"
+# Upstream Josev sent SDP by the first multicast route, which is eth0 here
+# and on HA OS; only the patched EV completes discovery in this run.
+docker run --rm --network bridge --cap-add NET_ADMIN everest-v2g:smoke recovery
 
 echo "== Fails closed without NET_ADMIN"
 nocap="v2g-nocap-$$"

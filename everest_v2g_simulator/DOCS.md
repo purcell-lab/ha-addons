@@ -138,6 +138,14 @@ it.`, adds `charger=ignoring-discovery(restart the App)` to the self-test
 line, and sets `charger_ignoring_discovery` on the HA status object.
 Authorise or stop the session from the CSMS before unplugging to avoid it.
 
+The line ends with `unscoped-multicast-via=<interface>`: the interface
+a request to `ff02::1` would leave by if the sender did not choose one,
+read from the routing table without sending anything. Upstream Josev did
+not choose one, and on Home Assistant OS this is `eth0`, which is why
+0.1.0's EV never reached the charger there. 0.1.1 patches the EV to send
+on `v2g1`, and the firewall drops SDP that would leave by any other
+interface (counter `SDP kept on the private link`).
+
 On failure the App also logs `Discovery diagnostics:` with the full
 snapshot. The Status page's Discovery self-test panel shows the latest
 result, a Run self-test button and the snapshot: link state and sysctls,
@@ -245,6 +253,8 @@ inside its own container network namespace. Nothing is bridged to the host
 or the LAN. The same capability loads an nftables policy that **drops all
 inbound traffic** on the Home Assistant network interface except Ingress
 from the Supervisor and replies to the App's own outbound OCPP connection.
+Outbound, it drops ISO 15118 discovery (UDP 15118) on every interface
+except the private link and loopback.
 The upstream SDP server binds every interface, so this policy is the
 boundary for TCP and defence in depth for UDP. If either step fails, the
 App logs `V2G isolation setup failed` and starts no EVerest process.

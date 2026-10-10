@@ -83,6 +83,24 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(failing, {"error": "no table"})
 
 
+ROUTES = """ff000000000000000000000000000000 08 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000003 00000000 00000001     eth0
+fe800000000000000000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001     v2g1
+ff000000000000000000000000000000 08 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000002 00000000 00000001     v2g1
+ff000000000000000000000000000000 08 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000002 00000000 00000001     v2g0
+"""
+
+
+class RouteTest(unittest.TestCase):
+    def test_multicast_route_order(self):
+        self.assertEqual(diag.multicast_routes(ROUTES), ["eth0", "v2g1", "v2g0"])
+        self.assertEqual(diag.multicast_routes(""), [])
+
+    def test_summary_names_the_unscoped_interface(self):
+        result = {"pass": True, "unicast": {"result": "reply"}, "multicast": {"result": "reply"},
+                  "unscoped_multicast_interface": "eth0"}
+        self.assertTrue(diag.summary(result).endswith("unscoped-multicast-via=eth0"))
+
+
 class SelftestTest(unittest.TestCase):
     def setUp(self):
         self.saved = diag.sdp_probe, diag.netguard.link_local
@@ -110,7 +128,7 @@ class SelftestTest(unittest.TestCase):
         self.assertIn("session-release=failed", diag.summary(unreleased))
         failed = self.run_with("reply", "silent")
         self.assertFalse(failed["pass"])
-        self.assertEqual(diag.summary(failed), "Discovery self-test FAILED: unicast=reply multicast=silent")
+        self.assertTrue(diag.summary(failed).startswith("Discovery self-test FAILED: unicast=reply multicast=silent"))
 
     def test_summary_lists_captures(self):
         result = {"pass": False, "unicast": {"result": "reply"}, "multicast": {"result": "silent"},
@@ -169,6 +187,21 @@ UPSTREAM = '''    def start_evcc_handler(self):
         return True
 '''
 UPSTREAM_FILE = Path("/tmp/everest-core/modules/EV/PyEvJosev/module.py")
+UDP_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py")
+# Verbatim excerpt of Josev's UDPClient._create_socket (EVerest 2025.10.0).
+UDP_UPSTREAM = '''import socket
+import struct
+
+
+def _create_socket(iface: str) -> socket.socket:
+        sock = socket.socket(family=socket.AF_INET6, type=socket.SOCK_DGRAM)
+        ttl = struct.pack("@i", 1)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, ttl)
+        interface_index = socket.if_nametoindex(iface)
+        # sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)
+
+        return sock
+'''
 
 
 class Log:
@@ -253,14 +286,27 @@ class PatchJosevTest(unittest.TestCase):
         thread.join(5)
         self.assertEqual(runs, ["fail", "exit"])
 
+    def test_udp_client_sends_on_configured_interface(self):
+        upstream = (UDP_UPSTREAM if not UDP_FILE.exists() else UDP_FILE.read_text())
+        patched = patch_josev.patch_udp(upstream)
+        self.assertIn("        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)\n",
+                      patched)
+        self.assertNotIn("# sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF", patched)
+        self.assertEqual(patch_josev.patch_udp(patched), patched)
+        with self.assertRaises(ValueError):
+            patch_josev.patch_udp(upstream.replace("interface_index = socket", "index = socket"))
+
     def test_refuses_unexpected_upstream(self):
         with self.assertRaises(ValueError):
             patch_josev.patch(UPSTREAM.replace("break", "return"))
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "module.py"
             path.write_text("class X:\n" + UPSTREAM)
-            patch_josev.main(path)
+            udp = Path(tmp) / "udp_client.py"
+            udp.write_text(UDP_UPSTREAM)
+            patch_josev.main(path, udp)
             self.assertIn(patch_josev.MARKER, path.read_text())
+            self.assertIn(patch_josev.UDP_MARKER, udp.read_text())
 
     @unittest.skipUnless(UPSTREAM_FILE.exists(), "everest-core checkout not present")
     def test_matches_real_upstream_file(self):

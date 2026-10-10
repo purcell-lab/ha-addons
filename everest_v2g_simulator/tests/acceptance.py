@@ -357,6 +357,10 @@ async def recovery_scenario():
         http("/api/ev/unplug", "POST")
         await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged again")
         await asyncio.sleep(10)
+        snapshot = http("/api/diagnostics")["snapshot"]
+        rules = {r["rule"]: r["packets"] for r in snapshot["firewall"]["rules"]}
+        assert rules["SDP kept on the private link"] == 0, rules  # the patched EV used v2g1
+        print("unscoped multicast via", snapshot["unscoped_multicast_interface"], flush=True)
         selftest = http("/api/diag/selftest", "POST", timeout=20)
         assert not selftest["pass"] and selftest["charger_sdp_blocked"], selftest
         assert selftest["capture"]["v2g0"]["count"] >= 2, selftest  # requests arrived; no reply

@@ -1,4 +1,7 @@
-"""Build-time patch: a fresh simulated-EV ISO 15118 stack on every plug-in.
+"""Build-time patches to the simulated EV (PyEvJosev and Josev).
+
+1. Josev's UDP client sends SDP on the configured interface (v2g1).
+2. A fresh simulated-EV ISO 15118 stack on every plug-in.
 
 Upstream PyEvJosev (EVerest 2025.10.0) runs one Josev EVCC per plug-in with
 asyncio.run(). When discovery fails, Josev logs SDPFailedError but its
@@ -76,6 +79,28 @@ START_REPLACEMENT = """        self._es.EnergyTransferMode = args['EnergyTransfe
 """
 
 
+UDP_TARGET = Path("/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py")
+UDP_MARKER = "ha-everest: send SDP on the configured interface"
+UDP_ANCHOR = """        interface_index = socket.if_nametoindex(iface)
+        # sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)
+"""
+# Upstream leaves the interface unset, so the kernel picks the default
+# multicast route: the private link in CI (no other interface), but eth0 on
+# Home Assistant OS, where the charger never sees the request.
+UDP_REPLACEMENT = """        interface_index = socket.if_nametoindex(iface)
+        # ha-everest: send SDP on the configured interface (patch_josev.py)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)
+"""
+
+
+def patch_udp(text):
+    if UDP_MARKER in text:
+        return text
+    if text.count(UDP_ANCHOR) != 1:
+        raise ValueError("Josev udp_client.py does not match the expected upstream text")
+    return text.replace(UDP_ANCHOR, UDP_REPLACEMENT)
+
+
 def patch(text):
     if MARKER in text:
         return text
@@ -85,12 +110,18 @@ def patch(text):
     return text.replace(LOOP_ANCHOR, LOOP_REPLACEMENT).replace(START_ANCHOR, START_REPLACEMENT)
 
 
-def main(path=TARGET):
+def apply(path, function):
     path = Path(path)
-    patched = patch(path.read_text())
+    patched = function(path.read_text())
     compile(patched, str(path), "exec")
     path.write_text(patched)
     print(f"patched {path}")
+
+
+def main(path=TARGET, udp_path=UDP_TARGET):
+    apply(path, patch)
+    if udp_path:
+        apply(udp_path, patch_udp)
 
 
 if __name__ == "__main__":
