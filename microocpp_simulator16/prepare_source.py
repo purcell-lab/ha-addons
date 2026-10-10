@@ -90,6 +90,27 @@ def prepare(root):
             'opts.extra_headers = "Cache-Control: no-cache\\r\\nVary: Accept-Encoding\\r\\n";')
     replace(web, 'mg_http_serve_file(c, message_data, "public/bundle.html.gz", &opts);',
             'mg_http_serve_file(c, message_data, "public/bundle.html", &opts);')
+    # Capture the actual incoming request via the public observer, without
+    # replacing the core handler or inferring acceptance from receipt.
+    assets = Path(__file__).resolve().parent
+    (root / "src/txprofile_status.h").write_text(
+        (assets / "txprofile_status.h").read_text())
+    replace(main, '#include "api.h"', '#include "api.h"\n#include "txprofile_status.h"')
+    replace(main, '        connectors[i].setup();\n    }',
+            '        connectors[i].setup();\n    }\n    TxProfileStatus::setup();')
+    api = root / "src/api.cpp"
+    replace(api, '#include "api.h"', '#include "api.h"\n#include "txprofile_status.h"')
+    replace(api, '    //start different api endpoints',
+            '    // Exact connector routes; read-only diagnostic has a bounded body.\n'
+            '    for (unsigned id = 1; id < MO_NUMCONNECTORS; id++) {\n'
+            '        if (std::string(endpoint) == "/connector/" + std::to_string(id) + "/txprofile") {\n'
+            '            if (method != MicroOcpp::Method::GET) return 405;\n'
+            '            return TxProfileStatus::respond(id, resp_body, resp_body_size);\n'
+            '        }\n'
+            '    }\n\n    //start different api endpoints')
+    # Diagnostic values may contain percent signs: never use them as a format.
+    replace(web, 'mg_http_reply(c, status, final_headers, resp_buf);',
+            'mg_http_reply(c, status, final_headers, "%s", resp_buf);')
     bundle = root / "public/bundle.html.gz"
     text = gzip.decompress(bundle.read_bytes()).decode()
     replacements = (
@@ -98,6 +119,9 @@ def prepare(root):
          "t.evPlugged===e&&t.evsePlugged===e&&t.evReady===n&&t.evseReady===r"),
         ("DateFormatter.fullDate(new Date)", "(new Date).toLocaleString()"),
         (',onClick:function(){M("Charging")}', ""),
+        ('v(or,{connectorId:o[e]}))));return t}()))}',
+         'v(or,{connectorId:o[e]}))));return t}()),'
+         'v("section",{id:"txprofile-status","aria-label":"Received TxProfile"}))}'),
     )
     for old, new in replacements:
         if text.count(old) != 1:
@@ -107,6 +131,12 @@ def prepare(root):
                          lambda m: f"evPlugged:{m[1]},evsePlugged:{m[1]},", text)
     if count != 2:
         raise ValueError("upstream plug controls changed")
+    if text.count("</html>") != 1:
+        raise ValueError("upstream document changed")
+    text = text.replace("</html>",
+                        "<style>" + (assets / "txprofile_status.css").read_text()
+                        + "</style><script>" + (assets / "txprofile_status.js").read_text()
+                        + "</script></html>")
     bundle.with_suffix("").write_text(text)
     bundle.write_bytes(gzip.compress(text.encode(), mtime=0))
 

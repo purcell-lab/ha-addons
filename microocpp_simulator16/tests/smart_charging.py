@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
@@ -119,12 +120,22 @@ async def main():
                 try:
                     await until(lambda: any(a == "BootNotification" for a, _ in received), "boot")
                     assert http("/api/connector/1/meter")["power"] == 0
+                    for connector in (1, 2):
+                        empty = http(f"/api/connector/{connector}/txprofile")
+                        assert empty["received"] is False and empty["payload"] is None
+                    try:
+                        http("/api/connector/1/txprofile", {})
+                        raise AssertionError("diagnostic POST must be refused")
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 405
                     with urllib.request.urlopen("http://127.0.0.1:8000/") as response:
                         html = response.read().decode()
                         assert response.headers.get_all("Content-Type") == ["text/html; charset=utf-8"]
                         assert "OCPP 1.6 Connection" in html
                         assert "OCPP 2.0.1 Connection" not in html
                         assert 'new URL("api",window.location.href).href' in html
+                        assert 'id:"txprofile-status"' in html
+                        assert "JSON.stringify(data.payload, null, 2)" in html
                     assert (await call("ChangeConfiguration", {
                         "key": "MeterValueSampleInterval", "value": "1"}))["status"] == "Accepted"
                     assert (await call("ChangeConfiguration", {
@@ -155,6 +166,11 @@ async def main():
                             {"startPeriod": i * 4, "limit": limit}
                             for i, limit in enumerate(limits)]}
                     assert (await install(p))["status"] == "Accepted"
+                    captured = http("/api/connector/1/txprofile")
+                    assert captured["payload"] == {"connectorId": 1, "csChargingProfiles": p}
+                    assert captured["receivedAt"].endswith("Z")
+                    assert captured["acceptance"] == "not_recorded"
+                    assert http("/api/connector/2/txprofile")["received"] is False
                     readings = []
                     for i, limit in enumerate(limits):
                         wait = (start + timedelta(seconds=i * 4 + 1)
@@ -283,6 +299,27 @@ async def main():
                     meter = http("/api/connector/1/meter")
                     assert meter["power"] == meter["current"] == meter["voltage"] == 0
                     assert http("/api/connector/2/meter")["energy"] == 0
+                    # Receipt is historical, not acceptance/active state: a stopped
+                    # transaction's rejected request is still the latest received.
+                    rejected = profile(90, 1000)
+                    rejected["diagnosticLabel"] = "<img src=x onerror=alert(1)> %s %n"
+                    assert (await install(rejected))["status"] == "Rejected"
+                    assert http("/api/connector/1/txprofile")["payload"] == {
+                        "connectorId": 1, "csChargingProfiles": rejected}
+                    assert http("/api/connector/1/meter")["power"] == 0
+                    # Non-TxProfile operations cannot overwrite the display.
+                    await install(profile(91, 0, "TxDefaultProfile"))
+                    assert http("/api/connector/1/txprofile")["payload"]["csChargingProfiles"]["chargingProfileId"] == 90
+                    # Bound diagnostics without changing native request handling.
+                    oversized = profile(92, 1000)
+                    oversized["diagnosticLabel"] = "x" * 4200
+                    assert (await install(oversized))["status"] == "Rejected"
+                    bounded = http("/api/connector/1/txprofile")
+                    assert bounded["captureStatus"] == "too_large" and bounded["payload"] is None
+                    assert (await install(profile(93, 1000), 2))["status"] == "Rejected"
+                    assert http("/api/connector/2/txprofile")["received"] is True
+                    assert http("/api/connector/1/txprofile")["captureStatus"] == "too_large"
+                    print("PASS received TxProfile API: exact payload, rejected, percent/HTML text, bound, isolation, read-only")
                     print("PASS max/default profiles, composite, clear, expiry, final zero samples, connector isolation")
                 finally:
                     process.terminate()
@@ -303,6 +340,7 @@ async def main():
                     await asyncio.sleep(1)
                     assert http("/api/websocket")["backendUrl"] == ""
                     assert http("/api/connector/1/meter")["power"] == 0
+                    assert http("/api/connector/1/txprofile")["received"] is False
                     assert len(connections) == 1
                 finally:
                     process.terminate()
