@@ -78,7 +78,9 @@ class App:
         self.log.close()
         if sys.exc_info()[0] is not None or code != 0:
             print(f"== App log tail ({self.log_path})", flush=True)
-            print("\n".join(Path(self.log_path).read_text(errors="replace").splitlines()[-80:]), flush=True)
+            lines = [l for l in Path(self.log_path).read_text(errors="replace").splitlines()
+                     if "ocpp:OCPP201" not in l and "api:API" not in l]
+            print("\n".join(lines[-150:]), flush=True)
         return code
 
 
