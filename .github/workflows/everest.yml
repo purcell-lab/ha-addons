@@ -38,28 +38,29 @@ jobs:
           df -h /
       - name: Build native image (no publication or deployment)
         run: |
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_simulator/config.yaml)
           docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
-            --build-arg BUILD_VERSION=0.1.0 -t everest:test everest_simulator
+            --build-arg BUILD_VERSION="$version" -t everest:test everest_simulator
           docker image ls everest:test
-      - name: Packaged runtime has no V2G or ISO 15118 modules
+      - name: Image release gate (same script as the publish job)
+        run: sh everest_simulator/tests/ci_image_checks.sh everest:test
+  published-image:
+    # Merge gate: config.yaml points HA at a prebuilt image, so the exact
+    # version must already be publicly pullable (anonymous, both arches).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prebuilt image for this version is public on GHCR
         run: |
-          docker run --rm --entrypoint sh everest:test -c \
-            'ls /opt/everest/libexec/everest/modules; ! ls /opt/everest/libexec/everest/modules | grep -E "V2G|Josev|Iso15118|Slac"'
-      - name: OCPP 2.1, 2.0.1 fallback, pinned 2.0.1 and offline acceptance
-        run: |
-          docker build -t everest:smoke -f everest_simulator/tests/Dockerfile.smoke .
-          docker run --rm --network none everest:smoke
-      - name: Offline App entrypoint and shutdown
-        run: |
-          trap 'docker logs everest-smoke | tail -80; docker rm -f everest-smoke' EXIT
-          docker create --network none --name everest-smoke everest:test
-          docker cp everest_simulator/tests/offline-options.json everest-smoke:/data/options.json
-          docker start everest-smoke
-          for i in $(seq 60); do
-            docker exec everest-smoke python3 -c 'import json, urllib.request; s=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/status")); assert s["app"]["csms_configured"] is False; assert s["app"]["offered_subprotocols"] == ["ocpp2.1", "ocpp2.0.1"]; assert s["evse"]["session_info"]["value"]["state"] == "Unplugged"' && break
-            sleep 2
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_simulator/config.yaml)
+          image=$(sed -n 's/^image: //p' everest_simulator/config.yaml)
+          test -n "$version" && test -n "$image"
+          for arch in amd64 aarch64; do
+            ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"
+            if docker manifest inspect "$ref" > /dev/null; then
+              echo "public: $ref"
+            else
+              echo "::error::$ref is not publicly pullable. Publish it (approval-gated tag everest_simulator-v$version) and make the package public before merging."
+              exit 1
+            fi
           done
-          docker cp everest_simulator/tests/listeners.py everest-smoke:/tmp/listeners.py
-          docker exec everest-smoke python3 /tmp/listeners.py
-          docker stop --time 25 everest-smoke
-          test "$(docker inspect -f '{{.State.ExitCode}}' everest-smoke)" = "0"

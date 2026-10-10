@@ -331,5 +331,40 @@ class UiServerTest(unittest.TestCase):
         self.assertTrue(commands["pause"][1].startswith("pause"))
 
 
+class PublishWorkflowTest(unittest.TestCase):
+    """Publication stays an explicit, gated, non-overwriting operator action."""
+
+    def setUp(self):
+        workflows = ROOT.parent / ".github/workflows"
+        self.publish = (workflows / "everest-publish.yml").read_text()
+        self.ci = (workflows / "everest.yml").read_text()
+
+    def test_image_name_matches_workflow(self):
+        self.assertIn("image: ghcr.io/purcell-lab/{arch}-everest-simulator", CONFIG_TEXT)
+        self.assertIn('IMAGE=ghcr.io/purcell-lab/${{ matrix.arch }}-everest-simulator', self.publish)
+
+    def test_only_tags_trigger_publication(self):
+        trigger = self.publish.split("\non:", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn('"everest_simulator-v*"', trigger)
+        for forbidden in ("pull_request", "branches", "workflow_dispatch", "schedule"):
+            self.assertNotIn(forbidden, trigger)
+        self.assertNotIn("packages: write", self.ci)
+
+    def test_gate_before_push_and_no_overwrite_or_latest(self):
+        order = [self.publish.index(step) for step in (
+            "Tag must match the App version", "Refuse to overwrite a published version",
+            "ci_image_checks.sh", 'docker push "$IMAGE:$VERSION"')]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(self.publish.count("docker push"), 1)
+        self.assertNotIn(":latest", self.publish)
+        self.assertIn("ci_image_checks.sh", self.ci)
+
+    def test_merge_gate_checks_public_pull(self):
+        self.assertIn("published-image:", self.ci)
+        gate = self.ci.split("published-image:", 1)[1]
+        self.assertIn("docker manifest inspect", gate)
+        self.assertNotIn("docker login", gate)
+
+
 if __name__ == "__main__":
     unittest.main()
