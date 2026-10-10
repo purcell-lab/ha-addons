@@ -346,8 +346,10 @@ async def recovery_scenario():
                        what="restart counted")
         await wait_for(lambda: log_text(app).count("Got SDP request") > before, 60,
                        what="discovery by a fresh EV stack after re-plug")
-        await wait_for(lambda: "SDPResponse received" in log_text(app).rsplit("replaced by a new plug-in", 1)[1],
-                       30, what="SDP response to the fresh EV stack")
+        # Discovery, TLS and ISO 15118-20 session setup by the fresh stack.
+        await wait_for(lambda: "Received session setup with evccid" in
+                       log_text(app).rsplit("replaced by a new plug-in", 1)[1],
+                       30, what="session setup by the fresh EV stack")
         http("/api/ev/unplug", "POST")
         await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged again")
         await asyncio.sleep(15)  # the charger's session closes after unplug

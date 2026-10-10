@@ -98,7 +98,7 @@ namespace on global or link-local addresses.
   waits for Josev's `SDPRequest was not successful`, with no SDP request
   reaching the charger. After unblocking, unplug and plug-in, the patched
   module must replace the idle stack (`ev_stack_restarts` 1) and the fresh
-  stack must receive an SDP response. The self-test then passes again.
+  stack must complete discovery, TLS and ISO 15118-20 session setup. The self-test then passes again.
 - CI also showed that the charger ignores SDP requests while a session it
   answered is still open, and such a session never ends if no TCP
   connection follows. The self-test therefore releases each session it
