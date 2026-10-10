@@ -130,6 +130,14 @@ test whose session could not be released fails with
 `session-release=failed`. On request, the self-test runs only while the
 simulated EV is unplugged.
 
+If the simulated EV is unplugged while the charger waits for
+authorisation, upstream libiso15118 never ends that charger session and
+ignores every later discovery request. The App detects this, logs
+`ha-everest: the charger is ignoring discovery ... Restart the App to clear
+it.`, adds `charger=ignoring-discovery(restart the App)` to the self-test
+line, and sets `charger_ignoring_discovery` on the HA status object.
+Authorise or stop the session from the CSMS before unplugging to avoid it.
+
 On failure the App also logs `Discovery diagnostics:` with the full
 snapshot. The Status page's Discovery self-test panel shows the latest
 result, a Run self-test button and the snapshot: link state and sysctls,

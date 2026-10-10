@@ -120,6 +120,7 @@ function showSelftest(t) {
   const cap = (n) => { const c = (t.capture || {})[n]; if (!c) return "not captured"; if (!c.available) return "capture unavailable"; return c.count ? c.frames.map(f => f.direction + " " + f.sdp).join(", ") : "no SDP frames"; };
   const items = [["Unicast to charger", (t.unicast || {}).result || "–"], ["Multicast ff02::1", (t.multicast || {}).result || "–"],
                  ["Seen on v2g1 (EV)", cap("v2g1")], ["Seen on v2g0 (charger)", cap("v2g0")]];
+  if (t.charger_sdp_blocked) items.push(["Charger", "Ignoring discovery: an earlier ISO 15118 session never closed. Restart the App."]);
   $("diagsum").replaceChildren(...items.map(([label, value]) => {
     const div = document.createElement("div");
     const dt = document.createElement("dt"); dt.textContent = label;

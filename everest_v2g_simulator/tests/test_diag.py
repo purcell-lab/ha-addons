@@ -117,6 +117,8 @@ class SelftestTest(unittest.TestCase):
                   "capture": {"v2g0": {"available": True, "frames": []},
                               "v2g1": {"available": True, "frames": [{"direction": "out", "sdp": "request"}]}}}
         self.assertIn("v2g0=[none] v2g1=[out:request]", diag.summary(result))
+        result["charger_sdp_blocked"] = True
+        self.assertIn("charger=ignoring-discovery(restart the App)", diag.summary(result))
         result["capture"] = {"v2g0": {"available": False, "error": "PermissionError"}}
         self.assertIn("v2g0=capture-unavailable", diag.summary(result))
 

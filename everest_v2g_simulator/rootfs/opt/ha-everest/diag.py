@@ -277,6 +277,8 @@ def summary(result):
             parts.append(f"{name}=capture-unavailable")
     if not result.get("sessions_released", True):
         parts.append("session-release=failed")
+    if result.get("charger_sdp_blocked"):
+        parts.append("charger=ignoring-discovery(restart the App)")
     return ("Discovery self-test " + ("PASSED" if result["pass"] else "FAILED") + ": " + " ".join(parts))
 
 

@@ -132,6 +132,7 @@ def run_selftest(source):
         return None
     try:
         result = diag.selftest()
+        result["charger_sdp_blocked"] = bool(read_state().get("charger_sdp_blocked"))
         result["summary"] = diag.summary(result)
         result["source"] = source
         configure.atomic_write(RUN / "selftest.json", json.dumps(result), mode=0o644)

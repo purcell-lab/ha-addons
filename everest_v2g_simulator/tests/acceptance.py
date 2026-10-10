@@ -13,7 +13,8 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
   recovery   Discovery blocked on the private link: the EV's SDP requests
              fail and upstream Josev idles; after unblocking, unplug and
              plug-in, the patched module replaces that stack and a fresh
-             EV stack completes discovery
+             EV stack completes discovery; unplugging before authorisation
+             leaves the charger ignoring discovery, which the App reports
 
 Each charging step compares mean measured DC power with the setpoint, and
 metered import and export energy with the integral of measured power.
@@ -350,11 +351,17 @@ async def recovery_scenario():
         await wait_for(lambda: "Received session setup with evccid" in
                        log_text(app).rsplit("replaced by a new plug-in", 1)[1],
                        30, what="session setup by the fresh EV stack")
+        # Unplugged while waiting for authorisation: upstream libiso15118
+        # never ends that charger session, so it ignores discovery from now
+        # on. The App must say so, and the self-test must show it.
         http("/api/ev/unplug", "POST")
         await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged again")
-        await asyncio.sleep(15)  # the charger's session closes after unplug
+        await asyncio.sleep(10)
         selftest = http("/api/diag/selftest", "POST", timeout=20)
-        assert selftest["pass"], selftest
+        assert not selftest["pass"] and selftest["charger_sdp_blocked"], selftest
+        assert selftest["capture"]["v2g0"]["count"] >= 2, selftest  # requests arrived; no reply
+        assert "Restart the App to clear it" in log_text(app)
+        assert "charger=ignoring-discovery" in selftest["summary"], selftest
     finally:
         code = app.stop()
     assert code == 0

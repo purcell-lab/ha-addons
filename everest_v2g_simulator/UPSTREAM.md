@@ -79,6 +79,10 @@ VALIDATION.md:
    SDP request and ignores all later requests until it ends. A session
    whose peer never connects never ends, so one stray SDP request blocks
    discovery until the module restarts.
+8. The same controller never ends a session whose EV left before session
+   end (for example unplugged while waiting for authorisation): with the
+   connection closed, `Session::poll` returns before handling any event.
+   Discovery is then ignored until the App restarts. The App reports it.
 
 ## Licences
 

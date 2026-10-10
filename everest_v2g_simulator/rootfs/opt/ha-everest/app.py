@@ -30,6 +30,13 @@ SOURCE = PREFIX / "share/everest/modules/OCPP201/component_config"
 VERSION_LINE = re.compile(r"successfully connected to server with version: (ocpp[0-9.]+)")
 SDP_READY = "Starting SDP server"
 EV_STACK_STOPPED = "ha-everest: EV ISO 15118 stack stopped"
+# libiso15118 v0.9.0 ignores discovery while a session exists; a session
+# whose EV left before it ended (for example unplugged while waiting for
+# authorisation) never ends. Only a restart clears it (UPSTREAM.md).
+CHARGER_IGNORING = "Ignoring sdp request message because a session is already created"
+CHARGER_SESSION_ENDS = ("Start TLS server", "Shutting down session", "Shutting down SDP server")
+CHARGER_BLOCKED_HINT = ("ha-everest: the charger is ignoring discovery because an earlier ISO 15118 "
+                        "session never closed (upstream libiso15118). Restart the App to clear it.")
 SELFTEST_DELAY_S = 3
 DISCONNECT_LINE = re.compile(r"(Disconnected|connection failed|Failed to connect)", re.I)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -72,6 +79,7 @@ def pump(stream, prefix="", sdp_ready=None):
     """Forward EVerest output to the App log and record the negotiated version."""
     log_filter = LogFilter()
     restarts = 0
+    blocked = False
     for raw in iter(stream.readline, ""):
         line = ANSI.sub("", raw.rstrip("\n"))
         if not log_filter.keep(line):
@@ -86,6 +94,13 @@ def pump(stream, prefix="", sdp_ready=None):
         elif EV_STACK_STOPPED in line:
             restarts += 1
             write_state(ev_stack_restarts=restarts, ev_stack_last_error=line[-300:])
+        elif CHARGER_IGNORING in line and not blocked:
+            blocked = True
+            write_state(charger_sdp_blocked=True)
+            print(CHARGER_BLOCKED_HINT, flush=True)
+        elif blocked and any(marker in line for marker in CHARGER_SESSION_ENDS):
+            blocked = False
+            write_state(charger_sdp_blocked=False)
         print(prefix + line, flush=True)
 
 
@@ -161,6 +176,7 @@ def run():
         "negotiated": None,
         "ha_control": settings["ha_control"],
         "ev_stack_restarts": 0,
+        "charger_sdp_blocked": False,
     }), mode=0o644)
     print("EVerest DC V2G test charger: " + (
         f"connection enabled, offering {offered}." if connected else "disconnected."), flush=True)

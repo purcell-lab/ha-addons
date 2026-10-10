@@ -174,6 +174,7 @@ def status_attributes(status, diag):
                               "failed" if selftest else "not run",
         "discovery_detail": selftest.get("summary"),
         "ev_stack_restarts": app.get("ev_stack_restarts", 0),
+        "charger_ignoring_discovery": bool(app.get("charger_sdp_blocked")),
         "commands": list(COMMANDS),
         "command_event": EVENT,
     }, session.get("state") or "unknown"

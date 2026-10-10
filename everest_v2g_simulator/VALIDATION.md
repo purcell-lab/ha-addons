@@ -103,6 +103,13 @@ namespace on global or link-local addresses.
   answered is still open, and such a session never ends if no TCP
   connection follows. The self-test therefore releases each session it
   opens (DOCS.md, Discovery diagnostics).
+- Unplugging the EV while the charger waited for authorisation left the
+  charger ignoring discovery (`Ignoring sdp request message because a
+  session is already created and running`). The `recovery` scenario now
+  requires the App to report this and the self-test to show the requests
+  arriving on `v2g0` without a reply. This is a plausible cause of the HA
+  OS symptom after a Preparing session was unplugged, but not of the very
+  first failure there, which had no `Got SDP request` line.
 - Field finding that led to 0.1.1: on Home Assistant OS the EV's SDP
   requests timed out although the SDP server had started on `v2g0` and
   link-local addresses were present; the same image passes in CI. The
