@@ -4,6 +4,7 @@ on:
     paths:
       - "everest_simulator/**"
       - ".github/workflows/everest.yml"
+      - ".github/scripts/everest_image_needed.sh"
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,6 +12,21 @@ concurrency:
   group: everest-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    # Documentation that the image never contains (DOCS.md, VALIDATION.md,
+    # RELEASE.md) does not need the 12 to 15 minute image build.
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.diff.outputs.images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: sh .github/scripts/everest_image_needed.sh everest_simulator
   focused-tests:
     runs-on: ubuntu-24.04
     steps:
@@ -19,6 +35,8 @@ jobs:
       - run: python3 -m unittest discover -s everest_simulator/tests -v
       - run: git diff --check
   image:
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
     strategy:
       fail-fast: false
       matrix:
