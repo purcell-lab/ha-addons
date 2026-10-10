@@ -2,8 +2,10 @@
 
 Status: staged development and acceptance target, not a declaration of live capability.
 Scope agreed with Mark on 11 October 2026: demonstrate the complete proposed
-CSIP-AUS-to-EV charging and V2G path using CitrineOS, move the existing EVerest
-V2G simulator, and later connect explicitly enrolled charger-side devices.
+CSIP-AUS-to-EV charging and V2G path using CitrineOS and move the existing EVerest
+V2G simulator. Mark subsequently confirmed: use that simulator first and defer
+physical chargers. Physical-device enrolment and multi-vendor testing are not
+gates for this first simulator demonstration.
 BSV and settlement are excluded.
 
 ## What “full” means
@@ -80,8 +82,10 @@ not simply changing a boolean. [Read-only client validation](https://github.com/
 
 ## Acceptance matrix
 
-All rows are required for the full proposed demonstration unless marked secondary
-or comparison. “Planned” means no complete CitrineOS end-to-end proof is claimed.
+All rows are required for the proposed simulator demonstration unless marked
+secondary, comparison or deferred. “Planned” means no complete CitrineOS
+end-to-end proof is claimed. Simulator acceptance must be labelled as such;
+it does not establish physical-device or multi-vendor interoperability.
 
 | ID | Demonstration | Evidence required | Present status |
 |---|---|---|---|
@@ -97,7 +101,7 @@ or comparison. “Planned” means no complete CitrineOS end-to-end proof is cla
 | P10 | Telemetry and closure | Fresh signed power; separate monotonic import/export Wh; timestamps, complete transaction and zero after stop | HA telemetry work pending; inherited final-power-sample issue remains |
 | P11 | Charging-only fallback | Explicit separate 2.0.1 run with positive limits; negative/setpoint-only 2.1 intent rejected before dispatch | Baseline charging exists; deliberate fallback test pending |
 | P12 | Secondary SunSpec path | Real SunSpec model discovery and constrained setpoint/readback on an isolated test target | Target and permission not yet identified |
-| P13 | Charger-vendor interoperability | Repeat core matrix against at least two independent approved charger-side implementations; record unsupported features | Devices and operating limits not supplied |
+| P13 | Charger-vendor interoperability (deferred) | Later repeat core matrix against independent approved charger-side implementations; record unsupported features | Explicitly deferred by Mark; not a simulator-demo gate |
 | P14 | Dashboard and evidence bundle | Envelope, requested plan, accepted profile, actual power, energy, state, timing and raw sanitised JSON | Planned |
 | P15 | Soak and restart recovery | Repeat schedule updates and an agreed long-duration run; no stale session/profile reuse or unsafe default rebound | Planned after bounded tests |
 | P16 | Optional 1.6 comparison | Charging-only version-specific profile on a separate test route; no V2G claim | Not part of this first controlled Citrine path |
@@ -245,11 +249,15 @@ disconnection, restart and recovery. Show requested versus accepted versus
 measured power, without a false “success” badge. Produce the downloadable
 evidence bundle and a deterministic 30-minute demonstration script.
 
-### C5: secondary protocol and physical devices
+### C5: secondary protocol and deferred physical devices
 
-Enroll each charger-side device using its exact identity, protocol, transport
-security, capability and approved power envelope. Complete the secondary
-SunSpec test and repeat the core tests on independent devices.
+Keep the secondary SunSpec test as a separate workstream. Physical charger
+enrolment and independent-device repetition are explicitly deferred and must
+not delay C1–C4 or cause an additional simulator instance to be created.
+
+When Mark reopens physical testing, enroll each charger-side device using its
+exact identity, protocol, transport security, capability and approved power
+envelope before repeating the core tests.
 The private App-only listener is not yet a real-device LAN endpoint. Do not
 publish it externally or remove authentication to make hardware connect.
 
@@ -267,7 +275,8 @@ publish it externally or remove authentication to make hardware connect.
 - A failed security, identity, local fallback, telemetry or closure gate is a
   deployment blocker, not a warning.
 
-The remaining physical-device inputs are make/model, station ID, supported
+No physical-device information is needed to continue the simulator work.
+When physical testing resumes, request make/model, station ID, supported
 protocol, network reachability/security, and permitted charging/discharging
 power and energy bounds. Do not request credentials in chat.
 
@@ -279,8 +288,8 @@ power and energy bounds. Do not request credentials in chat.
 | 5–12 min | Start, multi-step charge/discharge, measured power and separate energy counters |
 | 12–20 min | Network import/export/load clips, HAEO replanning, profile replacement and recovery |
 | 20–25 min | Loss-of-input / communication test, observed safe state, controlled recovery |
-| 25–30 min | Stop/closure, secondary-protocol evidence, hardware comparison, limitations and evidence export |
+| 25–30 min | Stop/closure, available secondary-protocol evidence, simulator limitations and evidence export |
 
-The long-duration soak and multi-vendor evidence are prepared before the live
-walk-through. A short simulator demo must not be presented as proof of a
-24-hour run or physical interoperability.
+Prepare the long-duration soak evidence before claiming that coverage in the
+live walk-through. Multi-vendor hardware evidence is deferred. A short simulator
+demo must not be presented as proof of a 24-hour run or physical interoperability.
