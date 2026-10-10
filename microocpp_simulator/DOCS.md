@@ -67,6 +67,40 @@ Do not bypass an insecure-download warning to open the UI.
 
 ## UI and configuration boundaries
 
+Version 0.1.2 fixes the single **Plugged/Unplugged** UI control to set both
+simulated cable ends. Previously it left the EVSE end unplugged, so power
+remained zero even with the EV and EVSE marked Ready. Both the Status card
+and Connector EVSE Options use the corrected payload. The status badge
+is now read-only; clicking it cannot fabricate a local Charging status.
+OCPP 2.0.1 **Occupied** now has non-error styling. It means the connector
+is occupied, not necessarily transferring energy; use the power reading
+and transaction data to determine whether energy is flowing.
+
+### Bounded connector 1 power-flow check
+
+Use an isolated test central system and an accepted test token only.
+Keep connector 2 unplugged and not ready.
+
+1. In **Status**, use Connector 1's controls to select **Plugged**,
+   EV **Ready** and EVSE **Ready**.
+2. In **Connectors**, fetch Connector 1's transaction data, expand
+   **Transaction Options**, enter your test `idTag`, then select
+   **Update Transaction**. The test central system must accept this token.
+3. Return to **Status**. Expect simulated power around 11,000 W and
+   increasing Wh after authorization. This is simulated energy, not a
+   physical charger measurement.
+4. In the central system, compare `Power.Active.Import` and
+   `Energy.Active.Import.Register`. Account for W/kW and Wh/kWh units
+   and the configured sample interval (ten seconds by default).
+5. After 30 seconds of positive power, select **Unplugged**, then return
+   both readiness controls to **Not Ready**. Confirm zero power locally
+   and an ended transaction at the central system. Do not leave a test
+   charging indefinitely.
+
+The App's native API still exposes independent plug flags for protocol
+testing; the UI deliberately presents one cable control. The upstream
+`/api/plugin` shortcut is not used by this UI procedure.
+
 The upstream UI is retained, but network/configuration/reset POST APIs are
 blocked. Only connector plug/ready and transaction/RFID actions may be
 submitted through the UI; use the App Configuration tab for its endpoint.

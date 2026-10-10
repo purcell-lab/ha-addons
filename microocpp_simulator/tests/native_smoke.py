@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -74,6 +75,10 @@ async def until(predicate, description, seconds=20):
 
 
 async def main():
+    # Never accidentally drive another already-running local simulator.
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", 8000))
     received = []
     connections = []
     responses = {}
