@@ -45,21 +45,31 @@ for (const [file, name, key] of [
     [key]: container.resolve(key),
   });
 }
-await fastify.ready();
 assert.ok(routes.length > 50, 'Expected real upstream API registration');
 assert.equal(routes.some(r => r.url.startsWith('/data/')), false);
-const ping = await fastify.inject({method: 'GET', url: '/data/ocpprouter/systemConfig'});
-assert.equal(ping.statusCode, 404);
+assert.equal(fastify.hasRoute({
+  method: 'GET', url: '/data/ocpprouter/systemConfig',
+}), false);
 for (const version of ['1.6', '2.0.1', '2.1']) {
   assert.ok(fastify.hasRoute({
     method: 'POST', url: `/ocpp/${version}/smartcharging/setChargingProfile`,
   }), `missing ${version} profile route`);
 }
 assert.equal(handlerCalls, 0, 'No control handler may run');
+// Retain, rather than mask, the failure observed when compiling the upstream
+// inline-schema path with its own server AJV. This is NOT a claim about a full
+// deployment with default exposeMessage=true. A changed result needs review.
+await assert.rejects(fastify.ready(), error =>
+  error.code === 'FST_ERR_SCH_VALIDATION_BUILD' &&
+  error.message.includes('MessageQuerystring') &&
+  error.message.includes('already exists'));
 const report = {
   assessment: 'blocked',
   test_scope: 'compiled_api_route_registration_with_inert_handlers',
-  legacy_ping_http_status: ping.statusCode,
+  legacy_ping_registered: false,
+  inline_schema_compilation: 'blocked_duplicate_MessageQuerystring',
+  inline_schema_setting: {swagger: {exposeMessage: false}},
+  default_schema_mode_verified: false,
   actual_station_commands: 0,
   full_stack_verified: false,
   authentication_verified: false,
@@ -68,5 +78,6 @@ const report = {
 writeFileSync(process.env.ROUTE_REPORT || '/tmp/citrine-routes.json',
   JSON.stringify(report, null, 2));
 console.log(JSON.stringify({assessment: report.assessment,
-  legacy_ping_http_status: ping.statusCode, registered_routes: routes.length}));
+  legacy_ping_registered: false, registered_routes: routes.length,
+  inline_schema_compilation: report.inline_schema_compilation}));
 await fastify.close();

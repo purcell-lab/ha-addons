@@ -19,6 +19,8 @@
     "runtime_activation_allowed": false,
     "full_stack_verified": false,
     "authentication_verified": false,
-    "station_control_verified": false
+    "station_control_verified": false,
+    "inline_schema_compilation": "blocked_duplicate_MessageQuerystring",
+    "default_schema_mode_verified": false
   }
 }

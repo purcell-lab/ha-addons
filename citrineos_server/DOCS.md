@@ -32,6 +32,7 @@ are recorded in `compatibility-lock.json`; updating them requires review.
 | Smart charging | Primary 1.6, 2.0.1 and 2.1 SetChargingProfile route names align | Route existence does not establish valid payloads, authentication or station acceptance |
 | Hasura | Config flow validates the legacy REST ping before Hasura | Adding Hasura alone is not a fix |
 | Control safety | Controller starts during entry setup; Off can request zero limits | Leave the HA entry absent/disabled; Off is not read-only |
+| Inline schema compilation | With `swagger.exposeMessage=false`, the compiled routing code and upstream server AJV fail on duplicate `MessageQuerystring` IDs | Resolve and retest this configuration before using it; default `true` mode is not tested here |
 
 These findings come from the [pinned client](https://github.com/Stuart0411/CitrineOS-HA-Integration/blob/a98cd336e4197f3875be238bdfe5c4784194efb1/custom_components/citrine_ha/citrine_api.py),
 [config flow](https://github.com/Stuart0411/CitrineOS-HA-Integration/blob/a98cd336e4197f3875be238bdfe5c4784194efb1/custom_components/citrine_ha/config_flow.py),
@@ -43,9 +44,13 @@ and [server registration](https://github.com/citrineos/citrineos-core/blob/1a836
 The workflow builds the digest-pinned amd64 image without publishing it.
 It tests disconnected startup, absence of listening TCP sockets, stop handling
 and rejection of activation options. It imports compiled upstream API classes,
-registers their routes in Fastify with inert handlers and uses in-process
-injection to test the legacy ping. No TCP listener or station command is used.
+registers their routes in Fastify with inert handlers and checks whether the
+required legacy ping is registered. It also reproduces the inline-schema
+compilation failure using the upstream server AJV. No HTTP exchange, TCP
+listener or station command is used.
 The unmodified pinned HA client is then exercised against that route inventory.
+Its 404 responses are simulated for absent routes, not captured from a live
+server. The default shared-schema mode remains a follow-up test.
 
 The expected green result is **successful detection of incompatibility**, not
 successful HA integration. A changed route contract fails CI for review rather
