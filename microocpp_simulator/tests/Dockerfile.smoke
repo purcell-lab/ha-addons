@@ -1,0 +1,4 @@
+FROM microocpp:test
+RUN apk add --no-cache py3-websockets
+COPY microocpp_simulator/tests/native_smoke.py /test/native_smoke.py
+ENTRYPOINT ["python3", "/test/native_smoke.py", "/opt/microocpp"]

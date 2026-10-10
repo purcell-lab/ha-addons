@@ -14,6 +14,15 @@ In the HA UI:
 
 ## Add-ons in this repository
 
+### microocpp_simulator
+
+Native OCPP 2.0.1 test charger packaged as a Home Assistant App, with a
+disconnected default, `SIM-` station identity and Ingress-only web UI.
+Requires an isolated test CSMS and exclusion from real charging/payment
+automations. No automatic deployment or connection is enabled.
+
+See [setup and limitations](microocpp_simulator/DOCS.md).
+
 ### nem_price_forecaster
 
 NEM 7-day wholesale price forecaster sidecar. Configurable price model

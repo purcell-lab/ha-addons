@@ -1,0 +1,50 @@
+name: MicroOCPP App
+on:
+  pull_request:
+    paths:
+      - "microocpp_simulator/**"
+      - ".github/workflows/microocpp.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: microocpp-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y nginx
+      - run: python3 -m unittest discover -s microocpp_simulator/tests -v
+      - run: git diff --check
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native image (no publication or deployment)
+        run: |
+          docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
+            --build-arg BUILD_VERSION=0.1.0 -t microocpp:test microocpp_simulator
+      - name: Native 2.0.1 smoke test
+        run: |
+          docker build -t microocpp:smoke -f microocpp_simulator/tests/Dockerfile.smoke .
+          docker run --rm --network none microocpp:smoke
+      - name: Offline App entrypoint and shutdown
+        run: |
+          trap 'docker logs app-smoke; docker rm -f app-smoke' EXIT
+          docker create --network none --name app-smoke microocpp:test
+          docker cp microocpp_simulator/tests/offline-options.json app-smoke:/data/options.json
+          docker start app-smoke
+          sleep 3
+          docker exec app-smoke python3 -c 'import json, urllib.request; data=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/websocket")); assert data["backendUrl"] == ""; assert data["chargeBoxId"].startswith("SIM-")'
+          docker stop --time 12 app-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' app-smoke)" = "0"
