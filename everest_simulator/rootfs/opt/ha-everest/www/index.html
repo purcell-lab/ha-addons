@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVerest OCPP test charger</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>EVerest OCPP test charger</h1>
+  <div class="badges">
+    <span id="conn" class="badge">Loading</span>
+    <span id="ident" class="badge muted"></span>
+    <span id="offer" class="badge muted"></span>
+  </div>
+  <p class="note">Simulated AC charger for isolated testing. Not a physical charger. No V2G or ISO 15118 in this build.</p>
+</header>
+<main>
+  <section>
+    <h2>Simulated EV</h2>
+    <div class="controls">
+      <button data-cmd="plugin">Plug in</button>
+      <button data-cmd="pause">EV pause</button>
+      <button data-cmd="resume">EV resume</button>
+      <button data-cmd="unplug" class="warn">Stop and unplug</button>
+    </div>
+    <p class="note">Plug in waits for authorisation. Start the transaction from the test central system (RequestStartTransaction, for example HA Charge Control).</p>
+    <p id="cmdmsg" class="note" role="status"></p>
+  </section>
+  <section>
+    <h2>Live readings</h2>
+    <dl class="grid" id="live"></dl>
+  </section>
+  <section>
+    <h2>Effective limit (composite schedule)</h2>
+    <p class="note">EVerest's combined result of all active profiles for EVSE 1, refreshed every 10 seconds.</p>
+    <div class="tablewrap"><table id="composite"><thead><tr><th>Offset (s)</th><th>Limit</th><th>Phases</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>Last received TxProfile</h2>
+    <p id="txmeta" class="note">No TxProfile received yet.</p>
+    <div class="controls"><button id="copy" disabled>Copy JSON</button></div>
+    <pre id="txjson" tabindex="0"></pre>
+  </section>
+  <section>
+    <h2>Recent profile requests</h2>
+    <div class="tablewrap"><table id="recent"><thead><tr><th>Received (UTC)</th><th>Reply</th><th>Action</th><th>Purpose</th></tr></thead><tbody></tbody></table></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

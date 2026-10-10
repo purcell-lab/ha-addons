@@ -32,6 +32,18 @@ Starts disconnected and is never installed or connected automatically.
 
 See [setup and limitations](microocpp_simulator16/DOCS.md).
 
+### everest_simulator
+
+EVerest 2025.10.0 software-in-the-loop AC charger with a simulated EV. Offers
+OCPP 2.1 first with automatic 2.0.1 fallback (or 2.0.1 only), single- or
+three-phase, 6 to 32 A. Status page shows the negotiated version, live power
+and energy, the effective composite limit and the last received TxProfile
+with the station's actual reply. AC charging only: no ISO 15118 or V2G.
+`SIM-EV-` identity, disconnected default, Ingress-only UI, never installed or
+connected automatically.
+
+See [setup and limitations](everest_simulator/DOCS.md).
+
 ### nem_price_forecaster
 
 NEM 7-day wholesale price forecaster sidecar. Configurable price model
