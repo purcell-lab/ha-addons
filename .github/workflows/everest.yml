@@ -1,0 +1,65 @@
+name: EVerest OCPP 2.1 Test Charger App
+on:
+  pull_request:
+    paths:
+      - "everest_simulator/**"
+      - ".github/workflows/everest.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: everest-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y nginx python3-yaml
+      - run: python3 -m unittest discover -s everest_simulator/tests -v
+      - run: git diff --check
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk (upstream build image is about 4.3 GB compressed)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+      - name: Build native image (no publication or deployment)
+        run: |
+          docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
+            --build-arg BUILD_VERSION=0.1.0 -t everest:test everest_simulator
+          docker image ls everest:test
+      - name: Packaged runtime has no V2G or ISO 15118 modules
+        run: |
+          docker run --rm --entrypoint sh everest:test -c \
+            'ls /opt/everest/libexec/everest/modules; ! ls /opt/everest/libexec/everest/modules | grep -E "V2G|Josev|Iso15118|Slac"'
+      - name: OCPP 2.1, 2.0.1 fallback, pinned 2.0.1 and offline acceptance
+        run: |
+          docker build -t everest:smoke -f everest_simulator/tests/Dockerfile.smoke .
+          docker run --rm --network none everest:smoke
+      - name: Offline App entrypoint and shutdown
+        run: |
+          trap 'docker logs everest-smoke | tail -80; docker rm -f everest-smoke' EXIT
+          docker create --network none --name everest-smoke everest:test
+          docker cp everest_simulator/tests/offline-options.json everest-smoke:/data/options.json
+          docker start everest-smoke
+          for i in $(seq 60); do
+            docker exec everest-smoke python3 -c 'import json, urllib.request; s=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/status")); assert s["app"]["csms_configured"] is False; assert s["app"]["offered_subprotocols"] == ["ocpp2.1", "ocpp2.0.1"]; assert s["evse"]["session_info"]["value"]["state"] == "Unplugged"' && break
+            sleep 2
+          done
+          docker cp everest_simulator/tests/listeners.py everest-smoke:/tmp/listeners.py
+          docker exec everest-smoke python3 /tmp/listeners.py
+          docker stop --time 25 everest-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' everest-smoke)" = "0"
