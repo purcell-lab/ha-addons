@@ -1,5 +1,6 @@
 """Validated HA options, persistent state, and bounded two-process supervision."""
 import json
+import ipaddress
 import os
 from pathlib import Path
 import re
@@ -138,6 +139,10 @@ def run():
     signal.signal(signal.SIGINT, stop)
     result = 1
     try:
+        # Mongoose does not consult libc resolv.conf itself.
+        resolvers = re.findall(r"^nameserver\s+(\S+)", Path("/etc/resolv.conf").read_text(), re.M)
+        resolver = next(str(ipaddress.IPv4Address(x)) for x in resolvers if ":" not in x)
+        os.environ["MO_LAB_DNS_URL"] = "udp://" + resolver + ":53"
         children.append(subprocess.Popen([str(ROOT / "mo_simulator")], cwd=DATA))
         children.append(subprocess.Popen(["nginx", "-c", str(ROOT / "nginx.conf"),
                                           "-g", "daemon off;"]))

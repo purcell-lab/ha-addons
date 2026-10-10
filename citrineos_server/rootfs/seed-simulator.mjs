@@ -32,7 +32,7 @@ export async function seedSimulator(o) {
       [station.id,component.id,variable.id,o.simulator_password]);
     await db.query(`INSERT INTO "Authorizations"
       ("idToken","idTokenType","tenantId",status,"concurrentTransaction","isPrepaid","createdAt","updatedAt")
-      VALUES ('SIM-CITRINE-TEST','Central',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);
+      VALUES ('SIM-CITRINE-TEST','ISO14443',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);
     await db.query('COMMIT');
   } catch {
     await db.query('ROLLBACK');

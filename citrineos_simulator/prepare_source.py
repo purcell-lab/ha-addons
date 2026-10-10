@@ -72,6 +72,12 @@ def prepare(root):
     replace_once(cmake, "    MO_TRAFFIC_OUT\n", "")
     replace_once(cmake, "MO_DBG_LEVEL=MO_DL_INFO", "MO_DBG_LEVEL=MO_DL_WARN")
     main = root / "src/main.cpp"
+    replace_once(main, "#include <iostream>", "#include <iostream>\n#include <cstdlib>")
+    replace_once(main, "mg_mgr_init(&mgr);", """mg_mgr_init(&mgr);
+    // Use Supervisor/Docker DNS, never the upstream public resolver.
+    if (const char *dns = std::getenv("MO_LAB_DNS_URL")) {
+        mgr.dns4.url = dns;
+    }""")
     start = main.read_text().index("void load_ocpp_version(")
     end = main.read_text().index("\nvoid app_setup(", start)
     main.write_text(main.read_text()[:start] +
