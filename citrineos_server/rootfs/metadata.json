@@ -43,10 +43,31 @@
       {
         "table": {"schema": "public", "name": "Transactions"},
         "select_permissions": [{"role": "ha_reader", "permission": {
-          "columns": ["id","stationId","tenantId","transactionId","isActive","startTime","endTime","updatedAt"],
+          "columns": ["id","stationId","tenantId","transactionId","isActive","startTime","endTime","updatedAt","createdAt","chargingState","meterStart","totalKwh","stoppedReason"],
           "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
           "limit": 501,
           "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "Boots"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","stationId","tenantId","status","lastBootTime","heartbeatInterval"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, "limit": 501
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "TransactionEvents"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","tenantId","ocppConnectionName","transactionDatabaseId","eventType","timestamp","seqNo","transactionInfo","triggerReason"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, "limit": 501
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "MeterValues"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","tenantId","transactionDatabaseId","transactionId","timestamp","sampledValue"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, "limit": 501
         }}]
       }
     ]

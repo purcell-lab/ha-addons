@@ -21,6 +21,7 @@ jobs:
       - run: python3 -m pip install PyYAML==6.0.2
       - run: python3 -m unittest discover -s citrineos_server/tests -p test_packaging.py -v
       - run: node --test citrineos_server/tests/launch.test.mjs
+      - run: python3 -m unittest discover -s citrineos_simulator/tests -v
       - run: git diff --check
   private-stack:
     runs-on: ubuntu-24.04
@@ -29,8 +30,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build pinned images without publication
         run: |
-          for app in database broker hasura server; do
+          for app in database broker hasura server simulator; do
             docker build -t "citrine-${app}:test" "citrineos_${app}"
           done
       - name: Authentication, discovery, persistence and logical restore
+        env:
+          TEST_NATIVE_SIMULATOR: "1"
         run: python3 citrineos_server/tests/stack_smoke.py

@@ -19,6 +19,10 @@ export function validate(o) {
   for (const key of ['database_host','broker_host','hasura_host']) {
     if (!/^[a-z0-9][a-z0-9.-]*$/.test(o[key] || '')) throw new Error('Invalid private dependency hostname');
   }
+  if(o.simulator_enabled===true && (!/^[a-f0-9]{40}$/.test(o.simulator_password||'')
+      || [o.database_password,o.broker_password,o.hasura_secret,o.api_token].includes(o.simulator_password)))
+    throw new Error('A distinct simulator credential is required');
+  if(o.simulator_enabled!==undefined && typeof o.simulator_enabled!=='boolean') throw new Error('Invalid simulator flag');
 }
 export function permitted(method, path) {
   return (method === 'GET' && ['/health/ready','/commands/tariff','/lab/status'].includes(path))
@@ -76,8 +80,12 @@ export async function main() {
     return;
   }
   fs.mkdirSync(`${DATA}/assets`,{recursive:true});
-  // Empty listener list is deliberate. No OCPP connections are admitted.
-  fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,'[]\n',{mode:0o600});
+  const listeners=o.simulator_enabled ? [{
+    id:'citrine-lab-201',host:'0.0.0.0',port:8081,protocols:['ocpp2.0.1'],
+    securityProfile:1,allowUnknownChargingStations:false,ignoreAuthenticationHeaders:false,
+    tenantId:1,dynamicTenantResolution:false,pingInterval:30,
+  }] : [];
+  fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
   const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
   const config={
     ENV:'production',HOST:'127.0.0.1',PORT:8088,
@@ -91,7 +99,7 @@ export async function main() {
   };
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
   for(const [k,v] of Object.entries(config)) env['CITRINEOS_'+k]=JSON.stringify(v);
-  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token];
+  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password].filter(Boolean);
   let child, shutting=false;
   const streams=[];
   function logPipe(stream) {
@@ -127,6 +135,10 @@ export async function main() {
   console.log('Applying pinned migrations to the dedicated laboratory database.');
   await run(['db:migrate'],`${APP}/node_modules/.bin/sequelize-cli`);
   await run([`${APP}/dist/scripts/provision-partitions.js`]);
+  if(o.simulator_enabled) {
+    const {seedSimulator}=await import('./seed-simulator.mjs');
+    await seedSimulator(o);
+  }
   const signer=makeSigner();
   const jwks=http.createServer((req,res)=>{
     res.setHeader('Content-Type','application/json');
@@ -158,7 +170,8 @@ export async function main() {
       }
       if(!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Read-only laboratory"}');return;}
       if(url.pathname==='/lab/status') {
-        res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:0,read_only:true}));return;
+        res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:listeners.length,
+          simulator_identity:o.simulator_enabled?'SIM-CITRINE-LAB-01':null,read_only:true}));return;
       }
       let target,headers={},body;
       if(url.pathname==='/v1/graphql') {
@@ -188,7 +201,7 @@ export async function main() {
   });
   gateway.requestTimeout=15000;gateway.headersTimeout=10000;
   await new Promise(r=>gateway.listen(8080,'0.0.0.0',r));streams.push(gateway);
-  console.log('CitrineOS v2.0.1 isolated lab ready. Read-only gateway; zero charger listeners.');
+  console.log(`CitrineOS v2.0.1 isolated lab ready. Read-only gateway; ${listeners.length} charger listener(s).`);
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) main().catch(()=>{
   console.error('Laboratory startup failed; inspect dependency health. Credentials omitted.');
