@@ -195,7 +195,35 @@ limitations). A working OCPP 2.1 example, 20 s per step:
 {"startPeriod": 40, "limit": 11000, "dischargeLimit": -11000, "setpoint": 3000,  "operationMode": "CentralSetpoint"}
 ```
 
-This measured +6,000 W, then -5,000 W (export), then +3,000 W. The
+This measured +6,000 W, then -5,000 W (export), then +3,000 W, in CI and
+live from Home Assistant. With the HA OCPP integration, pass the whole
+profile through `ocpp.set_charge_rate` (it is sent unchanged to EVSE 1):
+
+```yaml
+action: ocpp.set_charge_rate
+data:
+  devid: SIM-EV-EVEREST-V2G-01
+  conn_id: 1
+  custom_profile:
+    id: 210301
+    stackLevel: 0
+    chargingProfilePurpose: TxProfile
+    chargingProfileKind: Absolute
+    transactionId: "<current transaction id>"
+    chargingSchedule:
+      - id: 1
+        chargingRateUnit: W
+        startSchedule: "2026-10-10T21:30:35Z"
+        chargingSchedulePeriod:
+          - {startPeriod: 0, limit: 11000, dischargeLimit: -11000, setpoint: 6000, operationMode: CentralSetpoint}
+          - {startPeriod: 20, limit: 11000, dischargeLimit: -11000, setpoint: -5000, operationMode: CentralSetpoint}
+          - {startPeriod: 40, limit: 11000, dischargeLimit: -11000, setpoint: 3000, operationMode: CentralSetpoint}
+```
+
+The transaction id is in the charger's Transaction Id sensor. HA raises an
+error if the station does not reply `Accepted`. During export, HA's import
+power sensor shows a negative value; use the export energy register for
+exported energy. The
 **Last received TxProfile** panel shows the profile and the station's
 reply, and **Effective limit** shows EVerest's composite schedule for EVSE
 1, including limit, discharge limit and setpoint. A ChargingStationMaxProfile
