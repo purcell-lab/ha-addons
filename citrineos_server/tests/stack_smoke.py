@@ -5,8 +5,6 @@ from pathlib import Path
 import secrets
 import subprocess
 import time
-import urllib.request
-import urllib.error
 
 def docker(*args, capture=True):
     return subprocess.run(["docker", *args], check=True, text=True, capture_output=capture).stdout
@@ -30,21 +28,28 @@ def request(path, body=None, auth=True, extra=None):
     headers.update(extra or {})
     if body is not None:
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request("http://127.0.0.1:18080"+path,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status, json.load(r)
-    except urllib.error.HTTPError as e:
-        return e.code, json.load(e)
+    # --internal networks intentionally cannot be tested via host-published ports.
+    # Credentials travel on stdin, never in process arguments or log output.
+    code = """
+    let s=''; for await (const c of process.stdin) s+=c;
+    const x=JSON.parse(s);
+    const r=await fetch('http://127.0.0.1:8080'+x.path,{
+      method:x.body===null?'GET':'POST',headers:x.headers,
+      body:x.body===null?undefined:JSON.stringify(x.body),signal:AbortSignal.timeout(10000)});
+    console.log(JSON.stringify([r.status,await r.json()]));
+    """
+    r=subprocess.run(["docker","exec","-i","lab-server","node","--input-type=module","-e",code],
+                     input=json.dumps({"path":path,"headers":headers,"body":body}),
+                     text=True,capture_output=True,timeout=20)
+    if r.returncode:
+        raise RuntimeError("Private probe not ready")
+    return json.loads(r.stdout)
 
 try:
     docker("network", "create", "--internal", "citrine-ci")
     for name, app, config in zip(names, ["database","broker","hasura","server"], options):
-        extra = ["-p","127.0.0.1:18080:8080"] if app=="server" else []
         docker("create", "--name", name, "--network", "citrine-ci", "--memory", "1536m",
-               *extra, "citrine-"+app+":test")
+               "citrine-"+app+":test")
         p=TMP/(name+".json")
         p.write_text(json.dumps(config)); p.chmod(0o600)
         docker("cp", str(p), name+":/data/options.json")
@@ -56,6 +61,8 @@ try:
                 break
         except Exception:
             pass
+        if docker("inspect","-f","{{.State.Running}}","lab-server").strip()!="true":
+            raise AssertionError("Server exited before readiness")
         time.sleep(2)
     else:
         raise AssertionError("Stack readiness timeout")
