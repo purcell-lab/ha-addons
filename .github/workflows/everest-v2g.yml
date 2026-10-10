@@ -6,6 +6,8 @@ on:
       - ".github/workflows/everest-v2g.yml"
       - ".github/workflows/everest-v2g-publish.yml"
       - ".github/scripts/everest_image_needed.sh"
+      - ".github/scripts/everest_runtime.sh"
+      - "everest_runtime/**"
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,16 +54,30 @@ jobs:
       IMAGE: everest-v2g:built
     steps:
       - uses: actions/checkout@v4
-      - name: Free runner disk (upstream build image is about 4.3 GB compressed)
+        with:
+          fetch-depth: 0
+      - name: Resolve the EVerest runtime image
+        id: runtime
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: sh .github/scripts/everest_runtime.sh everest_v2g_simulator
+      - name: Free runner disk (local runtime build pulls the 4.3 GB upstream image)
+        if: steps.runtime.outputs.build_local == 'true'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           docker system prune -af || true
           df -h /
+      - name: Build the EVerest runtime locally (runtime changed or not yet published)
+        if: steps.runtime.outputs.build_local == 'true'
+        run: docker build -t everest-runtime:local everest_runtime
       - name: Build native image (no publication or deployment)
         run: |
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_v2g_simulator/config.yaml)
           docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
-            --build-arg BUILD_VERSION="$version" -t "$IMAGE" everest_v2g_simulator
+            --build-arg BUILD_VERSION="$version" \
+            --build-arg EVEREST_RUNTIME="${{ steps.runtime.outputs.ref }}" \
+            -t "$IMAGE" everest_v2g_simulator
           docker image ls "$IMAGE"
       - name: Image release gate (same script as the publish job)
         run: sh everest_v2g_simulator/tests/ci_image_checks.sh "$IMAGE"
@@ -71,6 +87,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: EVerest runtime is pinned by digest and public on GHCR
+        run: |
+          ref=$(sed -n 's/^ARG EVEREST_RUNTIME=//p' everest_v2g_simulator/Dockerfile)
+          if ! echo "$ref" | grep -q '@sha256:[0-9a-f]\{64\}$'; then
+            echo "::error::everest_v2g_simulator/Dockerfile ARG EVEREST_RUNTIME=$ref is not pinned by digest. Publish the runtime (approval-gated tag everest_runtime-v<version>) and pin its digest before merging."; exit 1
+          fi
+          docker manifest inspect "$ref" > /dev/null || {
+            echo "::error::$ref is not publicly pullable."; exit 1; }
+          echo "public: $ref"
       - name: Prebuilt image for this version is public on GHCR
         run: |
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_v2g_simulator/config.yaml)

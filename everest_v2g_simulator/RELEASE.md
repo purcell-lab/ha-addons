@@ -3,6 +3,8 @@
 `config.yaml` sets
 `image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, so Home Assistant pulls `<image>:<version>` for its architecture (about 560 to
 585 MB) instead of building locally from the 4.3 GB EVerest build image.
+The App build itself copies EVerest from the small pinned runtime image
+(`everest_runtime/README.md`), not the 4.3 GB upstream image.
 Each step below is a separate operator decision; none happens automatically.
 
 ## Steps

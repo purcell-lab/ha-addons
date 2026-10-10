@@ -1,0 +1,94 @@
+name: Publish EVerest runtime image
+# Publication is an explicit operator action: it runs only when a maintainer
+# pushes a tag everest_runtime-v<version> matching everest_runtime/VERSION.
+# Each architecture is built natively, must pass the identical-file check
+# against the published App releases, and is pushed as <version>-<arch>;
+# then a multi-arch index <version> is created. Nothing is overwritten.
+on:
+  push:
+    tags:
+      - "everest_runtime-v*"
+permissions:
+  contents: read
+concurrency:
+  group: everest-runtime-publish-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  REPO: ghcr.io/purcell-lab/everest-runtime
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match everest_runtime/VERSION
+        run: |
+          version=$(cat everest_runtime/VERSION)
+          test "$GITHUB_REF_NAME" = "everest_runtime-v$version" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match everest_runtime/VERSION $version"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Log in to GHCR (job token, this repository's packages only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Refuse to overwrite a published version
+        run: |
+          for ref in "$REPO:$VERSION" "$REPO:$VERSION-${{ matrix.arch }}"; do
+            if docker manifest inspect "$ref" > /dev/null 2>&1; then
+              echo "::error::$ref already exists. Bump everest_runtime/VERSION instead."; exit 1
+            fi
+          done
+      - name: Free runner disk (the runtime build pulls the 4.3 GB upstream image)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+      - name: Build
+        run: |
+          docker build --build-arg RUNTIME_VERSION="$VERSION" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            -t "$REPO:$VERSION-${{ matrix.arch }}" everest_runtime
+      - name: Release gate (identical files against the published App releases)
+        run: sh .github/scripts/everest_identical_files.sh "$REPO:$VERSION-${{ matrix.arch }}" ${{ matrix.arch }}
+      - name: Push (architecture tag only)
+        run: docker push "$REPO:$VERSION-${{ matrix.arch }}"
+  index:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "VERSION=$(cat everest_runtime/VERSION)" >> "$GITHUB_ENV"
+      - name: Log in to GHCR (job token, this repository's packages only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Create the multi-arch index
+        id: index
+        run: |
+          docker buildx imagetools create -t "$REPO:$VERSION" "$REPO:$VERSION-amd64" "$REPO:$VERSION-aarch64"
+          digest=$(docker buildx imagetools inspect "$REPO:$VERSION" --format '{{json .Manifest}}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["digest"])')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "Published $REPO:$VERSION@$digest"
+            echo
+            echo "Pin it in both App Dockerfiles:"
+            echo
+            echo "    ARG EVEREST_RUNTIME=$REPO:$VERSION@$digest"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REPO }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
