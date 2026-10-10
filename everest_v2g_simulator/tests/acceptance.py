@@ -76,6 +76,9 @@ class App:
         self.proc.terminate()
         code = self.proc.wait(30)
         self.log.close()
+        if sys.exc_info()[0] is not None or code != 0:
+            print(f"== App log tail ({self.log_path})", flush=True)
+            print("\n".join(Path(self.log_path).read_text(errors="replace").splitlines()[-80:]), flush=True)
         return code
 
 

@@ -100,8 +100,8 @@ def startup_selftest(sdp_ready, stopping, timeout=90):
     if not stopping():
         try:
             ui_server.run_selftest("at start")
-        except OSError as error:
-            print(f"Discovery self-test error ({error}).", flush=True)
+        except Exception as error:  # report, never stop the charger
+            print(f"Discovery self-test error ({type(error).__name__}: {error}).", flush=True)
 
 
 def wait_group(pgid, timeout):
