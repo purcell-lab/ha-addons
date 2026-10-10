@@ -197,6 +197,12 @@ def make_handler(bus):
             if int(self.headers.get("Content-Length") or 0) > 0:
                 return self.send_body(400, {"error": "no body accepted"})
             if selftest:
+                # Probes would be ignored during a session, and must never
+                # touch a real one: only with the EV unplugged.
+                info = (bus.snapshot().get("session_info") or {}).get("value") or {}
+                if info.get("state") != "Unplugged":
+                    return self.send_body(409, {"error": "unplug the simulated EV first",
+                                                "state": info.get("state")})
                 result = run_selftest("on request")
                 if result is None:
                     return self.send_body(409, {"error": "self-test already running"})

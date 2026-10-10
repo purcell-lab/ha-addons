@@ -5,6 +5,7 @@ import socket
 import struct
 import sys
 import tempfile
+import threading
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,14 +88,24 @@ class SelftestTest(unittest.TestCase):
     def tearDown(self):
         diag.sdp_probe, diag.netguard.link_local = self.saved
 
-    def run_with(self, unicast, multicast):
+    def run_with(self, unicast, multicast, released=True):
+        self.order = []
         diag.netguard.link_local = lambda name, text=None: "fe80::1"
-        diag.sdp_probe = lambda address, via, timeout=2.0: (
-            {"result": unicast} if address == "fe80::1" else {"result": multicast})
-        return diag.selftest(capture=False)
+        def probe(address, via, timeout=2.0):
+            result = {"result": unicast if address == "fe80::1" else multicast}
+            if result["result"] == "reply":
+                result["released"] = released
+            self.order.append(address)
+            return result
+        diag.sdp_probe = probe
+        return diag.selftest(capture=False, settle=0)
 
     def test_pass_needs_both_paths(self):
         self.assertTrue(self.run_with("reply", "reply")["pass"])
+        self.assertEqual(self.order, ["ff02::1", "fe80::1"])  # the EV's path first
+        unreleased = self.run_with("reply", "reply", released=False)
+        self.assertFalse(unreleased["pass"])
+        self.assertIn("session-release=failed", diag.summary(unreleased))
         failed = self.run_with("reply", "silent")
         self.assertFalse(failed["pass"])
         self.assertEqual(diag.summary(failed), "Discovery self-test FAILED: unicast=reply multicast=silent")
@@ -106,6 +117,27 @@ class SelftestTest(unittest.TestCase):
         self.assertIn("v2g0=[none] v2g1=[out:request]", diag.summary(result))
         result["capture"] = {"v2g0": {"available": False, "error": "PermissionError"}}
         self.assertIn("v2g0=capture-unavailable", diag.summary(result))
+
+    def test_release_session_sends_invalid_header(self):
+        server = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        server.bind(("::1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        got = []
+
+        def accept():
+            conn, _ = server.accept()
+            got.append(conn.recv(8))
+            conn.close()
+        thread = threading.Thread(target=accept)
+        thread.start()
+        reply = diag.SDP_RESPONSE_TYPE + (20).to_bytes(4, "big") + socket.inet_pton(socket.AF_INET6, "::1") \
+            + port.to_bytes(2, "big") + b"\x10\x00"
+        self.assertEqual(diag.release_session(reply, socket.if_nametoindex("lo")), {"released": True, "port": port})
+        thread.join(5)
+        server.close()
+        self.assertEqual(got, [diag.INVALID_V2GTP])
+        self.assertFalse(diag.release_session(reply, socket.if_nametoindex("lo"), timeout=0.5)["released"])
 
     def test_probe_reports_errors_not_raises(self):
         self.assertEqual(self.saved[0]("fe80::1", "no-such-if0")["result"], "error")

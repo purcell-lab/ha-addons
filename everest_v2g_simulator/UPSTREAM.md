@@ -72,6 +72,10 @@ VALIDATION.md:
 4. EnergyManager applies the board's AC minimum current to a DC EVSE.
 5. libocpp aborts on a GetCertificateStatus reply without `status`.
 6. PyEvJosev's plug-in loop ends after one failed session (Local patch).
+7. libiso15118 v0.9.0 `TbdController` creates a session for each answered
+   SDP request and ignores all later requests until it ends. A session
+   whose peer never connects never ends, so one stray SDP request blocks
+   discovery until the module restarts.
 
 ## Licences
 

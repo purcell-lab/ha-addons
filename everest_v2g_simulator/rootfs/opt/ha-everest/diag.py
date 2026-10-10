@@ -199,6 +199,33 @@ def parse_frame(frame):
             "sport": sport, "dport": dport, "sdp": kind}
 
 
+# Upstream libiso15118 (v0.9.0) creates a session for every SDP request it
+# answers and ignores later requests until that session ends, which only
+# happens after a TCP/TLS exchange. An answered probe would otherwise block
+# the simulated EV's next discovery until the App restarts.
+INVALID_V2GTP = b"\x00" * 8
+
+
+def release_session(reply, index, timeout=2.0):
+    """Close the charger session an answered probe opened: connect to the
+    offered plain-TCP endpoint and send an invalid V2GTP header, which makes
+    the charger shut the session down."""
+    try:
+        address = socket.inet_ntop(socket.AF_INET6, reply[8:24])
+        port = int.from_bytes(reply[24:26], "big")
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect((address, port, 0, index))
+            conn.sendall(INVALID_V2GTP)
+            try:
+                conn.recv(16)  # the charger closes the connection
+            except socket.timeout:
+                return {"released": False, "error": "no close"}
+        return {"released": True, "port": port}
+    except (OSError, ValueError) as error:
+        return {"released": False, "error": str(error)[:120]}
+
+
 def sdp_probe(address, via, timeout=2.0):
     """Send one SDP request out of `via`; return reply, silent or an error."""
     try:
@@ -211,28 +238,32 @@ def sdp_probe(address, via, timeout=2.0):
             sock.sendto(SDP_REQUEST, (address, SDP_PORT, 0, index))
             while True:
                 data, peer = sock.recvfrom(256)
-                if data.startswith(SDP_RESPONSE_TYPE):
-                    return {"result": "reply", "from": peer[0],
-                            "ms": round((time.monotonic() - started) * 1000)}
-        # unreachable
+                if data.startswith(SDP_RESPONSE_TYPE) and len(data) >= 28:
+                    result = {"result": "reply", "from": peer[0],
+                              "ms": round((time.monotonic() - started) * 1000)}
+                    result.update(release_session(data, index))
+                    return result
     except socket.timeout:
         return {"result": "silent"}
     except OSError as error:
         return {"result": "error", "error": f"{error.errno}: {error.strerror}"}
 
 
-def selftest(capture=True):
-    """Unicast and multicast SDP from v2g1 to the charger on v2g0, with capture."""
+def selftest(capture=True, settle=0.5):
+    """Multicast (as the EV sends it) then unicast SDP from v2g1 to the
+    charger on v2g0, with packet capture on both ends."""
     secc = netguard.link_local(netguard.SECC_LINK)
     captures = [Capture(name).start() for name in LINKS] if capture else []
     time.sleep(0.2 if capture else 0)
-    unicast = sdp_probe(secc, netguard.EVCC_LINK) if secc else {"result": "error", "error": "no SECC link-local"}
     multicast = sdp_probe("ff02::1", netguard.EVCC_LINK)
+    time.sleep(settle if multicast["result"] == "reply" else 0)  # let the charger drop the session
+    unicast = sdp_probe(secc, netguard.EVCC_LINK) if secc else {"result": "error", "error": "no SECC link-local"}
     time.sleep(0.3 if capture else 0)
     seen = {c.ifname: c.stop() for c in captures}
+    released = all(p.get("released") for p in (unicast, multicast) if p["result"] == "reply")
     return {"secc_address": secc, "unicast": unicast, "multicast": multicast, "capture": seen,
-            "pass": unicast["result"] == "reply" and multicast["result"] == "reply",
-            "at": time.time()}
+            "pass": unicast["result"] == "reply" and multicast["result"] == "reply" and released,
+            "sessions_released": released, "at": time.time()}
 
 
 def summary(result):
@@ -244,6 +275,8 @@ def summary(result):
             parts.append(f"{name}=[{' '.join(kinds) or 'none'}]")
         else:
             parts.append(f"{name}=capture-unavailable")
+    if not result.get("sessions_released", True):
+        parts.append("session-release=failed")
     return ("Discovery self-test " + ("PASSED" if result["pass"] else "FAILED") + ": " + " ".join(parts))
 
 

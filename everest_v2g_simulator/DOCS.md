@@ -110,16 +110,24 @@ self-test across the private link and logs one line, for example:
 Discovery self-test PASSED: unicast=reply multicast=reply v2g0=[in:request,out:response] v2g1=[out:request,in:response] (at start)
 ```
 
-- **unicast** sends an SDP request from `v2g1` to the charger's link-local
-  address on `v2g0`. This is the path CI's probe has always used.
-- **multicast** sends the same request to `ff02::1` via `v2g1`, as the
-  simulated EV does.
+- **multicast** sends an SDP request to `ff02::1` via `v2g1`, as the
+  simulated EV does. It runs first.
+- **unicast** sends the same request from `v2g1` to the charger's
+  link-local address on `v2g0`, the path CI's firewall probe uses.
 - **v2g0** and **v2g1** list the SDP frames a packet counter saw on each end
   (`in` or `out`, request or response). A request seen leaving `v2g1` but
   never arriving on `v2g0` points at the link; a request arriving on `v2g0`
   without a response points at the SDP server or the firewall. The counter
   needs a raw packet socket; where the runtime refuses one, it shows
   `capture-unavailable` and the two results still stand.
+
+The charger (libiso15118) opens a session for every request it answers
+and ignores later requests until that session ends. After each reply the
+self-test connects to the offered TCP port and sends an invalid header, so
+the charger closes the session and the next plug-in is not blocked. A
+test whose session could not be released fails with
+`session-release=failed`. On request, the self-test runs only while the
+simulated EV is unplugged.
 
 On failure the App also logs `Discovery diagnostics:` with the full
 snapshot. The Status page's Discovery self-test panel shows the latest
