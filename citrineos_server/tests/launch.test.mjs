@@ -23,5 +23,5 @@ test('exact authentication, not prefix matching',()=>{
 test('simulator admission remains opt-in with a separate password',()=>{
   assert.throws(()=>validate({...good,simulator_enabled:true}));
   assert.throws(()=>validate({...good,simulator_enabled:true,simulator_password:good.api_token}));
-  assert.doesNotThrow(()=>validate({...good,simulator_enabled:true,simulator_password:'e'.repeat(64)}));
+  assert.doesNotThrow(()=>validate({...good,simulator_enabled:true,simulator_password:'e'.repeat(40)}));
 });

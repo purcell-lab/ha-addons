@@ -40,7 +40,7 @@ def validate(options):
             raise ValueError("use ws://test-host:port[/base-path], without credentials")
         if acknowledged is not True:
             raise ValueError("acknowledge_test_isolation is required before connecting")
-        if not re.fullmatch(r"[a-f0-9]{64}", options.get("password", "")):
+        if not re.fullmatch(r"[a-f0-9]{40}", options.get("password", "")):
             raise ValueError("Generated simulator credential required")
         if not (url.hostname.endswith("-citrineos-server") or url.hostname == "lab-server") or port != 8081:
             raise ValueError("Dedicated internal CitrineOS listener required")

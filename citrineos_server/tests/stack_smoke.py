@@ -12,7 +12,7 @@ def docker(*args, capture=True):
 ROOT = Path(__file__).resolve().parents[2]
 TMP = Path("/tmp/citrine-lab-ci")
 TMP.mkdir(exist_ok=True, mode=0o700)
-values = [secrets.token_hex(32) for _ in range(5)]
+values = [secrets.token_hex(32) for _ in range(4)]+[secrets.token_hex(20)]
 db, broker, hasura, token, simulator_password = values
 names = ["lab-db", "lab-broker", "lab-hasura", "lab-server"]
 options = [

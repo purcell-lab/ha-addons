@@ -19,7 +19,7 @@ export function validate(o) {
   for (const key of ['database_host','broker_host','hasura_host']) {
     if (!/^[a-z0-9][a-z0-9.-]*$/.test(o[key] || '')) throw new Error('Invalid private dependency hostname');
   }
-  if(o.simulator_enabled===true && (!/^[a-f0-9]{64}$/.test(o.simulator_password||'')
+  if(o.simulator_enabled===true && (!/^[a-f0-9]{40}$/.test(o.simulator_password||'')
       || [o.database_password,o.broker_password,o.hasura_secret,o.api_token].includes(o.simulator_password)))
     throw new Error('A distinct simulator credential is required');
   if(o.simulator_enabled!==undefined && typeof o.simulator_enabled!=='boolean') throw new Error('Invalid simulator flag');
