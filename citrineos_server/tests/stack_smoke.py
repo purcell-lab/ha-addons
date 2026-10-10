@@ -104,7 +104,8 @@ try:
 finally:
     for name in names:
         try:
-            logs=docker("logs",name)
+            log_result=subprocess.run(["docker","logs",name],text=True,capture_output=True)
+            logs=log_result.stdout+log_result.stderr
             for secret in values: logs=logs.replace(secret,"[redacted]")
             print(name,logs[-14000:])
         except Exception: pass
