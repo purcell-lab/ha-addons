@@ -66,7 +66,7 @@ export async function main() {
   const o=fs.existsSync(`${DATA}/options.json`) ? JSON.parse(fs.readFileSync(`${DATA}/options.json`)) : {mode:'disconnected'};
   validate(o);
   if(process.getuid()===0) {
-    fs.chownSync(DATA,1000,1000);
+    if(o.mode==='isolated') fs.chownSync(DATA,1000,1000);
     process.setgid(1000);process.setuid(1000);
   }
   if(o.mode==='disconnected') {
@@ -107,9 +107,9 @@ export async function main() {
       if(pending.length>65536) pending='[oversize log omitted]';
     });
   }
-  function run(args) {
+  function run(args,command='node') {
     return new Promise((resolve,reject)=>{
-      child=spawn('node',args,{cwd:APP,env,stdio:['ignore','pipe','pipe']});
+      child=spawn(command,args,{cwd:APP,env,stdio:['ignore','pipe','pipe']});
       logPipe(child.stdout); logPipe(child.stderr);
       child.once('error',()=>reject(new Error('Upstream process failed')));
       child.once('exit',code=>code===0?resolve():reject(new Error(`Upstream process exited (${code})`)));
@@ -125,7 +125,7 @@ export async function main() {
   await waitFor('Database',()=>tcpReady(o.database_host,5432));
   await waitFor('Broker',()=>tcpReady(o.broker_host,5672));
   console.log('Applying pinned migrations to the dedicated laboratory database.');
-  await run([`${APP}/node_modules/.bin/sequelize-cli`,'db:migrate']);
+  await run(['db:migrate'],`${APP}/node_modules/.bin/sequelize-cli`);
   await run([`${APP}/dist/scripts/provision-partitions.js`]);
   const signer=makeSigner();
   const jwks=http.createServer((req,res)=>{
