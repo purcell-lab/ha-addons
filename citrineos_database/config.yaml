@@ -1,0 +1,17 @@
+name: CitrineOS Lab Database
+version: "0.1.0"
+slug: citrineos_database
+description: Private dedicated PostgreSQL/PostGIS for the isolated CitrineOS lab.
+url: https://github.com/purcell-lab/ha-addons
+arch: [amd64]
+startup: services
+boot: manual
+init: false
+host_network: false
+hassio_api: false
+homeassistant_api: false
+docker_api: false
+options:
+  password: ""
+schema:
+  password: password

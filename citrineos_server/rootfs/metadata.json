@@ -1,0 +1,54 @@
+{
+  "version": 3,
+  "sources": [{
+    "name": "default",
+    "kind": "postgres",
+    "configuration": {
+      "connection_info": {
+        "database_url": {"from_env": "HASURA_GRAPHQL_DATABASE_URL"},
+        "isolation_level": "read-committed",
+        "pool_settings": {"max_connections": 10, "idle_timeout": 180},
+        "use_prepared_statements": true
+      }
+    },
+    "tables": [
+      {
+        "table": {"schema": "public", "name": "ChargingStations"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","ocppConnectionName","tenantId","protocol","isOnline","chargePointVendor","chargePointModel","firmwareVersion","updatedAt"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "Evses"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","stationId","tenantId","evseTypeId"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "Connectors"},
+        "object_relationships": [{"name": "Evse", "using": {"foreign_key_constraint_on": "evseId"}}],
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","stationId","tenantId","connectorId","evseId","evseTypeConnectorId","status","errorCode","updatedAt"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "Transactions"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","stationId","tenantId","transactionId","isActive","startTime","endTime","updatedAt"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      }
+    ]
+  }]
+}

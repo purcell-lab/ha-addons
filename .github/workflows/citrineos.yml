@@ -1,8 +1,8 @@
-name: CitrineOS staged compatibility
+name: CitrineOS isolated stack
 on:
   pull_request:
     paths:
-      - "citrineos_server/**"
+      - "citrineos_*/**"
       - ".github/workflows/citrineos.yml"
   workflow_dispatch:
 permissions:
@@ -11,7 +11,7 @@ concurrency:
   group: citrineos-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  safety:
+  focused-safety:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -20,74 +20,17 @@ jobs:
           node-version: "24"
       - run: python3 -m pip install PyYAML==6.0.2
       - run: python3 -m unittest discover -s citrineos_server/tests -p test_packaging.py -v
-      - run: node --test citrineos_server/tests/guard.test.mjs
+      - run: node --test citrineos_server/tests/launch.test.mjs
       - run: git diff --check
-  image-and-contract:
+  private-stack:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: Stuart0411/CitrineOS-HA-Integration
-          ref: a98cd336e4197f3875be238bdfe5c4784194efb1
-          path: pinned-client
-          persist-credentials: false
-      - name: Build pinned amd64 image, without publishing
-        run: docker build --platform linux/amd64 -t citrine-ha:test citrineos_server
-      - name: Disconnected startup, no listening sockets, graceful stop
+      - name: Build pinned images without publication
         run: |
-          set -euo pipefail
-          trap 'docker logs citrine-offline; docker rm -f citrine-offline' EXIT
-          docker run -d --name citrine-offline --network none --read-only \
-            --cap-drop ALL --security-opt no-new-privileges citrine-ha:test
-          sleep 3
-          docker logs citrine-offline | grep -q 'Client compatibility BLOCKED'
-          docker exec citrine-offline node --input-type=module -e '
-            import fs from "node:fs";
-            import assert from "node:assert/strict";
-            for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {
-              const rows = fs.readFileSync(file,"utf8").trim().split("\n").slice(1);
-              assert.equal(rows.some(row => row.trim().split(/\s+/)[3] === "0A"),false);
-            }'
-          docker stop --time 5 citrine-offline
-          test "$(docker inspect -f '{{.State.ExitCode}}' citrine-offline)" = 0
-      - name: Reject activation options without leaking their contents
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/citrine-options
-          printf '%s' '{"mode":"enabled","password":"SENTINEL_SECRET"}' > /tmp/citrine-options/options.json
-          set +e
-          docker run --rm --network none --read-only --cap-drop ALL \
-            -v /tmp/citrine-options:/data:ro citrine-ha:test > /tmp/guard-output 2>&1
-          code=$?
-          set -e
-          test "$code" = 78
-          ! grep -q SENTINEL_SECRET /tmp/guard-output
-      - name: Compiled upstream route-contract probe, with no network
-        run: |
-          set -euo pipefail
-          trap 'docker rm -f citrine-contract' EXIT
-          mkdir -p /tmp/citrine-report
-          chmod 0777 /tmp/citrine-report
-          docker create --name citrine-contract --network none --read-only \
-            --tmpfs /tmp:rw,noexec,nosuid,size=16m --cap-drop ALL \
-            -v "$PWD/citrineos_server/tests:/tests:ro" \
-            -v /tmp/citrine-report:/report \
-            -e ROUTE_REPORT=/report/citrine-routes.json \
-            --entrypoint node citrine-ha:test /tests/route-probe.mjs
-          docker start -a citrine-contract
-          test "$(docker inspect -f '{{.State.ExitCode}}' citrine-contract)" = 0
-      - name: Exercise pinned HA client against actual route inventory
-        env:
-          CLIENT_SOURCE: pinned-client/custom_components/citrine_ha/citrine_api.py
-          ROUTE_REPORT: /tmp/citrine-report/citrine-routes.json
-        run: |
-          test "$(git -C pinned-client rev-parse HEAD)" = a98cd336e4197f3875be238bdfe5c4784194efb1
-          python3 -m pip install aiohttp==3.13.2
-          python3 -m unittest discover -s citrineos_server/tests -p test_client_contract.py -v
-      - uses: actions/upload-artifact@v4
-        with:
-          name: citrineos-route-compatibility
-          path: /tmp/citrine-report/citrine-routes.json
-          if-no-files-found: error
+          for app in database broker hasura server; do
+            docker build -t "citrine-${app}:test" "citrineos_${app}"
+          done
+      - name: Authentication, discovery, persistence and logical restore
+        run: python3 citrineos_server/tests/stack_smoke.py

@@ -1,104 +1,88 @@
-# CitrineOS compatibility and packaging
+# CitrineOS isolated laboratory
 
-This is a staged, disconnected-only Home Assistant App, not an operational
-central system. A running App means the packaging guard is running; it does not
-mean CitrineOS is ready. Do not add or enable a Citrine HA config entry yet.
+This App runs pinned CitrineOS **v2.0.1**, not an OCPP protocol version.
+Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
+Nothing binds a host port. No OCPP listener is enabled in this first deployment.
+Existing physical chargers, simulators, Home Assistant OCPP entries and payments
+are not used or redirected.
 
-## What is packaged
+## Installation
 
-- Upstream CitrineOS server **v2.0.1** pinned by release-image digest.
-- Home Assistant amd64 manifest with manual boot.
-- Replacement entrypoint that never runs migrations, starts the upstream server
-  or connects to a broker. It opens no sockets and has no activation option.
-- No host ports, Ingress, Supervisor API, HA API, Docker socket or host mounts.
-- Non-root runtime, clean SIGTERM/SIGINT handling and sanitised option errors.
+Install `citrineos_database`, `citrineos_broker`, `citrineos_hasura` and
+`citrineos_server` from this repository. Keep manual boot and automatic updates off.
+Use the actual Supervisor-discovered hostnames, not guessed IP addresses.
 
-Software release v2.0.1 must not be confused with the OCPP protocol version.
-The release exposes OCPP 1.6, 2.0.1 and 2.1 message APIs in its
-[pinned API implementation](https://github.com/citrineos/citrineos-core/tree/1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372/packages/ocpp/src/apis).
+Generate four distinct 32-byte random values encoded as 64 lowercase hexadecimal
+characters for database, broker, Hasura admin and gateway credentials. Enter them
+only in the corresponding App options. Do not commit them or include them in logs.
+The server uses all four; Hasura uses database and Hasura credentials; the other
+Apps use only their own password. Supervisor administrators can read options.
+Backups therefore contain secrets and must be protected.
 
-## Compatibility result: blocked
+Start the database, broker and Hasura first. Configure the server's dependency
+hostnames and change `mode` from `disconnected` to `isolated`, then start it.
+The server waits for its dedicated dependencies, applies pinned migrations and
+partition provisioning, starts the upstream server and installs the lab's
+read-only Hasura metadata. Failed readiness fails startup rather than reporting
+an empty healthy system.
 
-The candidate pairing is HA integration 0.2.1, commit
-`a98cd336e4197f3875be238bdfe5c4784194efb1`, with server v2.0.1, commit
-`1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372`. The exact image and source locks
-are recorded in `compatibility-lock.json`; updating them requires review.
+The compatibility lock retains the **historical** initial client assessment.
+The current runtime and authentication evidence comes from the isolated-stack CI.
+The old installed HA client is not automatically updated or configured by this App.
 
-| Area | Finding | Consequence |
-| --- | --- | --- |
-| Connection validation | Client requires `GET /data/ocpprouter/systemConfig`; reviewed server APIs do not register it | Config flow cannot rely on this pairing |
-| REST discovery | All 16 station, connector and transaction fallback paths use legacy `/data` APIs | An empty result may mean incompatible endpoints, not an empty station inventory |
-| Authentication | Client discovery catches the base API exception, including authentication failures | A failed permission check may appear as an empty list |
-| Smart charging | Primary 1.6, 2.0.1 and 2.1 SetChargingProfile route names align | Route existence does not establish valid payloads, authentication or station acceptance |
-| Hasura | Config flow validates the legacy REST ping before Hasura | Adding Hasura alone is not a fix |
-| Control safety | Controller starts during entry setup; Off can request zero limits | Leave the HA entry absent/disabled; Off is not read-only |
-| Inline schema compilation | With `swagger.exposeMessage=false`, the compiled routing code and upstream server AJV fail on duplicate `MessageQuerystring` IDs | Resolve and retest this configuration before using it; default `true` mode is not tested here |
+## Access and security boundary
 
-These findings come from the [pinned client](https://github.com/Stuart0411/CitrineOS-HA-Integration/blob/a98cd336e4197f3875be238bdfe5c4784194efb1/custom_components/citrine_ha/citrine_api.py),
-[config flow](https://github.com/Stuart0411/CitrineOS-HA-Integration/blob/a98cd336e4197f3875be238bdfe5c4784194efb1/custom_components/citrine_ha/config_flow.py),
-[controller](https://github.com/Stuart0411/CitrineOS-HA-Integration/blob/a98cd336e4197f3875be238bdfe5c4784194efb1/custom_components/citrine_ha/load_controller.py)
-and [server registration](https://github.com/citrineos/citrineos-core/blob/1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372/packages/ocpp/src/apis/register.ts).
+The internal gateway listens on port 8080. `/health/ready` is an unprivileged
+readiness check. All other supported routes require `Authorization: Bearer TOKEN`:
 
-## Focused verification
+- `GET /lab/status`: release, read-only mode and zero-listener status.
+- `GET /commands/tariff?tenantId=1`: authenticated, tenant-scoped upstream read.
+- `POST /v1/graphql`: Hasura discovery through role `ha_reader`, fixed tenant 1.
 
-The workflow builds the digest-pinned amd64 image without publishing it.
-It tests disconnected startup, absence of listening TCP sockets, stop handling
-and rejection of activation options. It imports compiled upstream API classes,
-registers their routes in Fastify with inert handlers and checks whether the
-required legacy ping is registered. It also reproduces the inline-schema
-compilation failure using the upstream server AJV. No HTTP exchange, TCP
-listener or station command is used.
-The unmodified pinned HA client is then exercised against that route inventory.
-Its 404 responses are simulated for absent routes, not captured from a live
-server. The default shared-schema mode remains a follow-up test.
+Other paths and methods are denied. GraphQL has no mutation permissions; its four
+tables expose only the staged HA client's explicit discovery fields. Caller
+authentication, role and tenant headers are never forwarded to dependencies.
 
-The expected green result is **successful detection of incompatibility**, not
-successful HA integration. A changed route contract fails CI for review rather
-than silently unlocking startup. The route inventory is a CI artifact.
+The upstream API binds loopback port 8088 and uses its actual OIDC/JWT provider,
+not local authentication bypass. The gateway signs 60-second internal JWTs with
+an in-memory RSA key and role `lab-reader`; its loopback JWKS endpoint is port 8091.
+RBAC permits only tariff reads for that role. Restart rotates the internal key.
+The bearer gateway is a lab credential bridge, not an interactive identity provider.
 
-Authentication, database migrations, broker health, Hasura schema, persistence,
-restore, actual OCPP registration and command acknowledgements remain untested.
-No full server or database is started by this suite. These limits are deliberate.
+No HA/Supervisor API token, Docker socket, host network, device or privileged mount
+is granted. Server and Hasura processes run as UID 1000 after root-only startup
+preparation. Database and broker use upstream privilege-dropping entrypoints.
+RabbitMQ's management plugin is disabled.
 
-Local fast checks:
+**Isolation is not a dedicated network firewall.** HA Apps share Supervisor's
+container network. Other trusted Apps can reach dependency ports, but need the
+distinct credentials. No ports are published to the LAN or internet. This is
+single-tenant laboratory packaging, not a production multi-tenant service.
 
-```sh
-python3 -m unittest discover -s citrineos_server/tests -p test_packaging.py -v
-node --test citrineos_server/tests/guard.test.mjs
-```
+## Data and rollback
 
-The image and pinned-client tests run in the dedicated CI job. They do not run
-the unrelated simulator suites. The container probe uses `--network none`.
+Database state is stored in its own `/data/pgdata`; broker state in `/data/mnesia`.
+Hasura metadata is stored in the dedicated database. Server runtime files are in
+its own `/data/assets`. An upgrade never enables database sync, alter or force.
+Only the upstream versioned migration path is used.
 
-## Next stages before installation or activation
+Stop in order: server, Hasura, broker, database. Start dependencies before server.
+Stopping these four Apps is the rollback for this first installation and leaves
+all existing charging systems alone. Do not uninstall or clear data as recovery.
+Credential rotation and server upgrades require coordinated review.
 
-1. Prepare a separate client compatibility PR: supported authenticated health
-   validation; explicit discovery errors; tested REST/Hasura selection; a genuine
-   read-only controller mode; distinguish dispatch from station acceptance.
-2. Package private database and broker Apps with exact image digests, separate
-   `/data`, unique credentials, health gates, orderly shutdown and restore tests.
-   Do not use privileged Compose or expose the database/broker to host ports.
-3. Resolve discovery and API authentication with an isolated full-stack CI test.
-   Package Hasura only if that path is selected; no console/dev mode by default.
-4. Add guarded server activation only after compatibility passes. Require
-   dependency readiness, explicit test-isolation acknowledgement, a dedicated
-   simulator identity and authenticated listener policy. Do not inherit the
-   upstream unauthenticated listener, unknown-station admission, debug port,
-   external certificate integrations or sample passwords.
-5. Perform a fresh live resource/port preflight and protected backup after
-   separate approval. Only then merge/install/restart the approved components.
-6. Use a new `SIM-CITRINE-LAB-01` identity for a bounded registration and profile
-   test. Do not repoint existing simulators or physical charging stations.
+CI checks a logical `pg_dump`/`pg_restore` into a disposable second database and
+server restart persistence. This does not claim that a full Supervisor disaster
+restore has been tested. Take a protected HA backup before deployment.
 
-The [upstream Compose example](https://github.com/citrineos/citrineos-core/blob/v2.0.1/docker-compose.yml)
-is an architecture reference, not a safe HA installation manifest. This PR
-does not package or start its database, RabbitMQ, Hasura or operator UI. It
-does not patch the installed HA integration, touch existing OCPP entries,
-use real energy-control sensors or integrate BSV settlement.
+## Deliberate limits
 
-## Rollback and data
+No charger registration, charging, TxProfile, V2G, operator UI, OCPI, external CA
+or BSV settlement is enabled. Simulator attachment and writable control require
+a separate bounded test step. The Hasura endpoint works through the read-only
+gateway; raw Hasura admin credentials must not be supplied to a user-facing client.
 
-This stage creates no charging database or migration state. Stopping/uninstalling
-this disconnected package has no server-side charging data to roll back. Future
-stateful stages require tested backup/restore and version-specific migration
-rollback instructions; those are not established by this package.
+Upstream references:
+[server release](https://github.com/citrineos/citrineos-core/releases/tag/v2.0.1),
+[deployment architecture](https://github.com/citrineos/citrineos-core/blob/v2.0.1/docker-compose.yml),
+[HA-client compatibility PR](https://github.com/purcell-lab/CitrineOS-HA-Integration/pull/1).

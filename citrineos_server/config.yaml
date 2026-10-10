@@ -1,7 +1,7 @@
-name: CitrineOS Compatibility Lab
-version: "0.1.0"
+name: CitrineOS Isolated Lab
+version: "0.2.0"
 slug: citrineos_server
-description: Staged CitrineOS server package; disconnected only until client compatibility is resolved.
+description: Pinned v2.0.1 laboratory server with private dependencies and read-only authenticated access.
 url: https://github.com/purcell-lab/ha-addons
 arch:
   - amd64
@@ -15,5 +15,19 @@ homeassistant_api: false
 docker_api: false
 options:
   mode: disconnected
+  database_host: ""
+  database_password: ""
+  broker_host: ""
+  broker_password: ""
+  hasura_host: ""
+  hasura_secret: ""
+  api_token: ""
 schema:
-  mode: list(disconnected)
+  mode: list(disconnected|isolated)
+  database_host: str
+  database_password: password
+  broker_host: str
+  broker_password: password
+  hasura_host: str
+  hasura_secret: password
+  api_token: password
