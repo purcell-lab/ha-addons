@@ -101,3 +101,32 @@ on second/subsequent sessions. Never seed fake energy to avoid that heuristic.
 
 See [VALIDATION.md](VALIDATION.md) for tested scope and remaining live gates,
 and [UPSTREAM.md](UPSTREAM.md) for licensing and pinned-source provenance.
+
+## Received TxProfile on Status
+
+Version 0.1.1 adds a read-only, automatically refreshed JSON panel for each
+connector on the Status page. Copy JSON copies the full received
+`SetChargingProfile` payload with two-space indentation. No profile-editing
+or sending controls are added.
+
+The panel captures the latest **received TxProfile** via MicroOcpp's public
+request observer. It is not an active-profile view: receipt does not prove
+acceptance, and a rejected request replaces the previous diagnostic record.
+The timestamp is the simulator host's UTC clock at receipt. Acceptance is
+explicitly not recorded. Use measured power and the CSMS response to verify
+operation.
+
+Records remain visible after a transaction ends or a profile is cleared, but
+reset when the simulator restarts. No earlier profiles can be recovered after
+installing this version. The next received TxProfile populates the panel.
+TxDefaultProfile and ChargePointMaxProfile do not replace it.
+
+Each connector retains at most one payload, limited to 4 KiB of serialized JSON.
+Larger requests show a diagnostic-size warning instead of partial JSON; native
+OCPP processing is unchanged. An API failure hides the last payload and retries,
+rather than presenting stale data as freshly checked. Clipboard-denied browsers
+select the JSON for manual copying. All content is rendered as text.
+
+The endpoint is GET-only at `/api/connector/{1|2}/txprofile` behind the existing
+Home Assistant Ingress boundary. No extra port, network permission or HA access
+is introduced. This feature applies only to the OCPP 1.6 App.

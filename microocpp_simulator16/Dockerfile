@@ -5,6 +5,7 @@ RUN git clone https://github.com/matth-x/MicroOcppSimulator.git . \
     && git checkout 2cb07cdbe53954a694a29336ab31eac2d2b48673 \
     && git submodule update --init --recursive
 COPY prepare_source.py /prepare_source.py
+COPY txprofile_status.h txprofile_status.js txprofile_status.css /
 RUN python3 /prepare_source.py /src \
     && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     && cmake --build build --parallel 2 --target mo_simulator \

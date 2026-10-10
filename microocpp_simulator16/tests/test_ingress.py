@@ -77,6 +77,8 @@ class IngressTest(unittest.TestCase):
                             self.assertNotIn("Access-Control-Allow-Origin", headers)
                             self.assertEqual(request("/api/websocket", "POST")[0], 403)
                             self.assertEqual(request("/api/reset", "POST")[0], 403)
+                            self.assertEqual(request("/api/connector/1/txprofile")[0], 200)
+                            self.assertEqual(request("/api/connector/1/txprofile", "POST")[0], 403)
                             for endpoint in ("/api/connector/1/evse", "/api/connector/2/transaction",
                                              "/api/plugin?evse_id=1", "/api/authorize?evse_id=1"):
                                 self.assertEqual(request(endpoint, "POST")[0], 200)
