@@ -61,6 +61,40 @@ def fix_ui_power_controls(text):
     return text
 
 
+def refresh_meter_at_sample_time(root):
+    """Keep protocol and HTTP readings current even inside mocpp_loop()."""
+    header = root / "src/evse.h"
+    source = root / "src/evse.cpp"
+    replace_once(header, "    std::string status;",
+                 "    std::string status;\n    void updateMeter();")
+    replace_once(header, "    int getEnergy() {\n",
+                 "    int getEnergy() {\n        updateMeter();\n")
+    replace_once(source, "        return simulate_energy;",
+                 "        updateMeter();\n        return simulate_energy;")
+    replace_once(source, "        return simulate_power;",
+                 "        updateMeter();\n        return simulate_power;")
+    replace_once(source, "            return (int32_t) (simulate_power >",
+                 "            updateMeter();\n            return (int32_t) (simulate_power >")
+    replace_once(source, "int Evse::getPower() {\n",
+                 "int Evse::getPower() {\n    updateMeter();\n")
+    replace_once(source, "    bool simulate_isCharging =",
+                 "    updateMeter();\n}\n\nvoid Evse::updateMeter() {\n"
+                 "    // Account for the last powered interval before refreshing state.\n"
+                 "    // Sampling can occur inside mocpp_loop(), before Evse::loop().\n"
+                 "    const auto now = mocpp_tick_ms();\n"
+                 "    if (simulate_power >= 1.f) {\n"
+                 "        simulate_energy += (float) (now - simulate_energy_track_time)\n"
+                 "            * simulate_power * (0.001f / 3600.f);\n"
+                 "    }\n"
+                 "    simulate_energy_track_time = now;\n\n"
+                 "    bool simulate_isCharging =")
+    replace_once(source,
+                 "        if (simulate_power >= 1.f) {\n"
+                 "            simulate_energy += (float) (mocpp_tick_ms() - simulate_energy_track_time) * simulate_power * (0.001f / 3600.f);\n"
+                 "        }\n\n", "")
+    replace_once(source, "        simulate_energy_track_time = mocpp_tick_ms();\n", "")
+
+
 def prepare(root):
     revision = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
@@ -95,6 +129,7 @@ def prepare(root):
     replace_once(root / "src/evse.h", "int getTransactionId();",
                  "const char *getTransactionId();")
     guard_legacy_evse_hooks(root / "src/evse.cpp")
+    refresh_meter_at_sample_time(root)
     replace_once(root / "src/evse.cpp",
                  "int Evse::getTransactionId() {\n"
                  "    return getTransaction(connectorId) ? getTransaction(connectorId)->getTransactionId() : -1;\n}",

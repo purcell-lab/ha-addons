@@ -30,6 +30,9 @@ The reviewed adaptations are applied with exact-context checks:
   updates with the values actually submitted and remove a missing date-helper
   reference. Do not let badge clicks fabricate Charging; style the valid
   2.0.1 Occupied status without treating it as a fault.
+- Refresh simulated meter values during OCPP/HTTP sampling, not only after
+  the OCPP loop. Account for the preceding powered interval and preserve
+  energy when charge permission or cable/readiness is withdrawn.
 
 The source's power model is charging-only. Negative limits do not mean V2G.
 The upstream in-memory energy accumulator is not a durable revenue meter.

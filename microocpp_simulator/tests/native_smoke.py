@@ -74,6 +74,17 @@ async def until(predicate, description, seconds=20):
     raise AssertionError("timed out: " + description)
 
 
+def assert_stopped_sample(event, minimum_energy):
+    samples = {s["measurand"]: s["value"]
+               for m in event.get("meterValue", []) for s in m["sampledValue"]
+               if s.get("context") == "Transaction.End"}
+    assert samples.get("Power.Active.Import") == 0, samples
+    assert samples.get("Current.Import") == 0, samples
+    assert samples.get("Voltage") == 0, samples
+    assert samples.get("Energy.Active.Import.Register", -1) >= minimum_energy, samples
+    print("PASS final sample:", json.dumps(samples))
+
+
 async def main():
     # Never accidentally drive another already-running local simulator.
     with socket.socket() as probe:
@@ -164,10 +175,76 @@ async def main():
                             "variable": {"name": "Identity"}}]}]))
                     await until(lambda: "identity-guard" in responses, "identity guard")
                     assert responses["identity-guard"][2]["setVariableResult"][0]["attributeStatus"] != "Accepted"
+                    energy_before_stop = json.loads(http("/api/connector/1/meter"))["energy"]
                     http("/api/connector/1/evse", {"evPlugged": False, "evsePlugged": False,
                                                   "evReady": False, "evseReady": False})
                     await until(lambda: any(a == "TransactionEvent" and p["eventType"] == "Ended"
                                             for a, p in received), "Ended TransactionEvent")
+                    ended = next(p for a, p in received
+                                 if a == "TransactionEvent" and p["eventType"] == "Ended")
+                    assert_stopped_sample(ended, energy_before_stop)
+                    # The final register is preserved, not zeroed with power.
+                    final_energy = json.loads(http("/api/connector/1/meter"))["energy"]
+                    await asyncio.sleep(1)
+                    stopped = json.loads(http("/api/connector/1/meter"))
+                    assert stopped["power"] == stopped["current"] == stopped["voltage"] == 0
+                    assert stopped["energy"] == final_energy
+                    assert json.loads(http("/api/connector/2/meter"))["energy"] == 0
+
+                    # Exercise both local authorization withdrawal and a real
+                    # CSMS RequestStopTransaction while the cable stays plugged.
+                    for mode in ("local-tag", "remote-stop"):
+                        mark = len(received)
+                        http("/api/connector/1/evse", {
+                            "evPlugged": True, "evsePlugged": True,
+                            "evReady": True, "evseReady": True})
+                        http("/api/connector/1/transaction", {"idTag": "SIM-TEST"})
+                        await until(lambda: any(a == "TransactionEvent" and p["eventType"] == "Started"
+                                                for a, p in received[mark:]), mode + " start")
+                        started = next(p for a, p in received[mark:]
+                                       if a == "TransactionEvent" and p["eventType"] == "Started")
+                        start_register = next(
+                            s["value"] for m in started["meterValue"] for s in m["sampledValue"]
+                            if s["measurand"] == "Energy.Active.Import.Register")
+                        assert start_register >= final_energy, (start_register, final_energy)
+                        await until(lambda: json.loads(http("/api/connector/1/meter"))["energy"]
+                                    > final_energy + 5, mode + " positive energy")
+                        # Loss of readiness pauses flow without fabricating an Ended event.
+                        http("/api/connector/1/evse", {"evReady": False})
+                        paused = json.loads(http("/api/connector/1/meter"))
+                        assert paused["power"] == paused["current"] == 0, paused
+                        await asyncio.sleep(0.3)
+                        assert not any(a == "TransactionEvent" and p["eventType"] == "Ended"
+                                       for a, p in received[mark:])
+                        http("/api/connector/1/evse", {"evReady": True})
+                        await until(lambda: json.loads(http("/api/connector/1/meter"))["power"] > 0,
+                                    mode + " resume")
+                        energy_before_stop = json.loads(http("/api/connector/1/meter"))["energy"]
+                        if mode == "local-tag":
+                            http("/api/connector/1/transaction", {"idTag": "SIM-TEST"})
+                        else:
+                            await connections[0].send(json.dumps([2, "remote-stop",
+                                "RequestStopTransaction",
+                                {"transactionId": started["transactionInfo"]["transactionId"]}]))
+                            await until(lambda: "remote-stop" in responses, "remote stop response")
+                            assert responses["remote-stop"][2]["status"] == "Accepted"
+                        await until(lambda: any(a == "TransactionEvent" and p["eventType"] == "Ended"
+                                                for a, p in received[mark:]), mode + " end")
+                        ended = next(p for a, p in received[mark:]
+                                     if a == "TransactionEvent" and p["eventType"] == "Ended")
+                        assert ended["transactionInfo"]["transactionId"] == started["transactionInfo"]["transactionId"]
+                        assert_stopped_sample(ended, energy_before_stop)
+                        final_energy = json.loads(http("/api/connector/1/meter"))["energy"]
+                        await asyncio.sleep(1)
+                        stopped = json.loads(http("/api/connector/1/meter"))
+                        assert stopped["power"] == stopped["current"] == stopped["voltage"] == 0
+                        assert stopped["energy"] == final_energy
+                        assert json.loads(http("/api/connector/2/meter"))["power"] == 0
+                        api_tx = json.loads(http("/api/connector/1/transaction"))
+                        print("PASS:", mode, "closure, no idle energy growth, cumulative register preserved")
+                    http("/api/connector/1/evse", {
+                        "evPlugged": False, "evsePlugged": False,
+                        "evReady": False, "evseReady": False})
                     sampled = [s for a, p in received if a == "TransactionEvent"
                                for m in p.get("meterValue", []) for s in m["sampledValue"]]
                     assert any(s.get("measurand") == "Power.Active.Import" and s["value"] > 0
@@ -201,8 +278,10 @@ async def main():
                     assert json.loads(http("/api/connector/2/meter"))["power"] == 0
                     # Ended transaction history may survive restart. Do not
                     # mistake retained history for a new active transaction.
+                    ended_ids = {p["transactionInfo"]["transactionId"] for a, p in received
+                                 if a == "TransactionEvent" and p["eventType"] == "Ended"}
                     assert json.loads(http("/api/connector/1/transaction"))["transactionId"] in (
-                        "", api_tx["transactionId"])
+                        {""} | ended_ids)
                     assert json.loads(http("/api/connector/2/transaction"))["transactionId"] == ""
                 finally:
                     process.terminate()

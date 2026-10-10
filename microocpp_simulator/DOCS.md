@@ -120,6 +120,17 @@ this App as proof of TxProfile execution; that needs the EVerest stage.
 
 ## Persistence and restart
 
+Version 0.1.3 refreshes simulated meter values at sampling time, including
+the final OCPP transaction sample. Unplug, local stop and remote stop report
+zero power/current while preserving accumulated energy. This fixes a 0.1.2
+ordering defect where HA retained the last approximately 11 kW reading after
+the transaction ended.
+
+The separate stale HA cumulative-energy sensor is **not fixed** by this App
+change. HA's zero-start heuristic can interpret the simulator register as
+session-only energy. See [METERING_INVESTIGATION.md](METERING_INVESTIGATION.md)
+for the verified cause, later-session risk and recommended integration tests.
+
 `/data/mo_store` holds protocol state and configuration. Startup updates only
 App-managed keys, retains other records and resets plug/ready booleans to
 false. The upstream energy accumulator is in memory, so a process restart
