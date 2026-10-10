@@ -35,3 +35,13 @@ jobs:
         run: |
           docker build -t microocpp:smoke -f microocpp_simulator/tests/Dockerfile.smoke .
           docker run --rm --network none microocpp:smoke
+      - name: Offline App entrypoint and shutdown
+        run: |
+          trap 'docker logs app-smoke; docker rm -f app-smoke' EXIT
+          docker create --network none --name app-smoke microocpp:test
+          docker cp microocpp_simulator/tests/offline-options.json app-smoke:/data/options.json
+          docker start app-smoke
+          sleep 3
+          docker exec app-smoke python3 -c 'import json, urllib.request; data=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/websocket")); assert data["backendUrl"] == ""; assert data["chargeBoxId"].startswith("SIM-")'
+          docker stop --time 12 app-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' app-smoke)" = "0"

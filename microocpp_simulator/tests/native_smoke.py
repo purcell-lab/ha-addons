@@ -127,6 +127,7 @@ async def main():
                                 "chargingSchedulePeriod": [{"startPeriod": 0, "limit": 1000}]}]}}]))
                     await until(lambda: "profile-gap" in responses, "profile capability response")
                     assert responses["profile-gap"][0] == 4, responses["profile-gap"]
+                    assert responses["profile-gap"][2] in ("NotImplemented", "NotSupported"), responses["profile-gap"]
                     # Network identity must be read-only through the CSMS device model.
                     await connections[0].send(json.dumps([2, "identity-guard", "SetVariables", {
                         "setVariableData": [{"attributeValue": "REAL-CHARGER",
