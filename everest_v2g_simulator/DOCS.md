@@ -1,5 +1,26 @@
 # EVerest DC V2G Test Charger
 
+## Staged CitrineOS migration
+
+Version 0.1.3 adds `csms_basic_auth_password`, an optional provisioned
+32-character lowercase hexadecimal test credential. Set the same credential
+in the dedicated CitrineOS station record through the isolated server options.
+Do not paste it into issues, logs, URLs or evidence bundles. An empty option
+keeps the original locally generated password; supplying a value never replaces
+that original file.
+
+Changing the CSMS still requires an explicit `archive_and_rebind` operation.
+First verify that no transaction is active, stop the App, preserve the prior
+options and state, and obtain migration approval. Archive old state rather than
+delete it. Clear `archive_and_rebind` after the single migration so it does not
+archive again on the next restart. Do not restore old transaction state onto a
+different CSMS. No real charger or BSV integration is included.
+
+The full demonstration scope and outstanding acceptance gates are in
+[`../docs/citrine-plugfest-acceptance.md`](../docs/citrine-plugfest-acceptance.md).
+The new image must be published through the approved release workflow before
+installation. A staged manifest is not proof that its image is available.
+
 A simulated bidirectional DC charging station built from
 [EVerest](https://everest.github.io/latest/how-to-guides/getting-started/get-started-sw.html)
 2025.10.0, with one EVSE, one CCS2 connector and a simulated EV. The charger

@@ -20,7 +20,7 @@ jobs:
           node-version: "24"
       - run: python3 -m pip install PyYAML==6.0.2
       - run: python3 -m unittest discover -s citrineos_server/tests -p test_packaging.py -v
-      - run: node --test citrineos_server/tests/launch.test.mjs
+      - run: node --test citrineos_server/tests/*.test.mjs
       - run: python3 -m unittest discover -s citrineos_simulator/tests -v
       - run: git diff --check
   private-stack:

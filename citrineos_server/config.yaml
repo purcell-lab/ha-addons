@@ -1,7 +1,7 @@
 name: CitrineOS Isolated Lab
-version: "0.3.0"
+version: "0.4.0"
 slug: citrineos_server
-description: Pinned v2.0.1 laboratory server with private dependencies and read-only authenticated access.
+description: Pinned v2.0.1 laboratory server with private dependencies, read-only access and opt-in scoped OCPP 2.1 simulator commands.
 url: https://github.com/purcell-lab/ha-addons
 arch:
   - amd64
@@ -24,6 +24,10 @@ options:
   api_token: ""
   simulator_enabled: false
   simulator_password: ""
+  profile_simulator_enabled: false
+  profile_simulator_password: ""
+  command_control_enabled: false
+  command_token: ""
 schema:
   mode: list(disconnected|isolated)
   database_host: str
@@ -35,3 +39,7 @@ schema:
   api_token: password
   simulator_enabled: bool
   simulator_password: password
+  profile_simulator_enabled: bool
+  profile_simulator_password: password
+  command_control_enabled: bool
+  command_token: password
