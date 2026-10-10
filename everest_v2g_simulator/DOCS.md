@@ -177,7 +177,9 @@ model is rebuilt from the options on every start.
 
 ## Install size
 
-EVerest is distributed only as a large build image. Home Assistant builds
-this App locally and must download about 4.3 GB compressed, with several
-times that in free disk during the build. The final image is about 560 MB (amd64) to 585 MB (aarch64),
-of which the Java runtime for the EV simulator is about 184 MB.
+Home Assistant pulls a prebuilt image for its architecture
+(`ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, about 560 MB on amd64
+and 585 MB on aarch64, of which the Java runtime for the EV simulator is
+about 184 MB) rather than building locally from EVerest's 4.3 GB build
+image. The image is published only through the approval-gated tag process
+in `RELEASE.md`.
