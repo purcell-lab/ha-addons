@@ -170,8 +170,9 @@ namespace on global or link-local addresses.
   by 24.5 s, +3,000 W by 44.7 s (22.5 Wh over 27.8 s, 23.2 Wh expected).
   HA's stop closed the transaction within 2 s and the self-test passed.
   One status sample at the start of charging read 24,750 W, above the
-  11 kW rating; HA's meter showed 11.0 kW. This is a larger case of the
-  start-up transient listed under the known limitations.
+  11 kW rating; HA's meter showed 11.0 kW. The documented transient
+  (13.5 kW) is at a direction change; this one was at the start of
+  charging and larger. Cause not established.
 - CI flake (PR #16, amd64, 2026-10-11): in `v2g21` the station accepted the
   profile but the first +6,000 W step never applied (11,000 W throughout);
   the -5,000 W and +3,000 W steps applied on time. A re-run passed. Not
