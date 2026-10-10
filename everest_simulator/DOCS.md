@@ -113,6 +113,6 @@ EVerest is distributed only as a large build image. Without a prebuilt App
 image, Home Assistant builds this App locally and must download about
 4.3 GB compressed and needs several times that in free disk during the
 build. The final
-image is much smaller (EVerest runtime about 125 MB plus Debian packages). A
+image is about 310 to 340 MB. A
 prebuilt App image would avoid the local build; publishing one is a separate,
 approval-gated step and is not part of this release.

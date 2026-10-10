@@ -6,8 +6,8 @@
 |---|---|
 | Unit tests (options, binding, device model, log parsing, log filter, UI service) | Pass locally; CI runs them on every PR |
 | nginx peer ACL and POST allowlist (real nginx) | Pass locally in Debian 12; CI |
-| End-to-end acceptance against a mock CSMS | Pass locally in a Debian 12 root with the extracted, stripped EVerest runtime (amd64). CI repeats it in the built image on amd64 and aarch64 |
-| Container image build | **CI only.** Not built locally (no Docker in the authoring sandbox) |
+| End-to-end acceptance against a mock CSMS | Pass locally (Debian 12 root, amd64) and in the built image in CI on amd64 and aarch64 ([run 38035593593](https://github.com/purcell-lab/ha-addons/actions/runs/38035593593)) |
+| Container image build | Pass in CI: amd64 308 MB, aarch64 334 MB. No listener outside loopback except Ingress 8099 |
 | Home Assistant install, HA OCPP CSMS, Ingress in a browser | **Not done.** Needs explicit approval and an isolated test central system |
 
 ## End-to-end acceptance (tests/acceptance.py)
@@ -41,6 +41,15 @@ integral of measured power (85.0 vs 85.6 Wh, and 85.0 vs 84.5 Wh); the Status
 page recorded the TxProfile with reply `Accepted` and the exact periods sent;
 RequestStopTransaction gave TransactionEvent `Ended` and 0 W; unplug returned
 to `Unplugged` with 0 A; the App exited with code 0.
+
+CI step means (A) for the same schedule:
+
+| Run | 4,000 W | 7,360 W | 0 W | 2,000 W | 7,360 W | Energy metered vs integrated |
+|---|---|---|---|---|---|---|
+| amd64 ocpp2.1 | 17.39 | 32.09 | 0.00 | 8.72 | 32.02 | 85.0 vs 85.0 Wh |
+| amd64 fallback | 17.39 | 32.07 | 0.00 | 8.72 | 31.99 | 85.0 vs 86.4 Wh |
+| aarch64 ocpp2.1 | 17.38 | 32.03 | 0.00 | 8.70 | 32.00 | 86.0 vs 85.5 Wh |
+| aarch64 fallback | 17.39 | 32.07 | 0.00 | 8.72 | 31.99 | 85.0 vs 85.1 Wh |
 
 ## Findings during development
 
