@@ -23,6 +23,15 @@ automations. No automatic deployment or connection is enabled.
 
 See [setup and limitations](microocpp_simulator/DOCS.md).
 
+### microocpp_simulator16
+
+Separate OCPP 1.6J smart-charging test App, with watt-based TxProfile,
+TxDefaultProfile and ChargePointMaxProfile control. Its `SIM-16-` identity
+and separate storage preserve the existing OCPP 2.0.1 experiment.
+Starts disconnected and is never installed or connected automatically.
+
+See [setup and limitations](microocpp_simulator16/DOCS.md).
+
 ### nem_price_forecaster
 
 NEM 7-day wholesale price forecaster sidecar. Configurable price model

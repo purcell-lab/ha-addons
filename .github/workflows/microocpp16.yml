@@ -1,0 +1,50 @@
+name: MicroOCPP 1.6 Smart Charging App
+on:
+  pull_request:
+    paths:
+      - "microocpp_simulator16/**"
+      - ".github/workflows/microocpp16.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: microocpp16-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y nginx
+      - run: python3 -m unittest discover -s microocpp_simulator16/tests -v
+      - run: git diff --check
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native image (no publication or deployment)
+        run: |
+          docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
+            --build-arg BUILD_VERSION=0.1.0 -t microocpp16:test microocpp_simulator16
+      - name: Native 1.6 smart-charging acceptance
+        run: |
+          docker build -t microocpp16:smoke -f microocpp_simulator16/tests/Dockerfile.smoke .
+          docker run --rm --network none microocpp16:smoke
+      - name: Offline App entrypoint and shutdown
+        run: |
+          trap 'docker logs app16-smoke; docker rm -f app16-smoke' EXIT
+          docker create --network none --name app16-smoke microocpp16:test
+          docker cp microocpp_simulator16/tests/offline-options.json app16-smoke:/data/options.json
+          docker start app16-smoke
+          sleep 3
+          docker exec app16-smoke python3 -c 'import json, urllib.request; data=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/websocket")); assert data["backendUrl"] == ""; assert data["chargeBoxId"] == "SIM-16-MICROOCPP-01"'
+          docker stop --time 12 app16-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' app16-smoke)" = "0"
