@@ -32,6 +32,18 @@ class T(unittest.TestCase):
         self.assertEqual(got, {("opt/everest", "changed", ("mode",)), ("opt/everest/bin/manager", "changed", ("sha256",)),
                                ("opt/everest/lib/libx.so", "changed", ("target",)), ("opt/everest/new", "added", ())})
         self.assertEqual([e["path"] for e in other], ["var/log/dpkg.log"])
+    def test_pyc_ignores_only_the_source_mtime_field(self):
+        head = b"\xa7\r\r\n" + b"\0\0\0\0"
+        a = tar([("x/m.pyc", "file", head + b"\1\0\0\0" + b"\x10\0\0\0" + b"code", 0o644, {})])
+        b = tar([("x/m.pyc", "file", head + b"\2\0\0\0" + b"\x10\0\0\0" + b"code", 0o644, {})])
+        c = tar([("x/m.pyc", "file", head + b"\2\0\0\0" + b"\x11\0\0\0" + b"code", 0o644, {})])
+        d = tar([("x/m.pyc", "file", head + b"\1\0\0\0" + b"\x10\0\0\0" + b"CODE", 0o644, {})])
+        self.assertEqual(itc.compare(a, b, ["x"]), ([], []))
+        self.assertEqual(len(itc.compare(a, c, ["x"])[0]), 1)  # source size differs
+        self.assertEqual(len(itc.compare(a, d, ["x"])[0]), 1)  # code differs
+        hashed = b"\xa7\r\r\n\1\0\0\0" + b"\1\0\0\0" + b"\x10\0\0\0" + b"code"
+        e = tar([("x/m.pyc", "file", hashed, 0o644, {})]); f = tar([("x/m.pyc", "file", hashed[:8] + b"\2" + hashed[9:], 0o644, {})])
+        self.assertEqual(len(itc.compare(e, f, ["x"])[0]), 1)  # hash-based pyc compared in full
     def test_prefix_is_a_path_boundary(self):
         self.assertTrue(itc.under("opt/everest/x", ["opt/everest"])); self.assertFalse(itc.under("opt/everest2", ["opt/everest"]))
     def test_dot_slash_and_dotfiles(self):

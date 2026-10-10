@@ -7,7 +7,9 @@ Usage:
 Both images are exported with `docker create` and `docker export`. Every
 path is recorded with its type, permission bits, owner, and either the
 SHA-256 of its content (files) or its target (links). Timestamps are not
-compared.
+compared. For timestamp-based Python bytecode (.pyc, PEP 552 flags 0) the
+4-byte source mtime field is the build checkout time, so it is excluded
+from the hash; magic, flags, source size and code are still compared.
 
 Paths under a --strict prefix must be identical: any added, removed or
 changed path there fails the check (exit 1). Differences elsewhere are
@@ -48,8 +50,15 @@ def tree_from_tar(stream):
             if member.isfile():
                 digest = hashlib.sha256()
                 handle = tar.extractfile(member)
-                for chunk in iter(lambda: handle.read(1 << 20), b""):
-                    digest.update(chunk)
+                if path.endswith(".pyc"):
+                    data = handle.read()
+                    if len(data) >= 16 and data[4:8] == b"\0\0\0\0":
+                        data = data[:8] + data[12:]
+                        record["pyc_mtime_ignored"] = True
+                    digest.update(data)
+                else:
+                    for chunk in iter(lambda: handle.read(1 << 20), b""):
+                        digest.update(chunk)
                 record["sha256"] = digest.hexdigest()
                 record["size"] = member.size
             elif member.issym() or member.islnk():
@@ -94,7 +103,7 @@ def compare(reference, candidate, strict):
     return strict_diffs, other
 
 
-def summarise(entries, limit=40):
+def summarise(entries, limit=200):
     lines = []
     for entry in entries[:limit]:
         detail = ",".join(entry.get("fields", [])) if entry["change"] == "changed" else ""
