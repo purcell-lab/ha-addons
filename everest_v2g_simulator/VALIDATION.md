@@ -164,6 +164,18 @@ namespace on global or link-local addresses.
   within 2 s. After unplug the self-test passed. This shows receipt,
   acceptance and execution of one 2.1 TxProfile through HA; it is not a
   conformance result.
+- Repeat (2026-10-11 08:12 AEST, transaction
+  `c227697d-9167-4e59-a2ae-76acb8741653`, profile 210302): the same
+  result. +6,000 W from 0 s (33.3 Wh import, 33.5 Wh expected), -5,000 W
+  by 24.5 s, +3,000 W by 44.7 s (22.5 Wh over 27.8 s, 23.2 Wh expected).
+  HA's stop closed the transaction within 2 s and the self-test passed.
+  One status sample at the start of charging read 24,750 W, above the
+  11 kW rating; HA's meter showed 11.0 kW. This is a larger case of the
+  start-up transient listed under the known limitations.
+- CI flake (PR #16, amd64, 2026-10-11): in `v2g21` the station accepted the
+  profile but the first +6,000 W step never applied (11,000 W throughout);
+  the -5,000 W and +3,000 W steps applied on time. A re-run passed. Not
+  yet reproduced on HA OS; cause not established.
 
 ## Not claimed
 
