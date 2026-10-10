@@ -142,7 +142,7 @@ The line ends with `unscoped-multicast-via=<interface>`: the interface
 a request to `ff02::1` would leave by if the sender did not choose one,
 read from the routing table without sending anything. Upstream Josev did
 not choose one, and on Home Assistant OS this is `eth0`, which is why
-0.1.0's EV never reached the charger there. 0.1.1 patches the EV to send
+0.1.0 and 0.1.1's EV never reached the charger there. 0.1.2 patches the EV to send
 on `v2g1`, and the firewall drops SDP that would leave by any other
 interface (counter `SDP kept on the private link`).
 

@@ -1,4 +1,4 @@
-# Validation record, 0.1.1
+# Validation record, 0.1.2
 
 ## Evidence levels
 
@@ -88,7 +88,7 @@ namespace on global or link-local addresses.
 - Re-plugging within about 4 s of unplug, while the previous TLS session
   was still closing, prevented a new discovery; the test waits 15 s.
 
-## Discovery diagnostics and recovery (0.1.1)
+## Discovery diagnostics and recovery (0.1.1 and 0.1.2)
 
 - Every image run (`ci_image_checks.sh`) requires `Discovery self-test
   PASSED: unicast=reply multicast=reply` in the offline App log, and an
@@ -122,7 +122,7 @@ namespace on global or link-local addresses.
   so that is the private link; on HA OS it is `eth0` on the Supervisor
   network. Reproduced in a network namespace with a second interface: the
   unscoped request left by that interface, and with the interface set it
-  went from `v2g1` to `v2g0`. 0.1.1 patches Josev to use `v2g1`, drops any
+  went from `v2g1` to `v2g0`. 0.1.2 patches Josev to use `v2g1`, drops any
   SDP that would leave by another interface, and CI repeats `recovery`
   with a bridge network attached (an `eth0`, as on HA OS).
 
