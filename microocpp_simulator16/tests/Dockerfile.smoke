@@ -1,0 +1,5 @@
+FROM microocpp16:test
+RUN apk add --no-cache py3-websockets
+COPY microocpp_simulator16/tests/smart_charging.py /test/smart_charging.py
+COPY microocpp_simulator16/tests/plugfest_schedule.py /test/plugfest_schedule.py
+ENTRYPOINT ["python3", "/test/smart_charging.py", "/opt/microocpp"]
