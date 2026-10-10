@@ -24,10 +24,6 @@ echo "== Offline, discovery recovery, OCPP 2.1 V2G, 2.0.1 fallback and pinned 2.
 docker tag "$IMAGE" everest-v2g:test
 docker build -q -t everest-v2g:smoke -f "$TESTS/Dockerfile.smoke" .
 docker run --rm --network none --cap-add NET_ADMIN everest-v2g:smoke
-echo "== Discovery with a second interface (eth0, as on Home Assistant OS)"
-# Upstream Josev sent SDP by the first multicast route, which is eth0 here
-# and on HA OS; only the patched EV completes discovery in this run.
-docker run --rm --network bridge --cap-add NET_ADMIN everest-v2g:smoke recovery
 
 echo "== Fails closed without NET_ADMIN"
 nocap="v2g-nocap-$$"
@@ -45,6 +41,14 @@ name="v2g-check-$$"
 net="v2g-net-$$"
 trap 'docker logs "$name" 2>&1 | tail -80; docker rm -f "$name" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
 docker network create --ipv6 --subnet 172.31.250.0/24 --subnet fd00:2026:10::/64 "$net" >/dev/null
+
+echo "== Discovery with an IPv6 eth0 (as on Home Assistant OS)"
+# Upstream Josev sent SDP by the first multicast route, which is eth0 on this
+# IPv6 network and on HA OS; only the patched EV completes discovery here.
+docker run --rm --network "$net" --cap-add NET_ADMIN everest-v2g:smoke recovery > /tmp/recovery-eth0.log 2>&1 \
+  || { tail -120 /tmp/recovery-eth0.log; exit 1; }
+grep "unscoped multicast via" /tmp/recovery-eth0.log
+grep -q "unscoped multicast via eth0" /tmp/recovery-eth0.log
 docker create --network "$net" --cap-add NET_ADMIN --name "$name" "$IMAGE" >/dev/null
 docker cp "$TESTS/offline-options.json" "$name":/data/options.json
 docker cp "$TESTS/listeners.py" "$name":/tmp/listeners.py
