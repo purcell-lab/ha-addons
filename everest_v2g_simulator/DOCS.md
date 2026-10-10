@@ -179,5 +179,5 @@ model is rebuilt from the options on every start.
 
 EVerest is distributed only as a large build image. Home Assistant builds
 this App locally and must download about 4.3 GB compressed, with several
-times that in free disk during the build. The final image is about 550 MB,
+times that in free disk during the build. The final image is about 560 MB (amd64) to 585 MB (aarch64),
 of which the Java runtime for the EV simulator is about 184 MB.

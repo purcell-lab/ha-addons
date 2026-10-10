@@ -6,8 +6,8 @@
 |---|---|
 | Unit tests (options, ratings, OCPP string limits, binding, device model, EVerest wiring, test PKI with openssl, firewall ruleset, link-local parsing, isolation setup fail-closed, log parsing, UI service) | Pass locally; CI runs them on every PR |
 | nginx peer ACL and POST allowlist (real nginx) | Pass locally in Debian 12; CI |
-| End-to-end acceptance against a mock CSMS | Pass locally (Debian 12 root, amd64, own network namespace). CI runs it in the built image on amd64 and aarch64 |
-| Container image, fail-closed without NET_ADMIN, listener check, external firewall probe with negative control | CI only (the local sandbox kernel has no nf_tables, so local runs used a test stub for `nft`) |
+| End-to-end acceptance against a mock CSMS | Pass locally (Debian 12 root, amd64, own network namespace) and in the built image in CI on amd64 and aarch64 ([run 38044772282](https://github.com/purcell-lab/ha-addons/actions/runs/38044772282)) |
+| Container image, fail-closed without NET_ADMIN, listener check, external firewall probe with negative control | Pass in CI on amd64 and aarch64 ([run 38044772282](https://github.com/purcell-lab/ha-addons/actions/runs/38044772282)), with real nftables. Images: amd64 559 MB, aarch64 585 MB. Local runs used a test stub for `nft` because the sandbox kernel has no nf_tables |
 | Home Assistant install, HA OCPP CSMS, Ingress in a browser | **Not done.** Needs explicit approval and an isolated test central system. Whether HA's App network gives the veth pair IPv6 link-local addresses is unverified until then; if it does not, the App fails closed with a clear log line |
 
 ## End-to-end acceptance (tests/acceptance.py)
@@ -46,6 +46,10 @@ at the 11,000 W default; the App exited with code 0.
 4,000 W mean, and no sample showed discharge.
 
 ## Firewall evidence (CI)
+
+Result in [run 38044772282](https://github.com/purcell-lab/ha-addons/actions/runs/38044772282): from a second container, SDP `silent` and TCP 8099 and 50000
+`dropped` on both 172.31.250.2 and fd00:2026:10::2; after deleting the
+table, TCP 8099 `connected`; the private-link SDP probe got a `reply`.
 
 On a user-defined Docker network with IPv4 and IPv6, a second container
 probes the App: an SDP request to UDP 15118 gets no reply, and TCP 8099
