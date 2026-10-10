@@ -1,4 +1,5 @@
 """Diagnostics parsing, self-test verdicts and the PyEvJosev restart patch."""
+import asyncio
 import json
 from pathlib import Path
 import socket
@@ -6,6 +7,7 @@ import struct
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -143,7 +145,9 @@ class SelftestTest(unittest.TestCase):
         self.assertEqual(self.saved[0]("fe80::1", "no-such-if0")["result"], "error")
 
 
-UPSTREAM_LOOP = '''    def start_evcc_handler(self):
+# The two upstream methods the patch edits, verbatim from everest-core
+# 2025.10.0 modules/EV/PyEvJosev/module.py (not adjacent upstream).
+UPSTREAM = '''    def start_evcc_handler(self):
         while True:
             self._ready_event.wait()
             try:
@@ -153,71 +157,114 @@ UPSTREAM_LOOP = '''    def start_evcc_handler(self):
                 log.debug("SECC program terminated manually")
                 break
             self._ready_event.clear()
+
+    def _handler_start_charging(self, args) -> bool:
+
+        self._es.EnergyTransferMode = args['EnergyTransferMode']
+
+        self._ready_event.set()
+
+        return True
 '''
+UPSTREAM_FILE = Path("/tmp/everest-core/modules/EV/PyEvJosev/module.py")
+
+
+class Log:
+    def __init__(self):
+        self.lines = []
+
+    def error(self, text):
+        self.lines.append(text)
+
+    debug = error
+
+
+def load(behaviours):
+    """Patched class with Josev replaced by scripted main loops."""
+    namespace = {"asyncio": asyncio, "log": Log()}
+    runs = []
+
+    async def main_loop(config):
+        behaviour = behaviours[len(runs)]
+        runs.append(behaviour)
+        if behaviour == "hang":  # Josev after SDPFailedError: never returns
+            await asyncio.Event().wait()
+        elif behaviour == "fail":
+            raise RuntimeError("SDPRequest was not successful")
+        elif behaviour == "exit":
+            raise KeyboardInterrupt
+
+    namespace["evcc_handler_main_loop"] = main_loop
+    exec("class Module:\n" + patch_josev.patch(UPSTREAM), namespace)
+    module = namespace["Module"]()
+    module._ready_event = threading.Event()
+    module._setup = type("S", (), {"configs": type("C", (), {"module": {}})()})()
+    module._es = type("E", (), {})()
+    module.published = []
+    module._mod = type("M", (), {"publish_variable": lambda self, *a: module.published.append(a)})()
+    return module, runs, namespace["log"]
+
+
+def plug_in(module):
+    return module._handler_start_charging({"EnergyTransferMode": "DC_extended"})
+
+
+def wait_until(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
 
 
 class PatchJosevTest(unittest.TestCase):
-    def test_patch_keeps_loop_alive_and_is_idempotent(self):
-        patched = patch_josev.patch(UPSTREAM_LOOP)
+    def test_patch_is_idempotent_and_compiles(self):
+        patched = patch_josev.patch(UPSTREAM)
         self.assertIn(patch_josev.MARKER, patched)
-        self.assertIn("except Exception as error:", patched)
         self.assertEqual(patch_josev.patch(patched), patched)
         compile("class X:\n" + patched, "patched", "exec")
 
-    def test_patched_loop_survives_a_failed_session(self):
-        namespace = {}
-        code = "class Module:\n" + patch_josev.patch(UPSTREAM_LOOP)
-        calls = []
+    def test_new_plug_in_replaces_a_hung_stack(self):
+        module, runs, log = load(["hang", "ok", "exit"])
+        thread = threading.Thread(target=module.start_evcc_handler, daemon=True)
+        thread.start()
+        plug_in(module)
+        self.assertTrue(wait_until(lambda: module._ha_stack is not None))
+        plug_in(module)  # re-plug while the first stack is stuck
+        self.assertTrue(wait_until(lambda: len(runs) == 2 and module._ha_stack is None))
+        self.assertIn("replaced by a new plug-in", log.lines[0])
+        plug_in(module)
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(runs, ["hang", "ok", "exit"])
+        self.assertEqual(len(module.published), 2)
 
-        class Event:
-            def __init__(self):
-                self.waits = 0
-
-            def wait(self):
-                self.waits += 1
-                if self.waits > 2:
-                    raise KeyboardInterrupt  # stop the test after two plug-ins
-
-            def clear(self):
-                pass
-
-        class Asyncio:
-            @staticmethod
-            def run(coro):
-                calls.append(coro)
-                if len(calls) == 1:
-                    raise RuntimeError("SDPRequest was not successful")
-
-        class Log:
-            errors = []
-
-            @classmethod
-            def error(cls, text):
-                cls.errors.append(text)
-
-            debug = error
-
-        namespace.update(asyncio=Asyncio, log=Log, evcc_handler_main_loop=lambda cfg: "session")
-        exec(code, namespace)
-        module = namespace["Module"]()
-        module._ready_event = Event()
-        module._setup = type("S", (), {"configs": type("C", (), {"module": {}})()})()
-        published = []
-        module._mod = type("M", (), {"publish_variable": lambda self, *a: published.append(a)})()
-        with self.assertRaises(KeyboardInterrupt):
-            module.start_evcc_handler()
-        self.assertEqual(len(calls), 2)  # the second plug-in ran a fresh stack
-        self.assertIn("stack stopped (RuntimeError", Log.errors[0])
-        self.assertEqual(len(published), 2)
+    def test_failed_session_waits_for_next_plug_in(self):
+        module, runs, log = load(["fail", "exit"])
+        thread = threading.Thread(target=module.start_evcc_handler, daemon=True)
+        thread.start()
+        plug_in(module)
+        self.assertTrue(wait_until(lambda: module.published))
+        self.assertIn("stack stopped (RuntimeError", log.lines[0])
+        plug_in(module)
+        thread.join(5)
+        self.assertEqual(runs, ["fail", "exit"])
 
     def test_refuses_unexpected_upstream(self):
         with self.assertRaises(ValueError):
-            patch_josev.patch(UPSTREAM_LOOP.replace("break", "return"))
+            patch_josev.patch(UPSTREAM.replace("break", "return"))
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "module.py"
-            path.write_text("class X:\n" + UPSTREAM_LOOP)
+            path.write_text("class X:\n" + UPSTREAM)
             patch_josev.main(path)
             self.assertIn(patch_josev.MARKER, path.read_text())
+
+    @unittest.skipUnless(UPSTREAM_FILE.exists(), "everest-core checkout not present")
+    def test_matches_real_upstream_file(self):
+        patched = patch_josev.patch(UPSTREAM_FILE.read_text())
+        compile(patched, "module.py", "exec")
+        self.assertIn(patch_josev.MARKER, patched)
 
 
 if __name__ == "__main__":

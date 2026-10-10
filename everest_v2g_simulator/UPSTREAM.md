@@ -48,13 +48,15 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
 ## Local patch
 
 `patch_josev.py` runs at image build and edits one file,
-`PyEvJosev/module.py` from everest-core 2025.10.0. Upstream's
-`start_evcc_handler` loop catches only KeyboardInterrupt, so any session
-error (for example `SDPFailedError` after unanswered discovery) ends the
-thread and no later plug-in starts an EV stack. The patch adds an
-`except Exception` branch that logs the error, publishes
-`v2g_session_finished` and waits for the next plug-in. The build fails if
-the upstream anchor text changes, and the image checks assert the marker.
+`PyEvJosev/module.py` from everest-core 2025.10.0. Upstream runs one Josev
+EVCC per plug-in with `asyncio.run()`. After `SDPFailedError` Josev logs
+the error and keeps waiting, so `asyncio.run()` never returns and no later
+plug-in starts an EV stack; other errors end the loop, which catches only
+KeyboardInterrupt. The patch runs each EVCC on its own event loop, lets
+`start_charging` (a new plug-in) cancel a stack that is still running,
+logs every stop, publishes `v2g_session_finished` and clears the plug-in
+event before each run. The build fails if either upstream anchor changes,
+and the image checks assert the marker.
 
 ## Upstream behaviours to report
 
@@ -71,7 +73,8 @@ VALIDATION.md:
    the total.
 4. EnergyManager applies the board's AC minimum current to a DC EVSE.
 5. libocpp aborts on a GetCertificateStatus reply without `status`.
-6. PyEvJosev's plug-in loop ends after one failed session (Local patch).
+6. PyEvJosev never starts a new EV stack after a failed discovery
+   (Local patch).
 7. libiso15118 v0.9.0 `TbdController` creates a session for each answered
    SDP request and ignores all later requests until it ends. A session
    whose peer never connects never ends, so one stray SDP request blocks

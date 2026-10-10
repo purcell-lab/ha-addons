@@ -93,12 +93,13 @@ and power come only from the CSMS.
 Live readings show direction, signed power (negative is discharge), meter
 import and export energy, DC voltage and current, and the rated power.
 
-Each plug-in starts a fresh EV ISO 15118 stack. Upstream PyEvJosev ends
-its plug-in loop when one session fails, for example on an unanswered
-discovery request, so every later plug-in did nothing until a restart. The
-App patches that loop (UPSTREAM.md): a failed session logs `ha-everest: EV
-ISO 15118 stack stopped (<error>); ready for the next plug-in`, reports the
-session finished, and the next plug-in retries. The Status page and the HA
+Each plug-in starts a fresh EV ISO 15118 stack. In upstream PyEvJosev, a
+failed discovery leaves the EV stack idle without returning, so every
+later plug-in did nothing until a restart. The App patches the module
+(UPSTREAM.md): a new plug-in replaces a stack that is still running and
+logs `ha-everest: EV ISO 15118 stack stopped (replaced by a new plug-in)`;
+other EV stack errors are logged the same way and the next plug-in
+retries. The Status page and the HA
 status object count these restarts as `ev_stack_restarts`.
 
 ## Discovery diagnostics

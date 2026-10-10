@@ -10,9 +10,10 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
   pinned201  App option ocpp_version 2.0.1; CSMS prefers 2.1 -> ocpp2.0.1
   offline    Empty csms_url: no connection attempt leaves the host; the
              discovery self-test passes at start
-  recovery   Discovery blocked on the private link: the EV's SDP request
-             fails and the patched EV stack stops cleanly; after unblocking,
-             unplug and plug-in, a fresh EV stack completes discovery
+  recovery   Discovery blocked on the private link: the EV's SDP requests
+             fail and upstream Josev idles; after unblocking, unplug and
+             plug-in, the patched module replaces that stack and a fresh
+             EV stack completes discovery
 
 Each charging step compares mean measured DC power with the setpoint, and
 metered import and export energy with the integral of measured power.
@@ -51,9 +52,9 @@ def setpoint_period(offset, watts):
             "setpoint": float(watts), "operationMode": "CentralSetpoint"}
 
 
-def http(path, method="GET"):
+def http(path, method="GET", timeout=5):
     req = urllib.request.Request(UI + path, method=method, headers={"X-HA-EVerest": "1"})
-    with urllib.request.urlopen(req, timeout=5) as response:
+    with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.loads(response.read())
 
 
@@ -329,23 +330,29 @@ async def recovery_scenario():
             "counter", "drop", "comment", '"acceptance block"')
         before = log_text(app).count("Got SDP request")
         assert http("/api/ev/plugin", "POST")["sent"]
-        await wait_for(lambda: "ha-everest: EV ISO 15118 stack stopped" in log_text(app), 90,
-                       what="EV stack stopped after the SDP failure")
+        await wait_for(lambda: "SDPRequest was not successful" in log_text(app), 90,
+                       what="EV discovery failure")
         assert log_text(app).count("Got SDP request") == before, "blocked SDP still reached the charger"
         listing = nft("-a", "list", "chain", "inet", "ha_everest_v2g", "input")
         handle = [line.rsplit("# handle ", 1)[1] for line in listing.splitlines() if "acceptance block" in line][0]
         nft("delete", "rule", "inet", "ha_everest_v2g", "input", "handle", handle.strip())
-        await wait_for(lambda: http("/api/status")["app"].get("ev_stack_restarts") == 1, 10,
-                       what="restart counted")
         http("/api/ev/unplug", "POST")
         await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged")
         await asyncio.sleep(5)
         assert http("/api/ev/plugin", "POST")["sent"]
+        await wait_for(lambda: "stack stopped (replaced by a new plug-in)" in log_text(app), 30,
+                       what="stuck EV stack replaced")
+        await wait_for(lambda: http("/api/status")["app"].get("ev_stack_restarts") == 1, 10,
+                       what="restart counted")
         await wait_for(lambda: log_text(app).count("Got SDP request") > before, 60,
                        what="discovery by a fresh EV stack after re-plug")
-        selftest = http("/api/diag/selftest", "POST")
-        assert selftest["pass"], selftest
+        await wait_for(lambda: "SDPResponse received" in log_text(app).rsplit("replaced by a new plug-in", 1)[1],
+                       30, what="SDP response to the fresh EV stack")
         http("/api/ev/unplug", "POST")
+        await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged again")
+        await asyncio.sleep(15)  # the charger's session closes after unplug
+        selftest = http("/api/diag/selftest", "POST", timeout=20)
+        assert selftest["pass"], selftest
     finally:
         code = app.stop()
     assert code == 0

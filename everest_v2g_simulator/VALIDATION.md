@@ -94,14 +94,19 @@ namespace on global or link-local addresses.
   PASSED: unicast=reply multicast=reply` in the offline App log, and an
   `/api/diagnostics` snapshot with addresses on both link ends, an SDP
   listener and a nonzero `private V2G link` firewall counter.
-- Acceptance scenario `recovery` blocks SDP into `v2g0`, plugs in, and
-  requires the patched EV stack to log that it stopped, with no SDP request
-  reaching the charger and `ev_stack_restarts` 1. After unblocking, unplug
-  and plug-in, a fresh EV stack completes discovery.
+- Acceptance scenario `recovery` blocks SDP into `v2g0`, plugs in and
+  waits for Josev's `SDPRequest was not successful`, with no SDP request
+  reaching the charger. After unblocking, unplug and plug-in, the patched
+  module must replace the idle stack (`ev_stack_restarts` 1) and the fresh
+  stack must receive an SDP response. The self-test then passes again.
+- CI also showed that the charger ignores SDP requests while a session it
+  answered is still open, and such a session never ends if no TCP
+  connection follows. The self-test therefore releases each session it
+  opens (DOCS.md, Discovery diagnostics).
 - Field finding that led to 0.1.1: on Home Assistant OS the EV's SDP
   requests timed out although the SDP server had started on `v2g0` and
   link-local addresses were present; the same image passes in CI. The
-  0.1.0 EV loop then stopped, so later plug-ins did nothing. The self-test
+  0.1.0 EV stack then idled, so later plug-ins did nothing. The self-test
   result and packet counts on HA OS are the next evidence; the cause is not
   yet established.
 
