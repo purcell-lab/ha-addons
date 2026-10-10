@@ -87,7 +87,7 @@ Set `simulator_enabled=true` with a distinct generated 40-hex
 `simulator_password` to enable internal port 8081, OCPP 2.0.1 only, native Security
 Profile 1, fixed tenant 1 and unknown-station rejection. No host port is published.
 Startup provisions only `SIM-CITRINE-LAB-01`, Accepted boot status and the synthetic
-`SIM-CITRINE-TEST` token. It refuses provisioning if any different station is in
+`C17E0001` token. It refuses provisioning if any different station is in
 this dedicated database. Parameters are bound through PostgreSQL, never SQL
 interpolated or exposed in an HTTP SQL endpoint.
 

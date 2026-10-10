@@ -176,7 +176,7 @@ def run():
                     trial_started = time.monotonic()
                     print(json.dumps({"bounded_trial": trial_id, "phase": "starting", "meter": meter}), flush=True)
                     local_api("/api/connector/1/evse", {k: True for k in flags})
-                    local_api("/api/connector/1/transaction", {"idTag": "SIM-CITRINE-TEST"})
+                    local_api("/api/connector/1/transaction", {"idTag": "C17E0001"})
                 if trial_started is not None and time.monotonic() - trial_started >= 45:
                     local_api("/api/connector/1/evse", {k: False for k in flags})
                     print(json.dumps({"bounded_trial": trial_id, "phase": "stopped", "meter_before_stop": meter}), flush=True)

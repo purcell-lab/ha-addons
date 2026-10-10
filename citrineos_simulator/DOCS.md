@@ -15,7 +15,7 @@ unknown station admission is disabled. This is cleartext on the trusted private
 Supervisor network, not TLS or internet-safe charging access. No physical
 charger identity is admitted. Never reuse this credential outside the lab.
 
-Use connector 1 only, with test token `SIM-CITRINE-TEST`. Enable plug and both
+Use connector 1 only, with test token `C17E0001`. Enable plug and both
 readiness controls, start a transaction, observe power and energy, then unplug.
 An independent App watchdog ends simulated charging after 180 seconds from first
 positive power even if the orchestration client disappears. This is a synthetic
@@ -36,7 +36,7 @@ The upstream source, licence and retained patches are described in `UPSTREAM.md`
 
 `bounded_trial_id` defaults empty. Set a new safe identifier only to explicitly
 request one synthetic connector-1 charging trial. After 30 seconds for registration,
-the App sets readiness and presents `SIM-CITRINE-TEST`, then removes readiness
+the App sets readiness and presents `C17E0001`, then removes readiness
 45 seconds later. A persistent journal records the identifier before starting, so
 restarts do not replay it. Use server transaction records to verify acceptance
 and closure; the timer alone does not establish either. No control port is opened

@@ -15,6 +15,17 @@ export async function seedSimulator(o) {
       VALUES ('SIM-CITRINE-LAB-01',1,false,true,NOW(),NOW()) ON CONFLICT DO NOTHING`);
     const {rows:[station]}=await db.query(`SELECT id FROM "ChargingStations"
       WHERE "tenantId"=1 AND "ocppConnectionName"='SIM-CITRINE-LAB-01'`);
+    for (const n of [1,2]) {
+      await db.query(`INSERT INTO "Evses"
+        ("stationId","tenantId","evseTypeId",removed,"createdAt","updatedAt")
+        VALUES ($1,1,$2,false,NOW(),NOW()) ON CONFLICT DO NOTHING`,[station.id,n]);
+      const {rows:[evse]}=await db.query(`SELECT id FROM "Evses"
+        WHERE "stationId"=$1 AND "tenantId"=1 AND "evseTypeId"=$2`,[station.id,n]);
+      await db.query(`INSERT INTO "Connectors"
+        ("stationId","tenantId","evseId","connectorId","evseTypeConnectorId",status,"errorCode",timestamp,"createdAt","updatedAt")
+        VALUES ($1,1,$2,$3,1,'Available','NoError',NOW(),NOW(),NOW()) ON CONFLICT DO NOTHING`,
+        [station.id,evse.id,n]);
+    }
     await db.query(`INSERT INTO "Boots"
       ("stationId","tenantId",status,"heartbeatInterval","bootRetryInterval","getBaseReportOnPending","createdAt","updatedAt")
       VALUES ($1,1,'Accepted',30,10,false,NOW(),NOW())
@@ -32,7 +43,7 @@ export async function seedSimulator(o) {
       [station.id,component.id,variable.id,o.simulator_password]);
     await db.query(`INSERT INTO "Authorizations"
       ("idToken","idTokenType","tenantId",status,"concurrentTransaction","isPrepaid","createdAt","updatedAt")
-      VALUES ('SIM-CITRINE-TEST','ISO14443',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);
+      VALUES ('C17E0001','ISO14443',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);
     await db.query('COMMIT');
   } catch {
     await db.query('ROLLBACK');

@@ -38,7 +38,7 @@ with urllib.request.urlopen(r,timeout=3) as response: print(response.read().deco
     start_energy=before["energy"]
     try:
         api("/api/connector/1/evse",{k:True for k in ("evPlugged","evsePlugged","evReady","evseReady")})
-        api("/api/connector/1/transaction",{"idTag":"SIM-CITRINE-TEST"})
+        api("/api/connector/1/transaction",{"idTag":"C17E0001"})
         live=until(lambda:(m if (m:=api("/api/connector/1/meter"))["power"]>0 else None),"Positive power")
         until(lambda:any(t["isActive"] for t in gql('query { Transactions { isActive } }')["Transactions"]),"Active transaction")
         samples=until(lambda:(rows if (rows:=gql('query { MeterValues(order_by:{timestamp:desc},limit:15) { sampledValue } }')["MeterValues"])
