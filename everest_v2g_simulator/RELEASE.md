@@ -1,0 +1,49 @@
+# Publishing the prebuilt image
+
+`config.yaml` sets
+`image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, so Home Assistant pulls `<image>:<version>` for its architecture (about 560 to
+585 MB) instead of building locally from the 4.3 GB EVerest build image.
+Each step below is a separate operator decision; none happens automatically.
+
+## Steps
+
+1. **Approve publication** of a public container image with the EVerest
+   runtime and Josev (Apache-2.0), Debian's OpenJDK 17 (GPLv2 with the
+   Classpath Exception, copyright files under `/usr/share/doc/`) and this
+   App's packaging.
+2. **Push the release tag** on the reviewed commit (the PR head):
+
+   ```bash
+   git tag -a everest_v2g_simulator-v0.1.0 -m "EVerest DC V2G test charger 0.1.0" <commit>
+   git push origin everest_v2g_simulator-v0.1.0
+   ```
+
+   `everest-v2g-publish.yml` then, per architecture: checks the tag matches
+   `config.yaml`, refuses to overwrite an existing version, builds, runs the
+   same release gate as PR CI (`tests/ci_image_checks.sh`: DC V2G modules
+   and no private keys; V2G, fallback, pinned 2.0.1 and offline acceptance;
+   fail-closed without NET_ADMIN; listeners; external firewall probe with
+   negative control; clean shutdown), pushes only the version tag (no
+   `latest`) and adds a build provenance attestation. The run summary records each digest.
+3. **Make both packages public** (new GHCR packages start private):
+   GitHub, purcell-lab profile, Packages, `amd64-everest-v2g-simulator`,
+   Package settings, Change visibility, Public. Repeat for
+   `aarch64-everest-v2g-simulator`. Optionally link each package to this
+   repository.
+4. **Re-run the PR checks.** The `published-image` job confirms anonymous
+   pulls for both architectures. It fails until steps 2 and 3 are done, which
+   prevents merging a manifest that HA cannot install.
+5. **Merge** only after explicit approval. Install, start and connection
+   remain separate approvals.
+
+## Rules
+
+- A published version is never replaced. Fixes need a version bump and a
+  new tag.
+- Only tags matching `everest_v2g_simulator-v*` publish. Pull requests and
+  branch pushes never do; the job token can write only this repository's
+  packages.
+- Verify a pull independently: `docker manifest inspect
+  ghcr.io/purcell-lab/amd64-everest-v2g-simulator:0.1.0` (no login).
+- Attestation check: `gh attestation verify
+  oci://ghcr.io/purcell-lab/amd64-everest-v2g-simulator:0.1.0 --owner purcell-lab`.
