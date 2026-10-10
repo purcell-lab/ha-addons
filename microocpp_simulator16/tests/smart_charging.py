@@ -99,9 +99,9 @@ async def main():
     async def install(p, connector=1):
         return await call("SetChargingProfile", {"connectorId": connector, "csChargingProfiles": p})
 
-    async def power_is(limit):
+    async def power_is(limit, timeout=15):
         await until(lambda: abs(http("/api/connector/1/meter")["power"] - limit) <= 12,
-                    f"power reaches {limit}")
+                    f"power reaches {limit}", timeout)
         power = http("/api/connector/1/meter")["power"]
         assert power <= limit, (power, limit)
 
@@ -187,11 +187,18 @@ async def main():
                     assert (await call("ClearChargingProfile", {"id": 10}))["status"] == "Accepted"
                     await power_is(11000)
                     # Expiry must remove the temporary cap rather than latch it.
-                    expiry = datetime.now(timezone.utc) + timedelta(seconds=2)
-                    assert (await install(profile(13, 4200, validTo=expiry.isoformat())))["status"] == "Accepted"
-                    await power_is(4200)
-                    await asyncio.sleep(2.2)
-                    await power_is(11000)
+                    for future_period in (False, True):
+                        now = datetime.now(timezone.utc)
+                        expiry = now + timedelta(seconds=2)
+                        expiring = profile(13, 4200, validTo=expiry.isoformat())
+                        expiring["chargingSchedule"]["startSchedule"] = now.isoformat()
+                        if future_period:
+                            expiring["chargingSchedule"]["chargingSchedulePeriod"].append(
+                                {"startPeriod": 10, "limit": 7000})
+                        assert (await install(expiring))["status"] == "Accepted"
+                        await power_is(4200)
+                        await asyncio.sleep(2.2)
+                        await power_is(11000, timeout=1.5)
                     energy = http("/api/connector/1/meter")["energy"]
                     http("/api/connector/1/evse", {"evPlugged": False, "evsePlugged": False,
                                                   "evReady": False, "evseReady": False})

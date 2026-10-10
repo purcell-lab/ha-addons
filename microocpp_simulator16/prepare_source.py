@@ -55,10 +55,11 @@ def prepare(root):
             "    return chargingSchedule.calculateLimit(t, startOfCharging, limit, nextChange);",
             "    // Re-evaluate when the profile validity window expires, even\n"
             "    // if its final schedule period has no subsequent boundary.\n"
+            "    const bool defined = chargingSchedule.calculateLimit(t, startOfCharging, limit, nextChange);\n"
             "    if (validTo > MIN_TIME) {\n"
             "        nextChange = std::min(nextChange, validTo);\n"
             "    }\n"
-            "    return chargingSchedule.calculateLimit(t, startOfCharging, limit, nextChange);")
+            "    return defined;")
 
     # Same sample-time correction as the staged 2.0.1 post-stop fix.
     header, evse = root / "src/evse.h", root / "src/evse.cpp"
