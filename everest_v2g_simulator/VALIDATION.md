@@ -125,6 +125,14 @@ namespace on global or link-local addresses.
   went from `v2g1` to `v2g0`. 0.1.2 patches Josev to use `v2g1`, drops any
   SDP that would leave by another interface, and CI repeats `recovery`
   with a bridge network attached (an `eth0`, as on HA OS).
+- Live on HA OS with 0.1.2 (2026-10-11), driven only through the HA MCP:
+  the start-up self-test passed with `unscoped-multicast-via=eth0`; an
+  `everest_v2g_command` plug-in reached discovery in 3 s, then TLS, session
+  setup and DC_BPT; after RequestStartTransaction from `sim_lab_v2g` the
+  session charged at 11,000 W. HA's charge-control switch stayed `off` (the
+  HA OCPP 2.1 status gap), so turning it off sent no stop; unplugging ended
+  the transaction (TxStopPoints EVConnected). The self-test afterwards
+  passed and the charger was not ignoring discovery.
 
 ## Not claimed
 
