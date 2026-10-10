@@ -11,7 +11,17 @@ import sys
 TCP_ANY = {8099}
 TCP_LINK_LOCAL = {50000}
 UDP_ANY = {15118}
-LOOPBACK = {"0100007F", "00000000000000000000000001000000"}
+IPV6_LOOPBACK = "00000000000000000000000001000000"
+
+
+def loopback(address):
+    # IPv4 is printed little-endian, so 127.0.0.0/8 ends in 7F (Docker's
+    # embedded DNS listens on 127.0.0.11 on user-defined networks). IPv6
+    # covers ::1 and IPv4-mapped ::ffff:127.x.
+    if len(address) == 8:
+        return address.endswith("7F")
+    return address == IPV6_LOOPBACK or (address.startswith("0000000000000000FFFF0000")
+                                        and address.endswith("7F"))
 
 
 def link_local(address):
@@ -33,7 +43,7 @@ for name, udp in (("/proc/net/tcp", False), ("/proc/net/tcp6", False),
             continue
         address, port = local.rsplit(":", 1)
         port = int(port, 16)
-        if address in LOOPBACK:
+        if loopback(address):
             continue
         if udp:
             if port in UDP_ANY or state == "01":  # 01: connected client socket
