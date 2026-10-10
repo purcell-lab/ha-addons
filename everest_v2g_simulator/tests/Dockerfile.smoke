@@ -1,0 +1,5 @@
+FROM everest-v2g:test
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends python3-websockets \
+    && rm -rf /var/lib/apt/lists/*
+COPY everest_v2g_simulator/tests/mock_csms.py everest_v2g_simulator/tests/acceptance.py /test/
+ENTRYPOINT ["python3", "-u", "/test/acceptance.py"]

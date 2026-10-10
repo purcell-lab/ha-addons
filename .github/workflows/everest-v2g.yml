@@ -1,0 +1,100 @@
+name: EVerest DC V2G Test Charger App
+on:
+  pull_request:
+    paths:
+      - "everest_v2g_simulator/**"
+      - ".github/workflows/everest-v2g.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: everest-v2g-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y nginx openssl python3-yaml
+      - run: python3 -m unittest discover -s everest_v2g_simulator/tests -v
+      - run: git diff --check
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    env:
+      IMAGE: everest-v2g:test
+      TESTS: everest_v2g_simulator/tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk (upstream build image is about 4.3 GB compressed)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+      - name: Build native image (no publication or deployment)
+        run: |
+          docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
+            --build-arg BUILD_VERSION=0.1.0 -t "$IMAGE" everest_v2g_simulator
+          docker image ls "$IMAGE"
+      - name: Packaged runtime has the DC V2G modules and no private keys
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c '
+            set -e
+            ls /opt/everest/libexec/everest/modules
+            for m in Evse15118D20 PyEvJosev DCSupplySimulator SlacSimulator IMDSimulator; do
+              test -d /opt/everest/libexec/everest/modules/$m
+            done
+            ! ls /opt/everest/libexec/everest/modules | grep -x EvseV2G
+            test ! -e /opt/everest/etc/everest/certs
+            test -z "$(find / -xdev \( -name "*.key" -o -name "*LEAF*" -o -name "*.p12" \) \
+              -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
+            java -version 2>&1 | head -1; nft --version'
+      - name: OCPP 2.1 V2G, 2.0.1 fallback, pinned 2.0.1 and offline acceptance
+        run: |
+          docker build -t everest-v2g:smoke -f "$TESTS/Dockerfile.smoke" .
+          docker run --rm --network none --cap-add NET_ADMIN everest-v2g:smoke
+      - name: Fails closed without NET_ADMIN
+        run: |
+          docker create --network none --name v2g-nocap "$IMAGE"
+          docker cp "$TESTS/offline-options.json" v2g-nocap:/data/options.json
+          docker start -a v2g-nocap > nocap.log 2>&1 || true
+          cat nocap.log | tail -20
+          grep -q "V2G isolation setup failed" nocap.log
+          ! grep -q "Starting SDP server" nocap.log
+          test "$(docker inspect -f '{{.State.ExitCode}}' v2g-nocap)" != "0"
+          docker rm v2g-nocap
+      - name: Offline entrypoint, listeners, firewall probe and shutdown
+        run: |
+          trap 'docker logs v2g-smoke 2>&1 | tail -80; docker rm -f v2g-smoke; docker network rm v2g-test' EXIT
+          docker network create --ipv6 --subnet 172.31.250.0/24 --subnet fd00:2026:10::/64 v2g-test
+          docker create --network v2g-test --cap-add NET_ADMIN --name v2g-smoke "$IMAGE"
+          docker cp "$TESTS/offline-options.json" v2g-smoke:/data/options.json
+          docker cp "$TESTS/listeners.py" v2g-smoke:/tmp/listeners.py
+          docker cp "$TESTS/fwprobe.py" v2g-smoke:/tmp/fwprobe.py
+          docker start v2g-smoke
+          for i in $(seq 60); do
+            docker exec v2g-smoke python3 -c 'import json, urllib.request; s=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/status")); assert s["app"]["csms_configured"] is False; assert s["app"]["offered_subprotocols"] == ["ocpp2.1", "ocpp2.0.1"]; assert s["evse"]["session_info"]["value"]["state"] == "Unplugged"' && break
+            sleep 2
+          done
+          sleep 5
+          docker exec v2g-smoke nft list table inet ha_everest_v2g
+          docker exec v2g-smoke python3 /tmp/listeners.py
+          docker exec v2g-smoke python3 /tmp/fwprobe.py private-link
+          ip4=$(docker inspect -f '{{(index .NetworkSettings.Networks "v2g-test").IPAddress}}' v2g-smoke)
+          ip6=$(docker inspect -f '{{(index .NetworkSettings.Networks "v2g-test").GlobalIPv6Address}}' v2g-smoke)
+          echo "App addresses: $ip4 $ip6"
+          probe() { docker run --rm --network v2g-test -v "$PWD/$TESTS:/t:ro" --entrypoint python3 "$IMAGE" /t/fwprobe.py "$@"; }
+          probe expect-silence "$ip4" ${ip6:+"$ip6"}
+          # Negative control: without the nftables table, nginx on 8099 answers.
+          docker exec v2g-smoke nft delete table inet ha_everest_v2g
+          probe expect-reachable "$ip4"
+          docker stop --time 25 v2g-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' v2g-smoke)" = "0"
