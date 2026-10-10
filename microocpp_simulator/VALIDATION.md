@@ -26,6 +26,17 @@ version is an OCPP certification claim.
 - Version 0.1.1 regression checks reject missing legacy-connector diagnostics
   during the native lifecycle, disconnected restart and App entrypoint test.
   Both EVSE meter APIs must show zero power after disconnected restart.
+- Version 0.1.1 serves exactly one HTML Content-Type, with matching HTML
+  bodies for gzip and identity encoding. It no longer serves the UI as a
+  downloadable gzip file. Native HTTP regression tests cover both variants.
+- The two upstream 1.6 UI headings now identify the fixed 2.0.1 mode.
+- Local Chromium desktop (1280×900) and mobile (390×844) checks through an
+  nginx proxy with an ingress-style path rendered the Status page without
+  downloads or JavaScript errors. Meter requests used the prefixed API path
+  and returned 200; both EVSEs showed zero readings. Opening the connection
+  page showed an empty backend and SIM test identity. This disposable fixture
+  trusted loopback only; production ingress configuration was not relaxed.
+  These checks do not replace browser acceptance on the live HA installation.
 
 ## CI and deployment gates
 

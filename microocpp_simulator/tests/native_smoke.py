@@ -41,6 +41,29 @@ def http(path, data=None, port=8000, headers=None):
         return raw
 
 
+def check_html_response():
+    bodies = []
+    for encoding in ("identity", "gzip"):
+        request = urllib.request.Request(
+            "http://127.0.0.1:8000/", headers={"Accept-Encoding": encoding})
+        with urllib.request.urlopen(request, timeout=2) as response:
+            assert response.status == 200
+            assert response.headers.get_all("Content-Type") == ["text/html; charset=utf-8"]
+            assert response.headers.get("Content-Disposition") is None
+            assert response.headers.get("Vary") == "Accept-Encoding"
+            raw = response.read()
+            if encoding == "gzip":
+                assert response.headers.get_all("Content-Encoding") == ["gzip"]
+                raw = gzip.decompress(raw)
+            else:
+                assert response.headers.get("Content-Encoding") is None
+            bodies.append(raw)
+    assert bodies[0] == bodies[1]
+    assert b"<html" in bodies[0].lower()
+    assert b"OCPP 1.6" not in bodies[0]
+    assert b"OCPP 2.0.1 Connection" in bodies[0]
+
+
 async def until(predicate, description, seconds=20):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -95,6 +118,7 @@ async def main():
                 try:
                     await until(lambda: connections, "2.0.1 WebSocket connection")
                     await until(lambda: any(a == "BootNotification" for a, _ in received), "boot")
+                    check_html_response()
                     html = http("/").decode()
                     assert "http://localhost:8000/api" not in html
                     assert 'new URL("api",window.location.href).href' in html

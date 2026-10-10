@@ -59,6 +59,12 @@ that the 2.0.1 EVSE model does not create, producing a misleading
 `connector with connectorId 1 does not exist` startup error. This correction
 does not add smart charging or simulated fault reporting.
 
+Version 0.1.1 also corrects the Web UI response type. Version 0.1.0 supplied
+conflicting `application/gzip` and `text/html` headers, which can make a
+browser download `download.gz` instead of displaying the page. The corrected
+server sends one HTML content type and negotiates gzip encoding separately.
+Do not bypass an insecure-download warning to open the UI.
+
 ## UI and configuration boundaries
 
 The upstream UI is retained, but network/configuration/reset POST APIs are

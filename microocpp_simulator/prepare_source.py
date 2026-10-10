@@ -85,12 +85,30 @@ def prepare(root):
     replace_once(root / "lib/MicroOcpp/src/MicroOcpp/Model/Transactions/TransactionService.cpp",
                  '"SampledDataCtrlr", "TxUpdatedInterval", 0',
                  '"SampledDataCtrlr", "TxUpdatedInterval", 10')
+    # Serve the HTML name so Mongoose infers a single correct MIME type and
+    # negotiates its .gz sibling. Extra Content-Type headers do not override
+    # Mongoose's application/gzip type for an explicitly served .gz filename.
+    web = root / "src/net_mongoose.cpp"
+    replace_once(web,
+                 'opts.extra_headers = "Content-Type: text/html\\r\\nContent-Encoding: gzip\\r\\n";',
+                 'opts.extra_headers = "Cache-Control: no-cache\\r\\nVary: Accept-Encoding\\r\\n";')
+    replace_once(web,
+                 'mg_http_serve_file(c, message_data, "public/bundle.html.gz", &opts);',
+                 'mg_http_serve_file(c, message_data, "public/bundle.html", &opts);')
     bundle = root / "public/bundle.html.gz"
     text = gzip.decompress(bundle.read_bytes()).decode()
     old = '"http://localhost:8000/api"'
     if text.count(old) != 1:
         raise ValueError("upstream UI API-root context changed")
     text = text.replace(old, 'new URL("api",window.location.href).href')
+    for old_label, new_label in (
+        ("OCPP 1.6 Connection", "OCPP 2.0.1 Connection"),
+        ("OCPP 1.6 Websocket", "OCPP 2.0.1 WebSocket"),
+    ):
+        if text.count(old_label) != 1:
+            raise ValueError("upstream protocol label context changed")
+        text = text.replace(old_label, new_label)
+    bundle.with_suffix("").write_text(text)
     bundle.write_bytes(gzip.compress(text.encode(), mtime=0))
 
 
