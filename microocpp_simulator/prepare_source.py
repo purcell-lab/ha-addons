@@ -1,5 +1,6 @@
 """Small, fail-closed downstream adaptations of an exactly pinned upstream tree."""
 import gzip
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +33,32 @@ def guard_legacy_evse_hooks(path):
         )
         text = text[:start] + guarded + text[end:]
     path.write_text(text)
+
+
+def fix_ui_power_controls(text):
+    """The UI's single cable control must plug/unplug both simulated ends."""
+    text, count = re.subn(
+        r"evPlugged:([A-Za-z_$][A-Za-z0-9_$]*),",
+        lambda match: f"evPlugged:{match[1]},evsePlugged:{match[1]},",
+        text,
+    )
+    if count != 2:
+        raise ValueError("upstream UI plug payload context changed")
+    # Occupied is a valid 2.0.1 connector status, not a fault and not proof
+    # of energy transfer. Keep the raw label and use non-error styling.
+    if text.count('case"Charging":') != 3:
+        raise ValueError("upstream UI status context changed")
+    text = text.replace('case"Charging":', 'case"Occupied":case"Charging":')
+    for old, new in (
+        ("t.evPlugged===O&&t.evReady===x&&t.evseReady===E",
+         "t.evPlugged===e&&t.evsePlugged===e&&t.evReady===n&&t.evseReady===r"),
+        ("DateFormatter.fullDate(new Date)", "(new Date).toLocaleString()"),
+        (',onClick:function(){M("Charging")}', ""),
+    ):
+        if text.count(old) != 1:
+            raise ValueError("upstream UI live-control context changed")
+        text = text.replace(old, new)
+    return text
 
 
 def prepare(root):
@@ -108,6 +135,7 @@ def prepare(root):
         if text.count(old_label) != 1:
             raise ValueError("upstream protocol label context changed")
         text = text.replace(old_label, new_label)
+    text = fix_ui_power_controls(text)
     bundle.with_suffix("").write_text(text)
     bundle.write_bytes(gzip.compress(text.encode(), mtime=0))
 

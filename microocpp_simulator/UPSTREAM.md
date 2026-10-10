@@ -26,6 +26,10 @@ The reviewed adaptations are applied with exact-context checks:
 - Handle SIGTERM with the same cleanup path as SIGINT.
 - Replace the prebuilt UI's hard-coded localhost API URL with an
   Ingress-relative URL. No remote assets are added.
+- Make both UI plug controls set both simulated cable ends; compare live
+  updates with the values actually submitted and remove a missing date-helper
+  reference. Do not let badge clicks fabricate Charging; style the valid
+  2.0.1 Occupied status without treating it as a fault.
 
 The source's power model is charging-only. Negative limits do not mean V2G.
 The upstream in-memory energy accumulator is not a durable revenue meter.
