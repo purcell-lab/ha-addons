@@ -20,6 +20,11 @@ def validate(options):
     backend = options.get("backend_url", "")
     cpid = options.get("charge_point_id", "SIM-CITRINE-LAB-01")
     acknowledged = options.get("acknowledge_test_isolation", False)
+    trial_id = options.get("bounded_trial_id", "")
+    if not isinstance(trial_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{0,64}", trial_id):
+        raise ValueError("bounded_trial_id must be a short safe identifier")
+    if trial_id and not backend:
+        raise ValueError("A bounded trial requires the isolated backend")
     if cpid != "SIM-CITRINE-LAB-01":
         raise ValueError("Dedicated CitrineOS identity required")
     if not isinstance(backend, str) or len(backend) > 200:
@@ -113,7 +118,8 @@ def configure(data, options):
 def run():
     os.umask(0o077)
     try:
-        enabled = configure(DATA, json.loads((DATA / "options.json").read_text()))
+        options = json.loads((DATA / "options.json").read_text())
+        enabled = configure(DATA, options)
     except (ValueError, KeyError, TypeError, OSError):
         print("Invalid options/state. Check App documentation; no processes started.", flush=True)
         return 1
@@ -136,11 +142,47 @@ def run():
         children.append(subprocess.Popen(["nginx", "-c", str(ROOT / "nginx.conf"),
                                           "-g", "daemon off;"]))
         energized_at = None
+        trial_id = options.get("bounded_trial_id", "")
+        journal = DATA / "bounded-trials.json"
+        completed = json.loads(journal.read_text()) if journal.exists() else []
+        trial_pending = bool(trial_id and trial_id not in completed)
+        trial_started = None
+        trial_stop_at = None
+        last_sample = 0
+        boot_at = time.monotonic()
+        def local_api(path, body=None):
+            request = urllib.request.Request("http://127.0.0.1:8000" + path,
+                data=json.dumps(body).encode() if body is not None else None,
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=2) as r:
+                return json.load(r)
+        flags = ("evPlugged", "evsePlugged", "evReady", "evseReady")
         while not stopping and all(child.poll() is None for child in children):
             # Independent 180-second limit even if the test orchestrator disappears.
             try:
                 with urllib.request.urlopen("http://127.0.0.1:8000/api/connector/1/meter", timeout=1) as r:
-                    power = json.load(r).get("power", 0)
+                    meter = json.load(r)
+                    power = meter.get("power", 0)
+                if trial_pending and time.monotonic() - boot_at >= 30:
+                    # Persist before any start action. A restart must never replay it.
+                    completed.append(trial_id)
+                    atomic_json(journal, completed)
+                    trial_pending = False
+                    trial_started = time.monotonic()
+                    print(json.dumps({"bounded_trial": trial_id, "phase": "starting", "meter": meter}), flush=True)
+                    local_api("/api/connector/1/evse", {k: True for k in flags})
+                    local_api("/api/connector/1/transaction", {"idTag": "SIM-CITRINE-TEST"})
+                if trial_started is not None and time.monotonic() - trial_started >= 45:
+                    local_api("/api/connector/1/evse", {k: False for k in flags})
+                    print(json.dumps({"bounded_trial": trial_id, "phase": "stopped", "meter_before_stop": meter}), flush=True)
+                    trial_started = None
+                    trial_stop_at = time.monotonic()
+                if trial_started is not None and time.monotonic() - last_sample >= 5:
+                    print(json.dumps({"bounded_trial": trial_id, "phase": "sample", "meter": meter}), flush=True)
+                    last_sample = time.monotonic()
+                if trial_stop_at is not None and time.monotonic() - trial_stop_at >= 5:
+                    print(json.dumps({"bounded_trial": trial_id, "phase": "post_stop", "meter": meter}), flush=True)
+                    trial_stop_at = None
                 if power > 0 and energized_at is None:
                     energized_at = time.monotonic()
                 if energized_at is not None and time.monotonic() - energized_at > 180:
@@ -153,6 +195,8 @@ def run():
                     print("Bounded trial stopped at the 180-second limit.", flush=True)
                     energized_at = None
             except (OSError, ValueError):
+                if trial_started is not None and time.monotonic() - trial_started > 50:
+                    stopping = True
                 if energized_at is not None and time.monotonic() - energized_at > 180:
                     stopping = True
             time.sleep(0.2)

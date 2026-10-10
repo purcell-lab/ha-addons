@@ -18,3 +18,7 @@ class DedicatedOptions(unittest.TestCase):
     def test_disconnected_default(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertFalse(app.configure(Path(d),{}))
+
+    def test_trial_requires_connected_safe_identifier(self):
+        for options in ({"bounded_trial_id":"trial"}, {"bounded_trial_id":"../bad"}):
+            with self.assertRaises(ValueError):app.validate(options)

@@ -16,8 +16,10 @@ options:
   charge_point_id: SIM-CITRINE-LAB-01
   password: ""
   acknowledge_test_isolation: false
+  bounded_trial_id: ""
 schema:
   backend_url: str
   charge_point_id: match(^SIM-CITRINE-LAB-01$)
   password: password
   acknowledge_test_isolation: bool
+  bounded_trial_id: str

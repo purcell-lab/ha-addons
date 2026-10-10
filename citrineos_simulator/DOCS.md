@@ -32,3 +32,12 @@ simulator connections unchanged.
 Focused integration testing lives in `citrineos_server/tests/simulator_trial.py`
 and runs the real MicroOCPP image against pinned CitrineOS and private dependencies.
 The upstream source, licence and retained patches are described in `UPSTREAM.md`.
+# Optional bounded test
+
+`bounded_trial_id` defaults empty. Set a new safe identifier only to explicitly
+request one synthetic connector-1 charging trial. After 30 seconds for registration,
+the App sets readiness and presents `SIM-CITRINE-TEST`, then removes readiness
+45 seconds later. A persistent journal records the identifier before starting, so
+restarts do not replay it. Use server transaction records to verify acceptance
+and closure; the timer alone does not establish either. No control port is opened
+and the Ingress ACL is unchanged.
