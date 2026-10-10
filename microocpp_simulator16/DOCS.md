@@ -79,6 +79,19 @@ Profiles are sent by the CSMS, not by changing the UI's displayed max-power
 field. Verify GetCompositeSchedule and measured response; an Accepted reply
 alone is not sufficient.
 
+### Plugfest-style schedule
+
+The automated acceptance suite also runs one seven-period TxProfile:
+11 → 7 → 11 → 3 → 0 → 11 → 0 kW. It represents import-limit and
+household-load clipping, restoration and pause, adapted to this App's
+charging-only watt interface. Five-minute fixture windows run at four
+seconds each in CI. It checks timestamp-matched OCPP power and integrated
+energy, not just profile acceptance.
+
+This is not the full CSIP-AUS/HAEO/OCPP 2.1 demonstration and does not support
+its negative-power V2G periods. See [VALIDATION.md](VALIDATION.md) for the
+explicit fixture inputs, timing, energy tolerances and live-test exclusions.
+
 ## Metering caveat
 
 The existing HA integration can classify a zero-start cumulative register as

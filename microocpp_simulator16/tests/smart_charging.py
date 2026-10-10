@@ -13,6 +13,7 @@ import urllib.request
 
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
+from plugfest_schedule import WINDOWS, expected_wh, schedule
 
 ROOT = Path(sys.argv[1]).resolve()
 app_file = ROOT / "app.py"
@@ -48,7 +49,7 @@ async def main():
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", 8000))
-    received, connections, replies = [], [], {}
+    received, connections, replies, sent = [], [], {}, []
 
     async def csms(ws):
         assert ws.subprotocol == "ocpp1.6"
@@ -80,6 +81,7 @@ async def main():
 
     async def call(action, payload):
         uid = str(len(replies) + 1)
+        sent.append((action, payload))
         await connections[0].send(json.dumps([2, uid, action, payload]))
         await until(lambda: uid in replies, action)
         result = replies[uid]
@@ -199,6 +201,73 @@ async def main():
                         await power_is(4200)
                         await asyncio.sleep(2.2)
                         await power_is(11000, timeout=1.5)
+                    # Plugfest-style charging-only window, one entire TxProfile.
+                    # Integer UTC start avoids ambiguity from core second precision.
+                    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=2)
+                    p = profile(20, 11000)
+                    p["chargingSchedule"] = schedule(4)
+                    p["chargingSchedule"]["startSchedule"] = start.isoformat()
+                    before = sum(a == "SetChargingProfile" for a, _ in sent)
+                    assert (await install(p))["status"] == "Accepted"
+
+                    def wire_samples():
+                        rows = []
+                        for action, payload in received:
+                            if (action != "MeterValues" or payload.get("connectorId") != 1
+                                    or payload.get("transactionId") != 1601):
+                                continue
+                            for mv in payload["meterValue"]:
+                                offset = (datetime.fromisoformat(mv["timestamp"].replace("Z", "+00:00"))
+                                          - start).total_seconds()
+                                values = {s["measurand"]: s for s in mv["sampledValue"]}
+                                if not {"Power.Active.Import", "Energy.Active.Import.Register"} <= values.keys():
+                                    continue
+                                power, energy = (values["Power.Active.Import"],
+                                                 values["Energy.Active.Import.Register"])
+                                assert power.get("unit") == "W" and energy.get("unit") == "Wh", values
+                                rows.append((offset, float(power["value"]), float(energy["value"])))
+                        return rows
+
+                    observed = []
+                    for i, window in enumerate(WINDOWS):
+                        label, _, _, _, limit = window
+                        delay = (start + timedelta(seconds=i * 4 + 1)
+                                 - datetime.now(timezone.utc)).total_seconds()
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        await power_is(limit, timeout=1.5)
+                        # Match THIS plateau by meter timestamp, not any old equal reading.
+                        def matching():
+                            return [r for r in wire_samples()
+                                    if i * 4 + 1 <= r[0] < (i + 1) * 4
+                                    and limit - 12 <= r[1] <= limit]
+                        await until(matching, "Plugfest on-wire " + label, timeout=1.5)
+                        assert http("/api/connector/1/transaction")["transactionId"] == 1601
+                        assert not any(a == "StopTransaction" for a, _ in received)
+                        assert http("/api/connector/2/meter")["energy"] == 0
+                        if limit == 0:
+                            energy_at_pause = http("/api/connector/1/meter")["energy"]
+                            await asyncio.sleep(0.3)
+                            assert http("/api/connector/1/meter")["energy"] == energy_at_pause
+                        observed.append({"phase": label, "limit_W": limit,
+                                         "wire": matching()[-1]})
+                    assert sum(a == "SetChargingProfile" for a, _ in sent) == before + 1
+                    rows = sorted(r for r in wire_samples() if 1 <= r[0] <= 27)
+                    first, last = rows[0], rows[-1]
+                    assert last[0] >= 25 and first[0] < 4
+                    assert all(b[2] >= a[2] for a, b in zip(rows, rows[1:])), rows
+                    expected = expected_wh(p["chargingSchedule"]["chargingSchedulePeriod"],
+                                           first[0], last[0], 28)
+                    measured = last[2] - first[2]
+                    # Integer Wh rounding + second-resolution timestamps (one second
+                    # at maximum power) + bounded <=12 W simulator variation.
+                    tolerance = 2 + 11000 / 3600 + 12 * (last[0] - first[0]) / 3600
+                    assert abs(measured - expected) <= tolerance, (measured, expected, tolerance, rows)
+                    print("PASS Plugfest charging-only single-profile schedule:",
+                          json.dumps({"periods": observed, "expected_Wh": expected,
+                                      "measured_Wh": measured, "tolerance_Wh": tolerance}))
+                    assert (await call("ClearChargingProfile", {"id": 20}))["status"] == "Accepted"
+                    await power_is(11000)
                     energy = http("/api/connector/1/meter")["energy"]
                     http("/api/connector/1/evse", {"evPlugged": False, "evsePlugged": False,
                                                   "evReady": False, "evseReady": False})
