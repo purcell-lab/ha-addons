@@ -11,11 +11,16 @@ const requireApp = createRequire(
   '/usr/local/apps/citrineos/apps/ocpp-server/package.json');
 const ocppRoot = dirname(requireApp.resolve('@citrineos/ocpp'));
 const requireOcpp = createRequire(join(ocppRoot, 'index.js'));
-const load = path => import(pathToFileURL(join(ocppRoot, path)).href);
+const load = path => import(pathToFileURL(join(ocppRoot, 'src', path)).href);
 const {createContainer, asValue} = requireOcpp('awilix');
 const fastify = requireOcpp('fastify')({logger: false});
+const {OCPPValidator} = await import(
+  pathToFileURL(requireApp.resolve('@citrineos/base')).href);
+// Match CitrineOSServer.registerAjv without constructing its server/dependencies.
+const ajv = OCPPValidator.createServerAjvInstance();
+fastify.setValidatorCompiler(({schema}) => ajv.compile(schema));
 const {Logger} = requireOcpp('tslog');
-const logger = new Logger({minLevel: 7});
+const logger = new Logger({type: 'hidden'});
 const {registerApiServices} = await load('apis/register.js');
 const container = createContainer();
 let handlerCalls = 0;
