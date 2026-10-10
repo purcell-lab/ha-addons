@@ -158,6 +158,8 @@ async def main():
                     if process.returncode != 0:
                         print(output[-4000:])
                     assert process.returncode == 0, process.returncode
+                    assert "connector with connectorId" not in output, output[-4000:]
+                    assert "could not find connector" not in output, output[-4000:]
             # Startup remains disconnected even if previous endpoint state exists.
             app.configure(data, {})
             with (data / "offline.log").open("w") as log:
@@ -167,9 +169,19 @@ async def main():
                     assert json.loads(http("/api/websocket"))["backendUrl"] == ""
                     assert len(connections) == 1
                     assert json.loads(http("/api/connector/1/meter"))["power"] == 0
+                    assert json.loads(http("/api/connector/2/meter"))["power"] == 0
+                    # Ended transaction history may survive restart. Do not
+                    # mistake retained history for a new active transaction.
+                    assert json.loads(http("/api/connector/1/transaction"))["transactionId"] in (
+                        "", api_tx["transactionId"])
+                    assert json.loads(http("/api/connector/2/transaction"))["transactionId"] == ""
                 finally:
                     process.terminate()
                     process.wait(timeout=8)
+            offline_output = (data / "offline.log").read_text()
+            assert process.returncode == 0, process.returncode
+            assert "connector with connectorId" not in offline_output, offline_output
+            assert "could not find connector" not in offline_output, offline_output
             print("PASS: disconnected restart, no public fallback, safe stopped meter.")
 
 

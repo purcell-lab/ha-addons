@@ -46,6 +46,19 @@ port 8099 accepts only the Supervisor Ingress peer. No host ports, host
 networking, hardware access, HA API token or Docker socket are requested.
 Do not add an external port mapping or disable protection mode.
 
+An API probe made directly from another App can receive `403 Forbidden`.
+The ACL checks the actual peer, not an `X-Forwarded-For` header. Use Home
+Assistant's **Open Web UI** for the browser acceptance check; a denied
+direct probe does not establish that authenticated browser Ingress is broken.
+Do not allow the container gateway or whole App subnet just to make such
+probes pass.
+
+Version 0.1.1 guards the upstream 1.6-only dummy error-code and smart-charging
+setup hooks in 2.0.1 mode. Those hooks looked for legacy Connector objects
+that the 2.0.1 EVSE model does not create, producing a misleading
+`connector with connectorId 1 does not exist` startup error. This correction
+does not add smart charging or simulated fault reporting.
+
 ## UI and configuration boundaries
 
 The upstream UI is retained, but network/configuration/reset POST APIs are

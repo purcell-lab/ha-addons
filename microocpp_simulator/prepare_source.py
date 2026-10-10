@@ -14,6 +14,26 @@ def replace_once(path, old, new, count=1):
     path.write_text(text.replace(old, new, count))
 
 
+def guard_legacy_evse_hooks(path):
+    """Do not look up legacy Connector objects in the 2.0.1 EVSE model."""
+    text = path.read_text()
+    for function in ("addErrorCodeInput", "setSmartChargingPowerOutput"):
+        start_marker = f"    {function}([this]"
+        if text.count(start_marker) != 1:
+            raise ValueError(f"upstream {function} context changed")
+        start = text.index(start_marker)
+        end = text.index("    }, connectorId);", start) + len("    }, connectorId);")
+        block = text[start:end]
+        guarded = (
+            "    // This hook only supports the legacy 1.6 Connector model.\n"
+            "    if (getOcppContext()->getVersion().major == 1) {\n"
+            + "\n".join("    " + line for line in block.splitlines())
+            + "\n    }"
+        )
+        text = text[:start] + guarded + text[end:]
+    path.write_text(text)
+
+
 def prepare(root):
     revision = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
@@ -47,6 +67,7 @@ def prepare(root):
     # The original HTTP API returns the legacy integer ID (-1 in 2.x).
     replace_once(root / "src/evse.h", "int getTransactionId();",
                  "const char *getTransactionId();")
+    guard_legacy_evse_hooks(root / "src/evse.cpp")
     replace_once(root / "src/evse.cpp",
                  "int Evse::getTransactionId() {\n"
                  "    return getTransaction(connectorId) ? getTransaction(connectorId)->getTransactionId() : -1;\n}",

@@ -33,7 +33,7 @@ jobs:
       - name: Build native image (no publication or deployment)
         run: |
           docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
-            --build-arg BUILD_VERSION=0.1.0 -t microocpp:test microocpp_simulator
+            --build-arg BUILD_VERSION=0.1.1 -t microocpp:test microocpp_simulator
       - name: Native 2.0.1 smoke test
         run: |
           docker build -t microocpp:smoke -f microocpp_simulator/tests/Dockerfile.smoke .
@@ -48,3 +48,6 @@ jobs:
           docker exec app-smoke python3 -c 'import json, urllib.request; data=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/websocket")); assert data["backendUrl"] == ""; assert data["chargeBoxId"].startswith("SIM-")'
           docker stop --time 12 app-smoke
           test "$(docker inspect -f '{{.State.ExitCode}}' app-smoke)" = "0"
+          if docker logs app-smoke 2>&1 | grep -E 'connector with connectorId|could not find connector'; then
+            exit 1
+          fi
