@@ -1,7 +1,8 @@
 # OCPP 2.0.1 App validation
 
-Prepared 10 October 2026. This is a staged implementation, not a live
-Home Assistant deployment or an OCPP certification claim.
+Updated 10 October 2026. Version 0.1.0 was installed and started disconnected
+on Home Assistant; version 0.1.1 is a staged startup correction. Neither
+version is an OCPP certification claim.
 
 ## Completed in the development sandbox
 
@@ -22,6 +23,20 @@ Home Assistant deployment or an OCPP certification claim.
   connection to the public echo server.
 - Ingress-relative UI API URL replaces upstream hard-coded localhost.
 - Git whitespace validation.
+- Version 0.1.1 regression checks reject missing legacy-connector diagnostics
+  during the native lifecycle, disconnected restart and App entrypoint test.
+  Both EVSE meter APIs must show zero power after disconnected restart.
+- Version 0.1.1 serves exactly one HTML Content-Type, with matching HTML
+  bodies for gzip and identity encoding. It no longer serves the UI as a
+  downloadable gzip file. Native HTTP regression tests cover both variants.
+- The two upstream 1.6 UI headings now identify the fixed 2.0.1 mode.
+- Local Chromium desktop (1280×900) and mobile (390×844) checks through an
+  nginx proxy with an ingress-style path rendered the Status page without
+  downloads or JavaScript errors. Meter requests used the prefixed API path
+  and returned 200; both EVSEs showed zero readings. Opening the connection
+  page showed an empty backend and SIM test identity. This disposable fixture
+  trusted loopback only; production ingress configuration was not relaxed.
+  These checks do not replace browser acceptance on the live HA installation.
 
 ## CI and deployment gates
 
@@ -30,16 +45,19 @@ the same mock-CSMS test in a container with `--network none`; only loopback
 is available. It does not publish images, deploy, restart HA or create
 real settlements. Refer to the PR checks for current results.
 
-Actual HA Supervisor installation, browser rendering through real Ingress,
-phone usability, host resource use and interoperability with the installed
-HA OCPP integration remain acceptance gates. Test namespace exclusions
-must be verified before entering a backend URL.
+Version 0.1.0 installation and running state were verified through Supervisor.
+Live direct MCP API probes received nginx HTTP 403 from peer 172.30.32.1,
+which is not the permitted Supervisor Ingress peer. The ACL remains intact.
+Browser rendering through actual Ingress, phone usability, the 0.1.1 live
+update and interoperability with the installed HA OCPP integration remain
+acceptance gates. Test namespace exclusions must be verified before entering
+a backend URL.
 
 ## Reproduce
 
 ```sh
 python3 -m unittest discover -s microocpp_simulator/tests -v
-docker build --build-arg BUILD_ARCH=amd64 --build-arg BUILD_VERSION=0.1.0 \
+docker build --build-arg BUILD_ARCH=amd64 --build-arg BUILD_VERSION=0.1.1 \
   -t microocpp:test microocpp_simulator
 docker build -t microocpp:smoke -f microocpp_simulator/tests/Dockerfile.smoke .
 docker run --rm --network none microocpp:smoke

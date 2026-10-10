@@ -14,6 +14,26 @@ def replace_once(path, old, new, count=1):
     path.write_text(text.replace(old, new, count))
 
 
+def guard_legacy_evse_hooks(path):
+    """Do not look up legacy Connector objects in the 2.0.1 EVSE model."""
+    text = path.read_text()
+    for function in ("addErrorCodeInput", "setSmartChargingPowerOutput"):
+        start_marker = f"    {function}([this]"
+        if text.count(start_marker) != 1:
+            raise ValueError(f"upstream {function} context changed")
+        start = text.index(start_marker)
+        end = text.index("    }, connectorId);", start) + len("    }, connectorId);")
+        block = text[start:end]
+        guarded = (
+            "    // This hook only supports the legacy 1.6 Connector model.\n"
+            "    if (getOcppContext()->getVersion().major == 1) {\n"
+            + "\n".join("    " + line for line in block.splitlines())
+            + "\n    }"
+        )
+        text = text[:start] + guarded + text[end:]
+    path.write_text(text)
+
+
 def prepare(root):
     revision = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
@@ -47,6 +67,7 @@ def prepare(root):
     # The original HTTP API returns the legacy integer ID (-1 in 2.x).
     replace_once(root / "src/evse.h", "int getTransactionId();",
                  "const char *getTransactionId();")
+    guard_legacy_evse_hooks(root / "src/evse.cpp")
     replace_once(root / "src/evse.cpp",
                  "int Evse::getTransactionId() {\n"
                  "    return getTransaction(connectorId) ? getTransaction(connectorId)->getTransactionId() : -1;\n}",
@@ -64,12 +85,30 @@ def prepare(root):
     replace_once(root / "lib/MicroOcpp/src/MicroOcpp/Model/Transactions/TransactionService.cpp",
                  '"SampledDataCtrlr", "TxUpdatedInterval", 0',
                  '"SampledDataCtrlr", "TxUpdatedInterval", 10')
+    # Serve the HTML name so Mongoose infers a single correct MIME type and
+    # negotiates its .gz sibling. Extra Content-Type headers do not override
+    # Mongoose's application/gzip type for an explicitly served .gz filename.
+    web = root / "src/net_mongoose.cpp"
+    replace_once(web,
+                 'opts.extra_headers = "Content-Type: text/html\\r\\nContent-Encoding: gzip\\r\\n";',
+                 'opts.extra_headers = "Cache-Control: no-cache\\r\\nVary: Accept-Encoding\\r\\n";')
+    replace_once(web,
+                 'mg_http_serve_file(c, message_data, "public/bundle.html.gz", &opts);',
+                 'mg_http_serve_file(c, message_data, "public/bundle.html", &opts);')
     bundle = root / "public/bundle.html.gz"
     text = gzip.decompress(bundle.read_bytes()).decode()
     old = '"http://localhost:8000/api"'
     if text.count(old) != 1:
         raise ValueError("upstream UI API-root context changed")
     text = text.replace(old, 'new URL("api",window.location.href).href')
+    for old_label, new_label in (
+        ("OCPP 1.6 Connection", "OCPP 2.0.1 Connection"),
+        ("OCPP 1.6 Websocket", "OCPP 2.0.1 WebSocket"),
+    ):
+        if text.count(old_label) != 1:
+            raise ValueError("upstream protocol label context changed")
+        text = text.replace(old_label, new_label)
+    bundle.with_suffix("").write_text(text)
     bundle.write_bytes(gzip.compress(text.encode(), mtime=0))
 
 

@@ -23,6 +23,7 @@ RUN apk add --no-cache libstdc++ libgcc nginx python3 \
     && mkdir -p /opt/microocpp/public /run/nginx /data
 COPY --from=build /src/build/mo_simulator /opt/microocpp/mo_simulator
 COPY --from=build /src/public/bundle.html.gz /opt/microocpp/public/bundle.html.gz
+COPY --from=build /src/public/bundle.html /opt/microocpp/public/bundle.html
 COPY --from=build /source/ /usr/share/microocpp/
 COPY app.py nginx.conf UPSTREAM.md /opt/microocpp/
 WORKDIR /data
