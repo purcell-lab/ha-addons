@@ -53,7 +53,7 @@ def setpoint_period(offset, watts):
             "setpoint": float(watts), "operationMode": "CentralSetpoint"}
 
 
-def http(path, method="GET", timeout=5):
+def http(path, method="GET", timeout=30):
     req = urllib.request.Request(UI + path, method=method, headers={"X-HA-EVerest": "1"})
     with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.loads(response.read())

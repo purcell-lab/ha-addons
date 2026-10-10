@@ -226,7 +226,12 @@ def release_session(reply, index, timeout=2.0):
         return {"released": False, "error": str(error)[:120]}
 
 
-def sdp_probe(address, via, timeout=2.0):
+# The charger closes a released session gracefully, blocking discovery for
+# about 2 s; probes wait longer than that and the test waits it out.
+CHARGER_CLOSE_S = 2.5
+
+
+def sdp_probe(address, via, timeout=4.0):
     """Send one SDP request out of `via`; return reply, silent or an error."""
     try:
         index = socket.if_nametoindex(via)
@@ -249,7 +254,7 @@ def sdp_probe(address, via, timeout=2.0):
         return {"result": "error", "error": f"{error.errno}: {error.strerror}"}
 
 
-def selftest(capture=True, settle=0.5):
+def selftest(capture=True, settle=CHARGER_CLOSE_S):
     """Multicast (as the EV sends it) then unicast SDP from v2g1 to the
     charger on v2g0, with packet capture on both ends."""
     secc = netguard.link_local(netguard.SECC_LINK)
@@ -258,6 +263,7 @@ def selftest(capture=True, settle=0.5):
     multicast = sdp_probe("ff02::1", netguard.EVCC_LINK)
     time.sleep(settle if multicast["result"] == "reply" else 0)  # let the charger drop the session
     unicast = sdp_probe(secc, netguard.EVCC_LINK) if secc else {"result": "error", "error": "no SECC link-local"}
+    time.sleep(settle if unicast["result"] == "reply" else 0)
     time.sleep(0.3 if capture else 0)
     seen = {c.ifname: c.stop() for c in captures}
     released = all(p.get("released") for p in (unicast, multicast) if p["result"] == "reply")

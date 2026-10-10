@@ -104,19 +104,24 @@ def pump(stream, prefix="", sdp_ready=None):
         print(prefix + line, flush=True)
 
 
-def startup_selftest(sdp_ready, stopping, timeout=90):
-    """Run the discovery self-test once the charger's SDP server is up."""
+def startup_selftest(lock, sdp_ready, stopping, timeout=90):
+    """Run the discovery self-test once the charger's SDP server is up.
+
+    `lock` (held from before the UI starts) makes an early plug-in wait
+    until the self-test and the charger's clean-up are done."""
     import ui_server
-    if not sdp_ready.wait(timeout):
-        print("Discovery self-test skipped: the SDP server did not start within "
-              f"{timeout} s.", flush=True)
-        return
-    time.sleep(SELFTEST_DELAY_S)
-    if not stopping():
-        try:
-            ui_server.run_selftest("at start")
-        except Exception as error:  # report, never stop the charger
-            print(f"Discovery self-test error ({type(error).__name__}: {error}).", flush=True)
+    try:
+        if not sdp_ready.wait(timeout):
+            print("Discovery self-test skipped: the SDP server did not start within "
+                  f"{timeout} s.", flush=True)
+            return
+        time.sleep(SELFTEST_DELAY_S)
+        if not stopping():
+            ui_server.run_selftest("at start", lock_held=True)
+    except Exception as error:  # report, never stop the charger
+        print(f"Discovery self-test error ({type(error).__name__}: {error}).", flush=True)
+    finally:
+        lock.__exit__(None, None, None)
 
 
 def wait_group(pgid, timeout):
@@ -206,13 +211,16 @@ def run():
             cwd=DATA / "everest", env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace", start_new_session=True)
         children.append(manager)
+        import ui_server
+        selftest_lock = ui_server.SelftestLock()
+        selftest_lock.__enter__()  # released by startup_selftest
         sdp_ready = threading.Event()
         threading.Thread(target=pump, args=(manager.stdout, "", sdp_ready), daemon=True).start()
         children.append(subprocess.Popen(
             [sys.executable, str(ROOT / "ui_server.py")], env=env))
         children.append(subprocess.Popen(
             ["nginx", "-c", str(ROOT / "nginx.conf"), "-g", "daemon off;"]))
-        threading.Thread(target=startup_selftest, args=(sdp_ready, lambda: stopping),
+        threading.Thread(target=startup_selftest, args=(selftest_lock, sdp_ready, lambda: stopping),
                          daemon=True).start()
         if settings["ha_control"]:
             # Outbound only. Not in `children`: a bridge failure must not stop

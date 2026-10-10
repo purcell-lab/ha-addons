@@ -547,6 +547,25 @@ class UiServerTest(unittest.TestCase):
         self.assertEqual(self.request("/api/ev/pause", "POST", {"X-HA-EVerest": "1"})[0], 404)
         self.assertEqual(self.bus.sent, [("plugin", 7)])
 
+    def test_plug_in_waits_for_selftest_lock(self):
+        self.ui.SELFTEST_WAIT_S = 0.5
+        held = self.ui.SelftestLock()
+        self.assertTrue(held.__enter__())
+        try:
+            self.assertFalse(self.ui.SelftestLock().__enter__())  # second holder refused
+            self.assertEqual(self.request("/api/ev/plugin", "POST", {"X-HA-EVerest": "1"})[0], 409)
+            self.assertIsNone(self.ui.run_selftest("on request"))
+        finally:
+            held.__exit__(None, None, None)
+        self.assertEqual(self.request("/api/ev/plugin", "POST", {"X-HA-EVerest": "1"})[0], 200)
+        self.assertEqual(self.bus.sent, [("plugin", 7)])
+
+    def test_selftest_needs_unplugged(self):
+        self.bus.snapshot = lambda: {"session_info": {"value": {"state": "Charging"}, "age_s": 1.0}}
+        code, body = self.request("/api/diag/selftest", "POST", {"X-HA-EVerest": "1"})
+        self.assertEqual(code, 409)
+        self.assertEqual(json.loads(body)["state"], "Charging")
+
     def test_command_strings(self):
         commands = self.ui.ev_commands({"max_power_kw": 11})
         self.assertEqual(set(commands), {"plugin", "stop", "unplug"})

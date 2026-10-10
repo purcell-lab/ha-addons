@@ -116,7 +116,32 @@ def status(bus):
     }
 
 
-SELFTEST_LOCK = threading.Lock()
+SELFTEST_WAIT_S = 20
+
+
+class SelftestLock:
+    """File lock shared by the App process (self-test at start) and this
+    service, so a plug-in never overlaps a self-test."""
+
+    def __init__(self, blocking_s=0):
+        self.blocking_s, self.handle = blocking_s, None
+
+    def __enter__(self):
+        import fcntl
+        RUN.mkdir(parents=True, exist_ok=True)
+        self.handle = open(RUN / "selftest.lock", "a")
+        deadline = time.monotonic() + self.blocking_s
+        while True:
+            try:
+                fcntl.flock(self.handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.2)
+
+    def __exit__(self, *exc):
+        self.handle.close()  # releases the lock
 
 
 def last_selftest():
@@ -126,22 +151,25 @@ def last_selftest():
         return None
 
 
-def run_selftest(source):
+def run_selftest(source, lock_held=False):
     """Run the discovery self-test once at a time; record and log the result."""
-    if not SELFTEST_LOCK.acquire(blocking=False):
-        return None
-    try:
-        result = diag.selftest()
-        result["charger_sdp_blocked"] = bool(read_state().get("charger_sdp_blocked"))
-        result["summary"] = diag.summary(result)
-        result["source"] = source
-        configure.atomic_write(RUN / "selftest.json", json.dumps(result), mode=0o644)
-        print(f"{result['summary']} ({source})", flush=True)
-        if not result["pass"]:
-            print("Discovery diagnostics: " + json.dumps(diag.snapshot(), separators=(",", ":")), flush=True)
-        return result
-    finally:
-        SELFTEST_LOCK.release()
+    if lock_held:  # the caller already holds the self-test lock
+        return _selftest(source)
+    with SelftestLock() as locked:
+        return _selftest(source) if locked else None
+
+
+def _selftest(source):
+    """Run the probes, then record and log the result."""
+    result = diag.selftest()
+    result["charger_sdp_blocked"] = bool(read_state().get("charger_sdp_blocked"))
+    result["summary"] = diag.summary(result)
+    result["source"] = source
+    configure.atomic_write(RUN / "selftest.json", json.dumps(result), mode=0o644)
+    print(f"{result['summary']} ({source})", flush=True)
+    if not result["pass"]:
+        print("Discovery diagnostics: " + json.dumps(diag.snapshot(), separators=(",", ":")), flush=True)
+    return result
 
 
 def diagnostics(brief=False):
@@ -208,7 +236,12 @@ def make_handler(bus):
                 if result is None:
                     return self.send_body(409, {"error": "self-test already running"})
                 return self.send_body(200, result)
-            ok = bus.send(name, read_state())
+            # Wait for a running self-test; its probes and the charger's
+            # session clean-up must not overlap a plug-in.
+            with SelftestLock(SELFTEST_WAIT_S) as free:
+                if not free:
+                    return self.send_body(409, {"error": "discovery self-test still running"})
+                ok = bus.send(name, read_state())
             return self.send_body(200 if ok else 503, {"sent": ok, "command": name})
 
         def log_message(self, *args):
