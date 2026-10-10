@@ -109,10 +109,7 @@ model is rebuilt from the options on every start.
 
 ## Install size
 
-EVerest is distributed only as a large build image. Without a prebuilt App
-image, Home Assistant builds this App locally and must download about
-4.3 GB compressed and needs several times that in free disk during the
-build. The final
-image is about 310 to 340 MB. A
-prebuilt App image would avoid the local build; publishing one is a separate,
-approval-gated step and is not part of this release.
+Home Assistant pulls a prebuilt image for its architecture
+(`ghcr.io/purcell-lab/{arch}-everest-simulator`, about 310 to 340 MB) rather
+than building locally from EVerest's 4.3 GB build image. The image is
+published only through the approval-gated tag process in `RELEASE.md`.
