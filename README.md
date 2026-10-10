@@ -52,6 +52,19 @@ connected automatically.
 
 See [setup and limitations](everest_simulator/DOCS.md).
 
+### everest_v2g_simulator
+
+EVerest 2025.10.0 software-in-the-loop **bidirectional DC** charger with a
+simulated EV: ISO 15118-20 DC_BPT over mutual TLS 1.3, 3 to 11 kW each way.
+Under OCPP 2.1 a CSMS can charge and discharge (V2G export) with
+CentralSetpoint TxProfiles; under the 2.0.1 fallback it is charging only.
+Needs NET_ADMIN only for a private in-container ISO 15118 link and an
+inbound drop firewall (lower HA security rating). Per-install test PKI,
+`SIM-EV-` identity, disconnected default, Ingress-only UI, never installed or
+connected automatically. Known EVerest limitations are listed in the docs.
+
+See [setup and limitations](everest_v2g_simulator/DOCS.md).
+
 ### nem_price_forecaster
 
 NEM 7-day wholesale price forecaster sidecar. Configurable price model

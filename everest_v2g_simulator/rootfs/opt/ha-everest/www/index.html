@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVerest DC V2G test charger</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>EVerest DC V2G test charger</h1>
+  <div class="badges">
+    <span id="conn" class="badge">Loading</span>
+    <span id="ident" class="badge muted"></span>
+    <span id="offer" class="badge muted"></span>
+  </div>
+  <p class="note">Simulated bidirectional DC charger and EV (ISO 15118-20 DC_BPT) for isolated testing. Not a physical charger. Direction and power come only from the test central system.</p>
+</header>
+<main>
+  <section>
+    <h2>Simulated EV</h2>
+    <div class="controls">
+      <button data-cmd="plugin">Plug in</button>
+      <button data-cmd="stop">EV stop session</button>
+      <button data-cmd="unplug" class="warn">Unplug now</button>
+    </div>
+    <p class="note">Plug in waits for authorisation. Start the transaction from the test central system (RequestStartTransaction). To discharge, send an OCPP 2.1 TxProfile period with operationMode CentralSetpoint and a negative setpoint in W.</p>
+    <p id="cmdmsg" class="note" role="status"></p>
+  </section>
+  <section>
+    <h2>Live readings</h2>
+    <dl class="grid" id="live"></dl>
+  </section>
+  <section>
+    <h2>Effective limit (composite schedule)</h2>
+    <p class="note">EVerest's combined result of all active profiles for EVSE 1, refreshed every 10 seconds. Negative values mean discharge.</p>
+    <div class="tablewrap"><table id="composite"><thead><tr><th>Offset (s)</th><th>Limit</th><th>Discharge limit</th><th>Setpoint</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>Last received TxProfile</h2>
+    <p id="txmeta" class="note">No TxProfile received yet.</p>
+    <div class="controls"><button id="copy" disabled>Copy JSON</button></div>
+    <pre id="txjson" tabindex="0"></pre>
+  </section>
+  <section>
+    <h2>Recent profile requests</h2>
+    <div class="tablewrap"><table id="recent"><thead><tr><th>Received (UTC)</th><th>Reply</th><th>Action</th><th>Purpose</th></tr></thead><tbody></tbody></table></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
