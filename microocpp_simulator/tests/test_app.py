@@ -11,6 +11,8 @@ from app import configure, validate
 class OptionsTest(unittest.TestCase):
     def test_disconnected_default(self):
         self.assertEqual(validate({}), ("", "SIM-MICROOCPP-01"))
+        with self.assertRaises(ValueError):
+            validate([])
 
     def test_test_identity_required(self):
         for identity in ("physical-charger", "SIM-a/b", "SIM-", "SIM-" + "x" * 41):
@@ -88,6 +90,18 @@ class OptionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 configure(data, {})
             self.assertEqual(path.read_text(), "broken")
+
+    def test_unbound_201_transactions_cannot_be_redirected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            configure(data, {})
+            transaction = data / "mo_store/tx201-1-1-0.json"
+            transaction.write_text('{"existing":"test transaction"}')
+            with self.assertRaises(ValueError):
+                configure(data, {"backend_url": "ws://test:9000",
+                                 "acknowledge_test_isolation": True})
+            self.assertFalse((data / "test-identity.json").exists())
+            self.assertTrue(transaction.exists())
 
 
 if __name__ == "__main__":

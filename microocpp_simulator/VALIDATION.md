@@ -6,10 +6,11 @@ Home Assistant deployment or an OCPP certification claim.
 ## Completed in the development sandbox
 
 - Native C++ release build from the pinned source and submodules.
-- Eleven focused Python/Ingress tests: disconnected default, test identity,
+- Twelve focused Python/Ingress tests: disconnected default, test identity,
   explicit acknowledgement, URL restrictions, 2.0.1 credential seeding,
   record preservation, safe ready-state reset, rebinding refusal, corrupt
-  state refusal and actual nginx peer/mutation restrictions.
+  state refusal, unbound 2.0.1 transaction protection and actual nginx
+  peer/mutation restrictions.
 - Loopback mock-CSMS test requiring the `ocpp2.0.1` WebSocket subprotocol.
 - OCPP 2.0.1 BootNotification, Authorize and Started/Updated/Ended
   TransactionEvent messages.

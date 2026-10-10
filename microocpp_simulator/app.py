@@ -14,6 +14,8 @@ DATA = Path("/data")
 
 
 def validate(options):
+    if not isinstance(options, dict):
+        raise ValueError("options must be an object")
     backend = options.get("backend_url", "")
     cpid = options.get("charge_point_id", "SIM-MICROOCPP-01")
     acknowledged = options.get("acknowledge_test_isolation", False)
@@ -77,7 +79,9 @@ def configure(data, options):
         raise ValueError("test destination changed; archive/reset App data before rebinding")
     if backend and not identity.exists():
         existing = data / "mo_store"
-        if existing.exists() and any(existing.glob("tx-*")):
+        if existing.exists() and any(
+            p.name.startswith(("tx-", "tx201-")) for p in existing.iterdir()
+        ):
             raise ValueError("unbound transaction data exists; archive/reset App data")
         atomic_json(identity, target)
     store = data / "mo_store"
