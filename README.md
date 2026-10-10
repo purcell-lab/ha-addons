@@ -14,6 +14,14 @@ In the HA UI:
 
 ## Add-ons in this repository
 
+### citrineos_server
+
+Staged CitrineOS Compatibility Lab. This package is disconnected-only and does
+not start a central system. Client/server compatibility is blocked; no activation,
+charger connection or deployment is enabled.
+
+See [compatibility findings and activation gates](citrineos_server/DOCS.md).
+
 ### microocpp_simulator
 
 Native OCPP 2.0.1 test charger packaged as a Home Assistant App, with a

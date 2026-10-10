@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "server": {
+    "repository": "https://github.com/citrineos/citrineos-core",
+    "version": "2.0.1",
+    "commit": "1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372",
+    "image": "ghcr.io/citrineos/citrineos-server:v2.0.1@sha256:15316dff5f661714e2fddfa2f25baebea4c11d8d6aa2a9bb254a98159da58378",
+    "amd64_manifest": "sha256:356af266f90909f36f3b2bd61b64d7fd374cc416e60126d8d710010e17957e20"
+  },
+  "client": {
+    "repository": "https://github.com/Stuart0411/CitrineOS-HA-Integration",
+    "version": "0.2.1",
+    "commit": "a98cd336e4197f3875be238bdfe5c4784194efb1",
+    "required_ping": "/data/ocpprouter/systemConfig"
+  },
+  "assessment": {
+    "status": "blocked",
+    "reason": "legacy_client_data_routes_absent",
+    "runtime_activation_allowed": false,
+    "full_stack_verified": false,
+    "authentication_verified": false,
+    "station_control_verified": false
+  }
+}
