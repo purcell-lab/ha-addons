@@ -45,6 +45,27 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
   any charging target below it, even on this DC EVSE.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
 
+## Local patches
+
+`patch_josev.py` runs at image build and edits two files.
+
+Josev `iso15118/evcc/transport/udp_client.py`: upstream computes the
+interface index but leaves `IPV6_MULTICAST_IF` commented out, so the EV's
+SDP request to `FF02::1` leaves by the kernel's first multicast route. That
+is the private link only when no other interface exists. The patch sets
+the option, so requests always leave by `v2g1`.
+
+
+`PyEvJosev/module.py` from everest-core 2025.10.0. Upstream runs one Josev
+EVCC per plug-in with `asyncio.run()`. After `SDPFailedError` Josev logs
+the error and keeps waiting, so `asyncio.run()` never returns and no later
+plug-in starts an EV stack; other errors end the loop, which catches only
+KeyboardInterrupt. The patch runs each EVCC on its own event loop, lets
+`start_charging` (a new plug-in) cancel a stack that is still running,
+logs every stop, publishes `v2g_session_finished` and clears the plug-in
+event before each run. The build fails if either upstream anchor changes,
+and the image checks assert the marker.
+
 ## Upstream behaviours to report
 
 Candidate upstream issues, with reproduction in `tests/acceptance.py` and
@@ -60,6 +81,19 @@ VALIDATION.md:
    the total.
 4. EnergyManager applies the board's AC minimum current to a DC EVSE.
 5. libocpp aborts on a GetCertificateStatus reply without `status`.
+6. PyEvJosev never starts a new EV stack after a failed discovery
+   (Local patches).
+9. Josev's UDP client does not set `IPV6_MULTICAST_IF`, so SDP leaves by
+   the first multicast route instead of the configured interface (Local
+   patches).
+7. libiso15118 v0.9.0 `TbdController` creates a session for each answered
+   SDP request and ignores all later requests until it ends. A session
+   whose peer never connects never ends, so one stray SDP request blocks
+   discovery until the module restarts.
+8. The same controller never ends a session whose EV left before session
+   end (for example unplugged while waiting for authorisation): with the
+   connection closed, `Session::poll` returns before handling any event.
+   Discovery is then ignored until the App restarts. The App reports it.
 
 ## Licences
 

@@ -39,6 +39,9 @@ def validate(options):
     version = options.get("ocpp_version", "2.1")
     power = options.get("max_power_kw", 11)
     acknowledged = options.get("acknowledge_test_isolation", False)
+    ha_control = options.get("ha_control", False)
+    if not isinstance(ha_control, bool):
+        raise ValueError("ha_control must be true or false")
     if not isinstance(cpid, str) or not re.fullmatch(r"SIM-EV-[A-Za-z0-9_-]{1,36}", cpid):
         raise ValueError("charge_point_id must be a SIM-EV- test identity")
     if version not in VERSIONS:
@@ -73,6 +76,7 @@ def validate(options):
         "charge_point_id": cpid,
         "ocpp_version": version,
         "max_power_kw": power,
+        "ha_control": ha_control,
     }
 
 
@@ -98,20 +102,40 @@ def atomic_write(path, text, mode=0o600):
     temporary.replace(path)
 
 
+DISCONNECTED_ONLY = "ocpp-disconnected-only"
+
+
 def bind(data, settings):
-    """Bind the first real endpoint and identity to this App's data volume."""
+    """Bind the first real endpoint and identity to this App's data volume.
+
+    State created only by disconnected starts (marker file, written before
+    EVerest first runs) never reached any CSMS, so the first connected start
+    archives it (moved, never deleted) and binds. Any other unbound state is
+    refused, as before.
+    """
     identity = data / "test-identity.json"
+    marker = data / DISCONNECTED_ONLY
     target = {k: settings[k] for k in ("csms_url", "charge_point_id")}
+    store = data / "everest" / "ocpp201"
+    has_state = store.exists() and any(store.glob("*.db"))
     if not settings["csms_url"]:
-        return  # A disconnected start never erases or changes the binding.
+        # A disconnected start never erases or changes the binding.
+        if not identity.exists() and not has_state:
+            atomic_write(marker, "state created by disconnected starts only\n", mode=0o644)
+        return None
     if identity.exists():
         if json.loads(identity.read_text()) != target:
             raise ValueError("test destination changed; archive/reset App data before rebinding")
-        return
-    store = data / "everest" / "ocpp201"
-    if store.exists() and any(store.glob("*.db")):
-        raise ValueError("unbound OCPP data exists; archive/reset App data")
+        return None
+    archived = None
+    if has_state:
+        if not marker.exists():
+            raise ValueError("unbound OCPP data exists; archive/reset App data")
+        archived = archive_if_requested(data, {"archive_and_rebind": True})
+    if marker.exists():
+        marker.unlink()
     atomic_write(identity, json.dumps(target))
+    return archived
 
 
 def basic_auth_password(data):
@@ -381,7 +405,9 @@ def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=N
     settings = validate(options)
     data.mkdir(parents=True, exist_ok=True)
     archive_if_requested(data, options)
-    bind(data, settings)
+    archived = bind(data, settings)
+    if archived:
+        print(f"First connection: state from disconnected starts moved to {archived.name}/.", flush=True)
     password = basic_auth_password(data)
     store = data / "everest"
     for sub in ("ocpp201", "ocpp_logs"):

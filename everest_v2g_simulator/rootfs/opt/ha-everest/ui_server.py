@@ -1,7 +1,8 @@
-"""Loopback-only Status UI and bounded EV-simulator controls.
+"""Loopback-only Status UI, diagnostics and bounded EV-simulator controls.
 
 Reads EVerest's API module over the private MQTT bus and the libocpp message
-log. The only writes are three fixed car-simulator commands; no OCPP message,
+log. The only writes are three fixed car-simulator commands and the
+discovery self-test (two SDP requests on the private link); no OCPP message,
 configuration or charging profile can be sent from this UI.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import configure  # noqa: E402
+import diag  # noqa: E402
 import ocpp_log  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
@@ -114,6 +116,69 @@ def status(bus):
     }
 
 
+SELFTEST_WAIT_S = 20
+
+
+class SelftestLock:
+    """File lock shared by the App process (self-test at start) and this
+    service, so a plug-in never overlaps a self-test."""
+
+    def __init__(self, blocking_s=0):
+        self.blocking_s, self.handle = blocking_s, None
+
+    def __enter__(self):
+        import fcntl
+        RUN.mkdir(parents=True, exist_ok=True)
+        self.handle = open(RUN / "selftest.lock", "a")
+        deadline = time.monotonic() + self.blocking_s
+        while True:
+            try:
+                fcntl.flock(self.handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.2)
+
+    def __exit__(self, *exc):
+        self.handle.close()  # releases the lock
+
+
+def last_selftest():
+    try:
+        return json.loads((RUN / "selftest.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def run_selftest(source, lock_held=False):
+    """Run the discovery self-test once at a time; record and log the result."""
+    if lock_held:  # the caller already holds the self-test lock
+        return _selftest(source)
+    with SelftestLock() as locked:
+        return _selftest(source) if locked else None
+
+
+def _selftest(source):
+    """Run the probes, then record and log the result."""
+    result = diag.selftest()
+    result["charger_sdp_blocked"] = bool(read_state().get("charger_sdp_blocked"))
+    result["summary"] = diag.summary(result)
+    result["source"] = source
+    configure.atomic_write(RUN / "selftest.json", json.dumps(result), mode=0o644)
+    print(f"{result['summary']} ({source})", flush=True)
+    if not result["pass"]:
+        print("Discovery diagnostics: " + json.dumps(diag.snapshot(), separators=(",", ":")), flush=True)
+    return result
+
+
+def diagnostics(brief=False):
+    body = {"selftest": last_selftest()}
+    if not brief:
+        body["snapshot"] = diag.snapshot()
+    return body
+
+
 def profiles():
     events = ocpp_log.profile_events(ocpp_log.read_logs(LOGS))
     return {"latest_tx_profile": ocpp_log.latest_tx_profile(events), "recent": events}
@@ -136,6 +201,8 @@ def make_handler(bus):
             path = self.path.split("?", 1)[0]
             if path == "/api/status":
                 return self.send_body(200, status(bus))
+            if path == "/api/diagnostics":
+                return self.send_body(200, diagnostics(brief="brief=1" in self.path))
             if path == "/api/profiles":
                 try:
                     return self.send_body(200, profiles())
@@ -150,14 +217,31 @@ def make_handler(bus):
         def do_POST(self):
             path = self.path.split("?", 1)[0]
             name = path.rsplit("/", 1)[-1]
-            if not path.startswith("/api/ev/") or name not in ev_commands({}):
+            selftest = path == "/api/diag/selftest"
+            if not selftest and (not path.startswith("/api/ev/") or name not in ev_commands({})):
                 return self.send_body(404, {"error": "not found"})
             # Custom header forces a CORS preflight for any cross-site request.
             if self.headers.get("X-HA-EVerest") != "1":
                 return self.send_body(403, {"error": "missing request header"})
             if int(self.headers.get("Content-Length") or 0) > 0:
                 return self.send_body(400, {"error": "no body accepted"})
-            ok = bus.send(name, read_state())
+            if selftest:
+                # Probes would be ignored during a session, and must never
+                # touch a real one: only with the EV unplugged.
+                info = (bus.snapshot().get("session_info") or {}).get("value") or {}
+                if info.get("state") != "Unplugged":
+                    return self.send_body(409, {"error": "unplug the simulated EV first",
+                                                "state": info.get("state")})
+                result = run_selftest("on request")
+                if result is None:
+                    return self.send_body(409, {"error": "self-test already running"})
+                return self.send_body(200, result)
+            # Wait for a running self-test; its probes and the charger's
+            # session clean-up must not overlap a plug-in.
+            with SelftestLock(SELFTEST_WAIT_S) as free:
+                if not free:
+                    return self.send_body(409, {"error": "discovery self-test still running"})
+                ok = bus.send(name, read_state())
             return self.send_body(200 if ok else 503, {"sent": ok, "command": name})
 
         def log_message(self, *args):

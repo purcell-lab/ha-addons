@@ -16,9 +16,11 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   test ! -e /opt/everest/etc/everest/certs
   test -z "$(find / -xdev \( -name "*.key" -o -name "*LEAF*" -o -name "*.p12" \) \
     -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
+  grep -q "ha-everest: EV ISO 15118 stack stopped" /opt/everest/libexec/everest/modules/PyEvJosev/module.py
+  grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
   java -version 2>&1 | head -1; nft --version'
 
-echo "== OCPP 2.1 V2G, 2.0.1 fallback, pinned 2.0.1 and offline acceptance (no network)"
+echo "== Offline, discovery recovery, OCPP 2.1 V2G, 2.0.1 fallback and pinned 2.0.1 acceptance (no network)"
 docker tag "$IMAGE" everest-v2g:test
 docker build -q -t everest-v2g:smoke -f "$TESTS/Dockerfile.smoke" .
 docker run --rm --network none --cap-add NET_ADMIN everest-v2g:smoke
@@ -39,6 +41,14 @@ name="v2g-check-$$"
 net="v2g-net-$$"
 trap 'docker logs "$name" 2>&1 | tail -80; docker rm -f "$name" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
 docker network create --ipv6 --subnet 172.31.250.0/24 --subnet fd00:2026:10::/64 "$net" >/dev/null
+
+echo "== Discovery with an IPv6 eth0 (as on Home Assistant OS)"
+# Upstream Josev sent SDP by the first multicast route, which is eth0 on this
+# IPv6 network and on HA OS; only the patched EV completes discovery here.
+docker run --rm --network "$net" --cap-add NET_ADMIN everest-v2g:smoke recovery > /tmp/recovery-eth0.log 2>&1 \
+  || { tail -120 /tmp/recovery-eth0.log; exit 1; }
+grep "unscoped multicast via" /tmp/recovery-eth0.log
+grep -q "unscoped multicast via eth0" /tmp/recovery-eth0.log
 docker create --network "$net" --cap-add NET_ADMIN --name "$name" "$IMAGE" >/dev/null
 docker cp "$TESTS/offline-options.json" "$name":/data/options.json
 docker cp "$TESTS/listeners.py" "$name":/tmp/listeners.py
@@ -52,7 +62,25 @@ for _ in $(seq 60); do
   sleep 2
 done
 test "$ready" = yes || { echo "App did not reach a disconnected, Unplugged state"; exit 1; }
-sleep 5
+echo "== Discovery self-test at start passes and diagnostics are served"
+passed=no
+for _ in $(seq 30); do
+  if docker logs "$name" 2>&1 | grep -q "Discovery self-test PASSED: unicast=reply multicast=reply"; then
+    passed=yes; break
+  fi
+  sleep 2
+done
+docker logs "$name" 2>&1 | grep "Discovery self-test" || true
+test "$passed" = yes || { echo "Discovery self-test did not pass at start"; exit 1; }
+docker exec "$name" python3 -c 'import json, urllib.request
+d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/diagnostics"))
+s = d["snapshot"]
+assert d["selftest"]["pass"] is True, d["selftest"]
+assert s["sdp_udp_listeners"], s
+assert all(s["links"][n]["addresses"] for n in ("v2g0", "v2g1")), s["links"]
+rules = {r["rule"]: r["packets"] for r in s["firewall"]["rules"]}
+assert rules["private V2G link"] > 0 and "dropped by policy" in rules, rules
+print("diagnostics:", json.dumps({"capture": {k: v.get("count", v.get("error")) for k, v in d["selftest"]["capture"].items()}, "firewall": rules}))'
 docker exec "$name" nft list table inet ha_everest_v2g
 docker exec "$name" python3 /tmp/listeners.py
 docker exec "$name" python3 /tmp/fwprobe.py private-link

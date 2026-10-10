@@ -1,4 +1,4 @@
-# Validation record, 0.1.0
+# Validation record, 0.1.2
 
 ## Evidence levels
 
@@ -87,6 +87,62 @@ namespace on global or link-local addresses.
 - A one-second 13.5 kW sample appeared at a direction change.
 - Re-plugging within about 4 s of unplug, while the previous TLS session
   was still closing, prevented a new discovery; the test waits 15 s.
+
+## Discovery diagnostics and recovery (0.1.1 and 0.1.2)
+
+- Every image run (`ci_image_checks.sh`) requires `Discovery self-test
+  PASSED: unicast=reply multicast=reply` in the offline App log, and an
+  `/api/diagnostics` snapshot with addresses on both link ends, an SDP
+  listener and a nonzero `private V2G link` firewall counter.
+- Acceptance scenario `recovery` blocks SDP into `v2g0`, plugs in and
+  waits for Josev's `SDPRequest was not successful`, with no SDP request
+  reaching the charger. After unblocking, unplug and plug-in, the patched
+  module must replace the idle stack (`ev_stack_restarts` 1) and the fresh
+  stack must complete discovery, TLS and ISO 15118-20 session setup. The self-test then passes again.
+- CI also showed that the charger ignores SDP requests while a session it
+  answered is still open, and such a session never ends if no TCP
+  connection follows. The self-test therefore releases each session it
+  opens (DOCS.md, Discovery diagnostics).
+- Unplugging the EV while the charger waited for authorisation left the
+  charger ignoring discovery (`Ignoring sdp request message because a
+  session is already created and running`). The `recovery` scenario now
+  requires the App to report this and the self-test to show the requests
+  arriving on `v2g0` without a reply. This is a plausible cause of the HA
+  OS symptom after a Preparing session was unplugged, but not of the very
+  first failure there, which had no `Got SDP request` line.
+- Field finding that led to 0.1.1: on Home Assistant OS the EV's SDP
+  requests timed out although the SDP server had started on `v2g0` and
+  link-local addresses were present; the same image passed in CI. The
+  0.1.0 EV stack then idled, so later plug-ins did nothing.
+- Cause, established with 0.1.1 on HA OS (2026-10-10): the start-up
+  self-test passed on both paths, yet the simulated EV's requests still
+  timed out. Upstream Josev sends to `FF02::1` without choosing an
+  interface (its `IPV6_MULTICAST_IF` line is commented out), so the kernel
+  uses the first multicast route. CI's acceptance container has no network,
+  so that is the private link; on HA OS it is `eth0` on the Supervisor
+  network. Reproduced in a network namespace with a second interface: the
+  unscoped request left by that interface, and with the interface set it
+  went from `v2g1` to `v2g0`. 0.1.2 patches Josev to use `v2g1`, drops any
+  SDP that would leave by another interface, and CI repeats `recovery`
+  with a bridge network attached (an `eth0`, as on HA OS).
+- Live on HA OS with 0.1.2 (2026-10-11), driven only through the HA MCP:
+  the start-up self-test passed with `unscoped-multicast-via=eth0`; an
+  `everest_v2g_command` plug-in reached discovery in 3 s, then TLS, session
+  setup and DC_BPT; after RequestStartTransaction from `sim_lab_v2g` the
+  session charged at 11,000 W. HA's charge-control switch stayed `off` (the
+  HA OCPP 2.1 status gap), so turning it off sent no stop; unplugging ended
+  the transaction (TxStopPoints EVConnected). The self-test afterwards
+  passed and the charger was not ignoring discovery.
+- Second session on HA OS with 0.1.2 (2026-10-11 06:30): plug-in reached
+  discovery in 2.6 s, DC_BPT, then 11,000 W after RequestStartTransaction.
+  An `everest_v2g_command` `stop` ended it from the EV side; HA's
+  transaction opened at 06:30:37 and closed at 06:31:48 on time. Meter
+  start 0.451 kWh and final register 0.613 kWh give about 0.16 kWh, which
+  fits 52 s at 11 kW (HA's session-energy sensor showed the register). The
+  self-test afterwards passed. The first session's transaction reached HA
+  only at 06:19:37, when the App logged a dropped OCPP message after
+  retries; that delay, not the switch state alone, explains why HA could
+  not stop it. Its cause is not established.
 
 ## Not claimed
 

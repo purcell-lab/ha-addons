@@ -75,13 +75,14 @@ class IngressTest(unittest.TestCase):
                             code, headers = request()
                             self.assertEqual(code, 200)
                             self.assertNotIn("Access-Control-Allow-Origin", headers)
-                            # Read-only everywhere except the three EV-simulator commands.
-                            for endpoint in ("/api/status", "/api/profiles", "/api/ev/plugin"):
+                            # Read-only everywhere except the EV commands and the self-test.
+                            for endpoint in ("/api/status", "/api/profiles", "/api/diagnostics", "/api/ev/plugin"):
                                 self.assertEqual(request(endpoint)[0], 403 if endpoint.startswith("/api/ev/") else 200)
                             for endpoint in ("/", "/api/status", "/api/profiles", "/api/ocpp",
-                                             "/api/ev/charge", "/api/ev/pause", "/api/ev/resume", "/api/ev/plugin/x", "/api/ev/../status"):
+                                             "/api/ev/charge", "/api/ev/pause", "/api/ev/resume", "/api/ev/plugin/x", "/api/ev/../status",
+                                             "/api/diagnostics", "/api/diag/selftest/x", "/api/diag/other"):
                                 self.assertEqual(request(endpoint, "POST")[0], 403, endpoint)
-                            for endpoint in ("/api/ev/plugin", "/api/ev/stop", "/api/ev/unplug"):
+                            for endpoint in ("/api/ev/plugin", "/api/ev/stop", "/api/ev/unplug", "/api/diag/selftest"):
                                 self.assertEqual(request(endpoint, "POST")[0], 200, endpoint)
                                 self.assertEqual(request(endpoint, "PUT")[0], 403, endpoint)
                     finally:

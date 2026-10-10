@@ -30,3 +30,4 @@ pre:empty { display:none; }
 .tablewrap { overflow-x:auto; }
 td:first-child { white-space:nowrap; }
 @media (max-width: 480px) { header, main { padding: 10px; } section { padding: 12px; } }
+details > summary { cursor:pointer; color:var(--muted); margin-top:10px; }

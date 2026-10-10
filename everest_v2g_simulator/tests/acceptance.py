@@ -8,7 +8,13 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
              after stop and unplug a fresh session charges again
   fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit
   pinned201  App option ocpp_version 2.0.1; CSMS prefers 2.1 -> ocpp2.0.1
-  offline    Empty csms_url: no connection attempt leaves the host
+  offline    Empty csms_url: no connection attempt leaves the host; the
+             discovery self-test passes at start
+  recovery   Discovery blocked on the private link: the EV's SDP requests
+             fail and upstream Josev idles; after unblocking, unplug and
+             plug-in, the patched module replaces that stack and a fresh
+             EV stack completes discovery; unplugging before authorisation
+             leaves the charger ignoring discovery, which the App reports
 
 Each charging step compares mean measured DC power with the setpoint, and
 metered import and export energy with the integral of measured power.
@@ -47,9 +53,9 @@ def setpoint_period(offset, watts):
             "setpoint": float(watts), "operationMode": "CentralSetpoint"}
 
 
-def http(path, method="GET"):
+def http(path, method="GET", timeout=30):
     req = urllib.request.Request(UI + path, method=method, headers={"X-HA-EVerest": "1"})
-    with urllib.request.urlopen(req, timeout=5) as response:
+    with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.loads(response.read())
 
 
@@ -72,6 +78,11 @@ class App:
         self.proc.terminate()
         code = self.proc.wait(30)
         self.log.close()
+        if sys.exc_info()[0] is not None or code != 0:
+            print(f"== App log tail ({self.log_path})", flush=True)
+            lines = [l for l in Path(self.log_path).read_text(errors="replace").splitlines()
+                     if "ocpp:OCPP201" not in l and "api:API" not in l]
+            print("\n".join(lines[-150:]), flush=True)
         return code
 
 
@@ -300,10 +311,73 @@ async def offline_scenario():
     return {"scenario": "offline", "result": "pass"}
 
 
+def log_text(app):
+    app.log.flush()
+    return Path(app.log_path).read_text(errors="replace")
+
+
+def nft(*args):
+    return subprocess.run(["nft", *args], check=True, text=True, stdout=subprocess.PIPE).stdout
+
+
+async def recovery_scenario():
+    app = App({"csms_url": "", "charge_point_id": CPID})
+    app.start()
+    try:
+        await wait_for(lambda: reading()["state"] == "Unplugged", 90, what="EVerest ready")
+        await wait_for(lambda: "Discovery self-test PASSED" in log_text(app), 60, what="self-test at start")
+        # Block only SDP into the charger end, like an unanswered discovery.
+        nft("insert", "rule", "inet", "ha_everest_v2g", "input", "iifname", "v2g0", "udp", "dport", "15118",
+            "counter", "drop", "comment", '"acceptance block"')
+        before = log_text(app).count("Got SDP request")
+        assert http("/api/ev/plugin", "POST")["sent"]
+        await wait_for(lambda: "SDPRequest was not successful" in log_text(app), 90,
+                       what="EV discovery failure")
+        assert log_text(app).count("Got SDP request") == before, "blocked SDP still reached the charger"
+        listing = nft("-a", "list", "chain", "inet", "ha_everest_v2g", "input")
+        handle = [line.rsplit("# handle ", 1)[1] for line in listing.splitlines() if "acceptance block" in line][0]
+        nft("delete", "rule", "inet", "ha_everest_v2g", "input", "handle", handle.strip())
+        http("/api/ev/unplug", "POST")
+        await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged")
+        await asyncio.sleep(5)
+        assert http("/api/ev/plugin", "POST")["sent"]
+        await wait_for(lambda: "stack stopped (replaced by a new plug-in)" in log_text(app), 30,
+                       what="stuck EV stack replaced")
+        await wait_for(lambda: http("/api/status")["app"].get("ev_stack_restarts") == 1, 10,
+                       what="restart counted")
+        await wait_for(lambda: log_text(app).count("Got SDP request") > before, 60,
+                       what="discovery by a fresh EV stack after re-plug")
+        # Discovery, TLS and ISO 15118-20 session setup by the fresh stack.
+        await wait_for(lambda: "Received session setup with evccid" in
+                       log_text(app).rsplit("replaced by a new plug-in", 1)[1],
+                       30, what="session setup by the fresh EV stack")
+        # Unplugged while waiting for authorisation: upstream libiso15118
+        # never ends that charger session, so it ignores discovery from now
+        # on. The App must say so, and the self-test must show it.
+        http("/api/ev/unplug", "POST")
+        await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="unplugged again")
+        await asyncio.sleep(10)
+        snapshot = http("/api/diagnostics")["snapshot"]
+        rules = {r["rule"]: r["packets"] for r in snapshot["firewall"]["rules"]}
+        assert rules["SDP kept on the private link"] == 0, rules  # the patched EV used v2g1
+        print("unscoped multicast via", snapshot["unscoped_multicast_interface"], flush=True)
+        selftest = http("/api/diag/selftest", "POST", timeout=20)
+        assert not selftest["pass"] and selftest["charger_sdp_blocked"], selftest
+        assert selftest["capture"]["v2g0"]["count"] >= 2, selftest  # requests arrived; no reply
+        assert "Restart the App to clear it" in log_text(app)
+        assert "charger=ignoring-discovery" in selftest["summary"], selftest
+    finally:
+        code = app.stop()
+    assert code == 0
+    return {"scenario": "recovery", "result": "pass"}
+
+
 async def main(selected):
     results = []
     if "offline" in selected:
         results.append(await offline_scenario())
+    if "recovery" in selected:
+        results.append(await recovery_scenario())
     if "v2g21" in selected:
         results.append(await v2g_scenario())
     if "fallback" in selected:
@@ -314,4 +388,4 @@ async def main(selected):
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1:] or ["offline", "v2g21", "fallback", "pinned201"]))
+    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201"]))

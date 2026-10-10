@@ -112,5 +112,41 @@ $("copy").addEventListener("click", async () => {
   setTimeout(() => { $("copy").textContent = "Copy JSON"; }, 2500);
 });
 
-refreshStatus(); refreshProfiles();
-setInterval(refreshStatus, 2000); setInterval(refreshProfiles, 4000);
+function showSelftest(t) {
+  const badge = $("selftest");
+  if (!t) { badge.textContent = "Not run yet"; badge.className = "badge muted"; return; }
+  badge.textContent = (t.pass ? "Passed" : "Failed") + " (" + (t.source || "") + ", " + new Date(t.at * 1000).toLocaleTimeString("en-AU") + ")";
+  badge.className = "badge " + (t.pass ? "ok" : "bad");
+  const cap = (n) => { const c = (t.capture || {})[n]; if (!c) return "not captured"; if (!c.available) return "capture unavailable"; return c.count ? c.frames.map(f => f.direction + " " + f.sdp).join(", ") : "no SDP frames"; };
+  const items = [["Unicast to charger", (t.unicast || {}).result || "–"], ["Multicast ff02::1", (t.multicast || {}).result || "–"],
+                 ["Seen on v2g1 (EV)", cap("v2g1")], ["Seen on v2g0 (charger)", cap("v2g0")]];
+  if (t.charger_sdp_blocked) items.push(["Charger", "Ignoring discovery: an earlier ISO 15118 session never closed. Restart the App."]);
+  $("diagsum").replaceChildren(...items.map(([label, value]) => {
+    const div = document.createElement("div");
+    const dt = document.createElement("dt"); dt.textContent = label;
+    const dd = document.createElement("dd"); dd.textContent = value;
+    div.append(dt, dd); return div;
+  }));
+}
+
+async function refreshDiagnostics() {
+  try {
+    const r = await fetch("api/diagnostics", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    showSelftest(d.selftest);
+    $("diagjson").textContent = JSON.stringify(d.snapshot, null, 2);
+  } catch (e) { $("diagjson").textContent = "Diagnostics unavailable; retrying."; }
+}
+
+$("runtest").addEventListener("click", async () => {
+  $("runtest").disabled = true; $("selftest").textContent = "Running"; $("selftest").className = "badge muted";
+  try {
+    const r = await fetch("api/diag/selftest", { method: "POST", headers: { "X-HA-EVerest": "1" } });
+    if (r.ok) showSelftest(await r.json()); else $("selftest").textContent = "Self-test request failed (" + r.status + ")";
+  } catch (e) { $("selftest").textContent = "Self-test request failed"; }
+  finally { $("runtest").disabled = false; refreshDiagnostics(); }
+});
+
+refreshStatus(); refreshProfiles(); refreshDiagnostics();
+setInterval(refreshStatus, 2000); setInterval(refreshProfiles, 4000); setInterval(refreshDiagnostics, 15000);

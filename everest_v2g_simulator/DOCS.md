@@ -56,6 +56,12 @@ data. Changing either later is refused until you set `archive_and_rebind:
 true` for one start (state is moved to `/data/archive-<time>/`, never
 deleted), then set it back to `false`.
 
+From 0.1.1, state created only by disconnected starts never reached any
+CSMS, so the first connected start moves it to `/data/archive-<time>/` and
+binds without the extra step. The App logs `First connection: state from
+disconnected starts moved to archive-<time>/`. Unbound state from 0.1.0
+still needs `archive_and_rebind` once.
+
 ## Options
 
 | Option | Default | Meaning |
@@ -66,6 +72,7 @@ deleted), then set it back to `false`.
 | `max_power_kw` | `11` | Charger rating in both directions, 3 to 11 kW. Also the default composite limit. The simulated board's AC export capability (16 A on three phases) sets the 11 kW ceiling. |
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty `csms_url`. |
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
+| `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |
 
 **Basic Auth.** Security Profile 1 sends a random 32-character password,
 generated once in `/data/basic-auth-password`. The App never logs or shows
@@ -85,6 +92,97 @@ and power come only from the CSMS.
 
 Live readings show direction, signed power (negative is discharge), meter
 import and export energy, DC voltage and current, and the rated power.
+
+Each plug-in starts a fresh EV ISO 15118 stack. In upstream PyEvJosev, a
+failed discovery leaves the EV stack idle without returning, so every
+later plug-in did nothing until a restart. The App patches the module
+(UPSTREAM.md): a new plug-in replaces a stack that is still running and
+logs `ha-everest: EV ISO 15118 stack stopped (replaced by a new plug-in)`;
+other EV stack errors are logged the same way and the next plug-in
+retries. The Status page and the HA
+status object count these restarts as `ev_stack_restarts`.
+
+## Discovery diagnostics
+
+About 3 s after the charger's SDP server starts, the App runs a discovery
+self-test across the private link and logs one line, for example:
+
+```
+Discovery self-test PASSED: unicast=reply multicast=reply v2g0=[in:request,out:response] v2g1=[out:request,in:response] (at start)
+```
+
+- **multicast** sends an SDP request to `ff02::1` via `v2g1`, as the
+  simulated EV does. It runs first.
+- **unicast** sends the same request from `v2g1` to the charger's
+  link-local address on `v2g0`, the path CI's firewall probe uses.
+- **v2g0** and **v2g1** list the SDP frames a packet counter saw on each end
+  (`in` or `out`, request or response). A request seen leaving `v2g1` but
+  never arriving on `v2g0` points at the link; a request arriving on `v2g0`
+  without a response points at the SDP server or the firewall. The counter
+  needs a raw packet socket; where the runtime refuses one, it shows
+  `capture-unavailable` and the two results still stand.
+
+The charger (libiso15118) opens a session for every request it answers
+and ignores later requests until that session ends. After each reply the
+self-test connects to the offered TCP port and sends an invalid header, so
+the charger closes the session and the next plug-in is not blocked. A
+test whose session could not be released fails with
+`session-release=failed`. On request, the self-test runs only while the
+simulated EV is unplugged.
+
+If the simulated EV is unplugged while the charger waits for
+authorisation, upstream libiso15118 never ends that charger session and
+ignores every later discovery request. The App detects this, logs
+`ha-everest: the charger is ignoring discovery ... Restart the App to clear
+it.`, adds `charger=ignoring-discovery(restart the App)` to the self-test
+line, and sets `charger_ignoring_discovery` on the HA status object.
+Authorise or stop the session from the CSMS before unplugging to avoid it.
+
+The line ends with `unscoped-multicast-via=<interface>`: the interface
+a request to `ff02::1` would leave by if the sender did not choose one,
+read from the routing table without sending anything. Upstream Josev did
+not choose one, and on Home Assistant OS this is `eth0`, which is why
+0.1.0 and 0.1.1's EV never reached the charger there. 0.1.2 patches the EV to send
+on `v2g1`, and the firewall drops SDP that would leave by any other
+interface (counter `SDP kept on the private link`).
+
+On failure the App also logs `Discovery diagnostics:` with the full
+snapshot. The Status page's Discovery self-test panel shows the latest
+result, a Run self-test button and the snapshot: link state and sysctls,
+IPv6 addresses (with tentative and duplicate flags), multicast groups
+joined on each end, UDP listeners on port 15118, and packet counters for
+every firewall rule, including `dropped by policy`. The self-test sends two
+SDP requests on the private link only and changes nothing.
+
+## Home Assistant control
+
+With `ha_control: true` the App runs an outbound-only bridge to Home
+Assistant Core, so an HA MCP client or automation can operate it without
+the Ingress UI. It opens no port and adds no inbound path.
+
+- **Status object** `sensor.<charge_point_id>_v2g_app` (for example
+  `sensor.sim_ev_everest_v2g_01_v2g_app`): EVSE state as the state, with
+  attributes for the negotiated OCPP version, direction, power, energy,
+  `ev_stack_restarts` and the last self-test summary. Refreshed every
+  30 s and after each command. It is a plain state object, not a
+  registered entity, and disappears from the state list after an HA
+  restart until the bridge republishes it.
+- **Commands** arrive as HA event `everest_v2g_command` with data
+  `{"charge_point_id": "<id>", "command": "<name>"}`. `<name>` is one of
+  `plugin`, `stop`, `unplug`, `selftest` or `diagnostics`. Other IDs are
+  ignored; other names are refused. At most one command each 2 s.
+- **Results** are fired as event `everest_v2g_command_result` with the
+  command, `ok` and the App's reply.
+
+From an HA MCP client: fire `everest_v2g_command` with the event tool,
+then read the status object. The bridge reuses the same three EV
+controls and the self-test as the Status page; it cannot send OCPP
+messages, change options, or set direction or power.
+
+`homeassistant_api: true` in the manifest gives the App a Supervisor
+token for Core's API whether or not `ha_control` is on. With it off the
+token is unused. The bridge calls only the WebSocket event subscription,
+`POST /api/states/<status object>` and `POST /api/events/everest_v2g_command_result`.
 
 ## Charging and discharging profiles
 
@@ -140,9 +238,11 @@ process on a reply without one.
 The UI uses Home Assistant Ingress authentication. nginx on port 8099
 accepts only the Supervisor Ingress peer (`172.30.32.2`), checked on the
 actual connection, not a forwarded header. The UI service and MQTT broker
-listen on loopback only. Only three fixed EV-simulator POST endpoints
-exist; all other paths are read-only. No host ports, host networking,
-hardware access, HA API token or Docker socket are requested. Do not add a
+listen on loopback only. Only three fixed EV-simulator POST endpoints and
+the discovery self-test exist; all other paths are read-only. No host
+ports, host networking, hardware access, Supervisor API or Docker socket
+are requested. The Core API token serves only the opt-in control bridge
+(Home Assistant control). Do not add a
 port mapping or widen the ACL to make direct probes pass; use **Open Web
 UI**.
 
@@ -153,12 +253,14 @@ inside its own container network namespace. Nothing is bridged to the host
 or the LAN. The same capability loads an nftables policy that **drops all
 inbound traffic** on the Home Assistant network interface except Ingress
 from the Supervisor and replies to the App's own outbound OCPP connection.
+Outbound, it drops ISO 15118 discovery (UDP 15118) on every interface
+except the private link and loopback.
 The upstream SDP server binds every interface, so this policy is the
 boundary for TCP and defence in depth for UDP. If either step fails, the
 App logs `V2G isolation setup failed` and starts no EVerest process.
 
 NET_ADMIN lowers the App's Home Assistant security rating. It does not give
-host networking, raw sockets or access to other containers.
+host networking or access to other containers.
 
 **Test PKI.** ISO 15118-20 needs mutual TLS 1.3, so the charger and EV need
 certificates. No keys ship in the image. Each install generates its own
