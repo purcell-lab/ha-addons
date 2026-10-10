@@ -20,3 +20,8 @@ test('exact authentication, not prefix matching',()=>{
   assert.equal(equalToken('Bearer abcX','Bearer abc'),false);
   assert.equal(equalToken(undefined,'Bearer abc'),false);
 });
+test('simulator admission remains opt-in with a separate password',()=>{
+  assert.throws(()=>validate({...good,simulator_enabled:true}));
+  assert.throws(()=>validate({...good,simulator_enabled:true,simulator_password:good.api_token}));
+  assert.doesNotThrow(()=>validate({...good,simulator_enabled:true,simulator_password:'e'.repeat(64)}));
+});

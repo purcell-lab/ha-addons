@@ -5,7 +5,7 @@ FROM ghcr.io/citrineos/citrineos-server:v2.0.1@sha256:15316dff5f661714e2fddfa2f2
 LABEL io.hass.name="CitrineOS Isolated Lab" \
       io.hass.description="Private laboratory server with read-only authenticated gateway" \
       io.hass.type="addon" \
-      io.hass.version="0.2.0" \
+      io.hass.version="0.3.0" \
       io.hass.arch="amd64" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons"
 

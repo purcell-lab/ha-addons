@@ -12,8 +12,8 @@ def docker(*args, capture=True):
 ROOT = Path(__file__).resolve().parents[2]
 TMP = Path("/tmp/citrine-lab-ci")
 TMP.mkdir(exist_ok=True, mode=0o700)
-values = [secrets.token_hex(32) for _ in range(4)]
-db, broker, hasura, token = values
+values = [secrets.token_hex(32) for _ in range(5)]
+db, broker, hasura, token, simulator_password = values
 names = ["lab-db", "lab-broker", "lab-hasura", "lab-server"]
 options = [
     {"password": db},
@@ -104,10 +104,30 @@ try:
     else:
         raise AssertionError("Restart persistence failed")
     assert request("/commands/tariff?tenantId=1")[0]==200
+    if os.environ.get("TEST_NATIVE_SIMULATOR")=="1":
+        options[-1].update(simulator_enabled=True,simulator_password=simulator_password)
+        p=TMP/"lab-server.json";p.write_text(json.dumps(options[-1]));p.chmod(0o600)
+        docker("cp",str(p),"lab-server:/data/options.json")
+        docker("restart","lab-server")
+        for _ in range(60):
+            try:
+                if request("/lab/status")[1].get("charger_listeners")==1:break
+            except Exception:pass
+            time.sleep(2)
+        else:raise AssertionError("Simulator listener activation failed")
+        docker("create","--name","lab-simulator","--network","citrine-ci","citrine-simulator:test")
+        names.append("lab-simulator")
+        p=TMP/"lab-simulator.json"
+        p.write_text(json.dumps({"backend_url":"ws://lab-server:8081","charge_point_id":"SIM-CITRINE-LAB-01",
+            "acknowledge_test_isolation":True,"password":simulator_password}));p.chmod(0o600)
+        docker("cp",str(p),"lab-simulator:/data/options.json")
+        docker("start","lab-simulator")
+        from simulator_trial import trial
+        trial(docker,request,simulator_password)
     print(json.dumps({"result":"passed","release":"v2.0.1","migration_count":int(before),
                       "authenticated_tariff":True,"empty_discovery":True,
                       "mutation_denied":True,"restart_persistence":True,"logical_restore":True,
-                      "charger_connections":0}))
+                      "native_simulator_test":os.environ.get("TEST_NATIVE_SIMULATOR")=="1"}))
 finally:
     for name in names:
         try:

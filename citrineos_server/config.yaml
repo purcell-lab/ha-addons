@@ -1,5 +1,5 @@
 name: CitrineOS Isolated Lab
-version: "0.2.0"
+version: "0.3.0"
 slug: citrineos_server
 description: Pinned v2.0.1 laboratory server with private dependencies and read-only authenticated access.
 url: https://github.com/purcell-lab/ha-addons
@@ -22,6 +22,8 @@ options:
   hasura_host: ""
   hasura_secret: ""
   api_token: ""
+  simulator_enabled: false
+  simulator_password: ""
 schema:
   mode: list(disconnected|isolated)
   database_host: str
@@ -31,3 +33,5 @@ schema:
   hasura_host: str
   hasura_secret: password
   api_token: password
+  simulator_enabled: bool
+  simulator_password: password

@@ -2,7 +2,7 @@
 
 This App runs pinned CitrineOS **v2.0.1**, not an OCPP protocol version.
 Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
-Nothing binds a host port. No OCPP listener is enabled in this first deployment.
+Nothing binds a host port. No OCPP listener is enabled by default.
 Existing physical chargers, simulators, Home Assistant OCPP entries and payments
 are not used or redirected.
 
@@ -77,10 +77,28 @@ restore has been tested. Take a protected HA backup before deployment.
 
 ## Deliberate limits
 
-No charger registration, charging, TxProfile, V2G, operator UI, OCPI, external CA
-or BSV settlement is enabled. Simulator attachment and writable control require
-a separate bounded test step. The Hasura endpoint works through the read-only
+An optional dedicated simulator test is described below. TxProfile, V2G, operator
+UI, OCPI, external CA and BSV settlement are not enabled. The Hasura endpoint works through the read-only
 gateway; raw Hasura admin credentials must not be supplied to a user-facing client.
+
+## Optional dedicated simulator
+
+Set `simulator_enabled=true` with a distinct generated 64-hex
+`simulator_password` to enable internal port 8081, OCPP 2.0.1 only, native Security
+Profile 1, fixed tenant 1 and unknown-station rejection. No host port is published.
+Startup provisions only `SIM-CITRINE-LAB-01`, Accepted boot status and the synthetic
+`SIM-CITRINE-TEST` token. It refuses provisioning if any different station is in
+this dedicated database. Parameters are bound through PostgreSQL, never SQL
+interpolated or exposed in an HTTP SQL endpoint.
+
+Security Profile 1 is cleartext Basic authentication, confined to the trusted
+Supervisor network. It is not TLS and must not be exposed to the LAN or internet.
+The opt-in setup is for the separately installed `citrineos_simulator` App only.
+No existing charger or simulator identity is reused.
+
+Read-only discovery additionally exposes `Boots`, `TransactionEvents` and
+`MeterValues`, with explicit columns and tenant filters. This is lab observability,
+not a change to the HA client's still-staged compatibility work.
 
 Upstream references:
 [server release](https://github.com/citrineos/citrineos-core/releases/tag/v2.0.1),
