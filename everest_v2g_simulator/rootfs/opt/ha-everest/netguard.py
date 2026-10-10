@@ -30,12 +30,13 @@ delete table inet {TABLE}
 table inet {TABLE} {{
   chain input {{
     type filter hook input priority filter; policy drop;
-    iif "lo" accept
-    iifname {{ "{SECC_LINK}", "{EVCC_LINK}" }} accept
-    ct state invalid drop
-    ct state established,related accept
-    ip saddr {SUPERVISOR} tcp dport {INGRESS_PORT} accept
-    icmpv6 type {{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert }} accept
+    iif "lo" counter accept comment "loopback"
+    iifname {{ "{SECC_LINK}", "{EVCC_LINK}" }} counter accept comment "private V2G link"
+    ct state invalid counter drop comment "invalid"
+    ct state established,related counter accept comment "replies to outbound"
+    ip saddr {SUPERVISOR} tcp dport {INGRESS_PORT} counter accept comment "Supervisor Ingress"
+    icmpv6 type {{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert }} counter accept comment "neighbour discovery"
+    counter comment "dropped by policy"
   }}
 }}
 """

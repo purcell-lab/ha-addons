@@ -45,6 +45,17 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
   any charging target below it, even on this DC EVSE.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
 
+## Local patch
+
+`patch_josev.py` runs at image build and edits one file,
+`PyEvJosev/module.py` from everest-core 2025.10.0. Upstream's
+`start_evcc_handler` loop catches only KeyboardInterrupt, so any session
+error (for example `SDPFailedError` after unanswered discovery) ends the
+thread and no later plug-in starts an EV stack. The patch adds an
+`except Exception` branch that logs the error, publishes
+`v2g_session_finished` and waits for the next plug-in. The build fails if
+the upstream anchor text changes, and the image checks assert the marker.
+
 ## Upstream behaviours to report
 
 Candidate upstream issues, with reproduction in `tests/acceptance.py` and
@@ -60,6 +71,7 @@ VALIDATION.md:
    the total.
 4. EnergyManager applies the board's AC minimum current to a DC EVSE.
 5. libocpp aborts on a GetCertificateStatus reply without `status`.
+6. PyEvJosev's plug-in loop ends after one failed session (Local patch).
 
 ## Licences
 

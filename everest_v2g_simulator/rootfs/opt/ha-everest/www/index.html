@@ -28,6 +28,17 @@
     <p id="cmdmsg" class="note" role="status"></p>
   </section>
   <section>
+    <h2>Discovery self-test</h2>
+    <p class="note">ISO 15118 discovery (SDP) from the EV end of the private link (v2g1) to the charger (v2g0): unicast, as CI's probe sends it, and multicast to ff02::1, as the simulated EV sends it. Runs once at start; a packet capture on both link ends shows where a request stops.</p>
+    <p id="selftest" class="badge muted">Not run yet</p>
+    <div class="controls"><button id="runtest">Run self-test</button></div>
+    <dl class="grid" id="diagsum"></dl>
+    <details>
+      <summary>Link, multicast and firewall details</summary>
+      <pre id="diagjson" tabindex="0"></pre>
+    </details>
+  </section>
+  <section>
     <h2>Live readings</h2>
     <dl class="grid" id="live"></dl>
   </section>

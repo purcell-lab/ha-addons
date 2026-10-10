@@ -62,8 +62,12 @@ class ManifestTest(unittest.TestCase):
                      "max_power_kw: int(3,11)", "slug: everest_v2g_simulator"):
             self.assertIn(line, CONFIG_TEXT)
         for forbidden in ("ports:", "host_network", "full_access", "devices:", "SYS_ADMIN",
-                          "NET_RAW", "homeassistant_api", "hassio_api", "docker_api", "map:"):
+                          "NET_RAW", "hassio_api", "hassio_role", "docker_api", "auth_api", "map:"):
             self.assertNotIn(forbidden, CONFIG_TEXT)
+        # Core API access only for the opt-in, outbound-only control bridge.
+        self.assertIn("homeassistant_api: true", CONFIG_TEXT)
+        self.assertIn("  ha_control: false", CONFIG_TEXT)
+        self.assertIn("  ha_control: bool", CONFIG_TEXT)
 
     def test_only_net_admin(self):
         lines = CONFIG_TEXT.splitlines()
@@ -112,6 +116,13 @@ class ValidateTest(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 configure.validate(dict(GOOD, **change))
 
+    def test_ha_control_is_boolean(self):
+        self.assertFalse(configure.validate({})["ha_control"])
+        self.assertTrue(configure.validate({"ha_control": True})["ha_control"])
+        for bad in ("true", 1, None):
+            with self.assertRaises(ValueError):
+                configure.validate({"ha_control": bad})
+
     def test_disconnected_needs_no_acknowledgement(self):
         configure.validate({"csms_url": "", "acknowledge_test_isolation": False})
 
@@ -128,6 +139,37 @@ class BindingTest(unittest.TestCase):
             configure.bind(data, dict(settings, csms_url=""))  # disconnected start keeps binding
             self.assertEqual(json.loads((data / "test-identity.json").read_text())["csms_url"],
                              GOOD["csms_url"])
+
+    def test_disconnected_only_state_is_archived_on_first_connection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            settings = configure.validate(GOOD)
+            configure.bind(data, dict(settings, csms_url=""))  # first start, disconnected
+            self.assertTrue((data / configure.DISCONNECTED_ONLY).exists())
+            (data / "everest/ocpp201").mkdir(parents=True)
+            (data / "everest/ocpp201/cp.db").write_text("created while disconnected")
+            configure.bind(data, dict(settings, csms_url=""))  # later disconnected start
+            archived = configure.bind(data, settings)
+            self.assertEqual((archived / "everest/ocpp201/cp.db").read_text(), "created while disconnected")
+            self.assertFalse((data / "everest").exists())
+            self.assertFalse((data / configure.DISCONNECTED_ONLY).exists())
+            self.assertTrue((data / "test-identity.json").exists())
+
+    def test_marker_never_written_for_bound_or_unmarked_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            settings = configure.validate(GOOD)
+            configure.bind(data, settings)
+            configure.bind(data, dict(settings, csms_url=""))  # disconnect after binding
+            self.assertFalse((data / configure.DISCONNECTED_ONLY).exists())
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            (data / "everest/ocpp201").mkdir(parents=True)
+            (data / "everest/ocpp201/cp.db").write_text("x")
+            configure.bind(data, dict(configure.validate(GOOD), csms_url=""))
+            self.assertFalse((data / configure.DISCONNECTED_ONLY).exists())
+            with self.assertRaisesRegex(ValueError, "unbound"):
+                configure.bind(data, configure.validate(GOOD))
 
     def test_unbound_state_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -326,9 +368,10 @@ class NetguardTest(unittest.TestCase):
         rules = netguard.ruleset()
         self.assertIn("policy drop;", rules)
         self.assertTrue(rules.startswith("add table inet ha_everest_v2g\ndelete table inet ha_everest_v2g\n"))
-        self.assertIn("ip saddr 172.30.32.2 tcp dport 8099 accept", rules)
-        self.assertIn('iifname { "v2g0", "v2g1" } accept', rules)
-        self.assertIn("ct state established,related accept", rules)
+        self.assertIn("ip saddr 172.30.32.2 tcp dport 8099 counter accept", rules)
+        self.assertIn('iifname { "v2g0", "v2g1" } counter accept', rules)
+        self.assertTrue(rules.rstrip().endswith('counter comment "dropped by policy"\n  }\n}'))
+        self.assertIn("ct state established,related counter accept", rules)
         for open_port in ("15118", "50000", "dport 1883"):
             self.assertNotIn(open_port, rules)
 

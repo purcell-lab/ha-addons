@@ -14,8 +14,8 @@ Each step below is a separate operator decision; none happens automatically.
 2. **Push the release tag** on the reviewed commit (the PR head):
 
    ```bash
-   git tag -a everest_v2g_simulator-v0.1.0 -m "EVerest DC V2G test charger 0.1.0" <commit>
-   git push origin everest_v2g_simulator-v0.1.0
+   git tag -a everest_v2g_simulator-v<version> -m "EVerest DC V2G test charger <version>" <commit>
+   git push origin everest_v2g_simulator-v<version>
    ```
 
    `everest-v2g-publish.yml` then, per architecture: checks the tag matches

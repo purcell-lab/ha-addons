@@ -65,7 +65,10 @@ COPY rootfs/ /
 COPY UPSTREAM.md /usr/share/doc/everest/UPSTREAM.md
 # Upstream's admin-panel controller listens on all interfaces; this App
 # replaces it with a stub that only tracks the manager's lifetime.
+# patch_josev.py: a failed EV session (for example an unanswered SDP request)
+# no longer ends upstream's plug-in loop; each plug-in starts a fresh stack.
 RUN install -m 0755 /opt/ha-everest/controller-stub.sh /opt/everest/bin/controller \
+    && python3 /opt/ha-everest/patch_josev.py \
     && python3 -m py_compile /opt/ha-everest/*.py \
     && python3 -c "import pydantic, py4j, aiofile, environs, netifaces, psutil, cryptography"
 WORKDIR /data
