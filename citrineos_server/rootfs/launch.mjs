@@ -4,7 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION,PROTOCOL,MAX_POWER_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows} from './control-policy.mjs';
+import {STATION_PATTERN,PROTOCOL,MAX_POWER_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows,commandStation} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -24,11 +24,29 @@ export function validate(o) {
       || [o.database_password,o.broker_password,o.hasura_secret,o.api_token].includes(o.simulator_password)))
     throw new Error('A distinct simulator credential is required');
   if(o.simulator_enabled!==undefined && typeof o.simulator_enabled!=='boolean') throw new Error('Invalid simulator flag');
-  for(const flag of ['profile_simulator_enabled','command_control_enabled'])
+  for(const flag of ['profile_simulator_enabled','command_control_enabled','open_admission_enabled'])
     if(o[flag]!==undefined&&typeof o[flag]!=='boolean')throw new Error('Invalid control flag');
   if(o.profile_simulator_enabled&&!/^[a-f0-9]{32}$/.test(o.profile_simulator_password||''))throw new Error('Missing profile simulator credential');
-  if(o.command_control_enabled&&(!o.profile_simulator_enabled||!/^[a-f0-9]{64}$/.test(o.command_token||'')
+  if(o.command_station_id!==undefined&&!STATION_PATTERN.test(o.command_station_id))throw new Error('Command station must be a SIM-EV- identity');
+  if(o.command_control_enabled&&(!(o.profile_simulator_enabled||o.open_admission_enabled)||!/^[a-f0-9]{64}$/.test(o.command_token||'')
     ||[o.api_token,o.database_password,o.broker_password,o.hasura_secret].includes(o.command_token)))throw new Error('Distinct command credential required');
+}
+// Port 8081 authenticates provisioned stations. Optional port 8082 admits
+// any identity without credentials: an explicit, lab-only decision.
+export function buildListeners(o) {
+  const listeners=[];
+  if(o.simulator_enabled||o.profile_simulator_enabled) listeners.push({
+    id:'citrine-lab-2x',host:'0.0.0.0',port:8081,
+    protocols:o.profile_simulator_enabled?['ocpp2.1','ocpp2.0.1']:['ocpp2.0.1'],
+    securityProfile:1,allowUnknownChargingStations:false,ignoreAuthenticationHeaders:false,
+    tenantId:1,dynamicTenantResolution:false,pingInterval:30,
+  });
+  if(o.open_admission_enabled) listeners.push({
+    id:'citrine-lab-open',host:'0.0.0.0',port:8082,protocols:['ocpp2.1','ocpp2.0.1'],
+    securityProfile:0,allowUnknownChargingStations:true,ignoreAuthenticationHeaders:true,
+    tenantId:1,dynamicTenantResolution:false,pingInterval:30,
+  });
+  return listeners;
 }
 export function permitted(method, path) {
   return (method === 'GET' && ['/health/ready','/commands/tariff','/lab/status','/lab/control-policy'].includes(path))
@@ -86,12 +104,8 @@ export async function main() {
     return;
   }
   fs.mkdirSync(`${DATA}/assets`,{recursive:true});
-  const listeners=(o.simulator_enabled||o.profile_simulator_enabled) ? [{
-    id:'citrine-lab-2x',host:'0.0.0.0',port:8081,
-    protocols:o.profile_simulator_enabled?['ocpp2.1','ocpp2.0.1']:['ocpp2.0.1'],
-    securityProfile:1,allowUnknownChargingStations:false,ignoreAuthenticationHeaders:false,
-    tenantId:1,dynamicTenantResolution:false,pingInterval:30,
-  }] : [];
+  const listeners=buildListeners(o);
+  const station=commandStation(o);
   fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
   const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
   const config={
@@ -142,7 +156,7 @@ export async function main() {
   console.log('Applying pinned migrations to the dedicated laboratory database.');
   await run(['db:migrate'],`${APP}/node_modules/.bin/sequelize-cli`);
   await run([`${APP}/dist/scripts/provision-partitions.js`]);
-  if(o.simulator_enabled||o.profile_simulator_enabled) {
+  if(o.simulator_enabled||o.profile_simulator_enabled||o.open_admission_enabled) {
     const {seedSimulator}=await import('./seed-simulator.mjs');
     await seedSimulator(o);
   }
@@ -180,15 +194,17 @@ export async function main() {
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
       if(url.pathname==='/lab/control-policy') {
-        res.end(JSON.stringify({station_id:STATION,can_control:controller,protocol:PROTOCOL,
+        res.end(JSON.stringify({station_id:station,can_control:controller,protocol:PROTOCOL,
           commands:ROUTES,max_import_w:MAX_POWER_W,max_export_w:MAX_POWER_W,
           max_profile_seconds:600,max_periods:10,automatic_control:false,
-          clear_requires_closed_transaction:true,real_devices_enabled:false}));return;
+          clear_requires_closed_transaction:true,real_devices_enabled:false,
+          open_admission:o.open_admission_enabled===true}));return;
       }
       if(url.pathname==='/lab/status') {
         res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:listeners.length,
           simulator_identity:o.simulator_enabled?'SIM-CITRINE-LAB-01':null,
-          profile_simulator_identity:o.profile_simulator_enabled?STATION:null,read_only:!controller}));return;
+          profile_simulator_identity:o.profile_simulator_enabled?station:null,
+          open_admission:o.open_admission_enabled===true,read_only:!controller}));return;
       }
       let target,headers={},body;
       if(url.pathname==='/v1/graphql'||command) {
@@ -197,13 +213,13 @@ export async function main() {
         body=Buffer.concat(chunks).toString();
         const parsed=JSON.parse(body);
         if(command) {
-          if(!validateCommand(url,parsed)){res.writeHead(400);res.end('{"error":"Command outside lab bounds"}');return;}
+          if(!validateCommand(url,parsed,station)){res.writeHead(400);res.end('{"error":"Command outside lab bounds"}');return;}
           const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
             method:'POST',headers:{'Content-Type':'application/json',
               'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
-            body:JSON.stringify({query:TARGET_QUERY,variables:{name:STATION}}),
+            body:JSON.stringify({query:TARGET_QUERY,variables:{name:station}}),
           });
-          if(!targetAllows(url,parsed,state)){
+          if(!targetAllows(url,parsed,state,station)){
             res.writeHead(409);res.end('{"error":"Observed station protocol or transaction does not permit this command"}');return;
           }
           target='http://127.0.0.1:8088'+url.pathname+url.search;

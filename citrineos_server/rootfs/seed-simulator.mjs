@@ -1,5 +1,5 @@
 import {createRequire} from 'node:module';
-import {STATION} from './control-policy.mjs';
+import {commandStation} from './control-policy.mjs';
 const requireApp=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');
 const {Client}=createRequire(requireApp.resolve('@citrineos/dal'))('pg');
 export async function seedSimulator(o) {
@@ -8,12 +8,17 @@ export async function seedSimulator(o) {
   await db.connect();
   try {
     await db.query('BEGIN');
-    const other=await db.query(`SELECT id FROM "ChargingStations"
-      WHERE "tenantId" <> 1 OR "ocppConnectionName" NOT IN ('SIM-CITRINE-LAB-01',$1) LIMIT 1`,[STATION]);
-    if(other.rowCount) throw new Error('Dedicated database contains a different station');
+    const station=commandStation(o);
+    // Open admission registers stations at BootNotification, so the
+    // single-station guard applies only while every station is provisioned.
+    if(!o.open_admission_enabled) {
+      const other=await db.query(`SELECT id FROM "ChargingStations"
+        WHERE "tenantId" <> 1 OR "ocppConnectionName" NOT IN ('SIM-CITRINE-LAB-01',$1) LIMIT 1`,[station]);
+      if(other.rowCount) throw new Error('Dedicated database contains a different station');
+    }
     const targets=[];
     if(o.simulator_enabled)targets.push(['SIM-CITRINE-LAB-01',o.simulator_password,2]);
-    if(o.profile_simulator_enabled)targets.push([STATION,o.profile_simulator_password,1]);
+    if(o.profile_simulator_enabled)targets.push([station,o.profile_simulator_password,1]);
     for(const [name,password,connectors] of targets) {
     await db.query(`INSERT INTO "ChargingStations"
       ("ocppConnectionName","tenantId","isOnline","use16StatusNotification0","createdAt","updatedAt")

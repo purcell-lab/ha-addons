@@ -122,3 +122,35 @@ See [the full Plugfest acceptance plan](../docs/citrine-plugfest-acceptance.md)
 for the proposed end-to-end scope, migration procedure and remaining work.
 The previous isolated/read-only instructions below describe the installed
 baseline, not proof that the new controlled profile is ready.
+
+## Open station admission (opt-in, unauthenticated)
+
+`open_admission_enabled` (default `false`) adds a second internal listener on
+port 8082 that accepts **any** charging-station identity over OCPP 2.1 or
+2.0.1, with no password: `allowUnknownChargingStations` and
+`ignoreAuthenticationHeaders` are both on, Security Profile 0, fixed tenant 1.
+New stations are created at their first BootNotification and accepted.
+Port 8081 and its provisioned Basic Auth identities are unchanged.
+
+Read this before enabling it:
+
+- Any App on the Supervisor network can register under any identity on 8082,
+  including an identity that 8081 authenticates, such as `SIM-CITRINE-LAB-01`
+  or the command station. Identity on this listener is not proof of who
+  connected. No host port is published, so it is not reachable from the LAN.
+- While it is enabled, startup no longer refuses a database containing other
+  stations; it still provisions only the configured simulator records.
+- Disable the option and restart only the server to remove the listener.
+  Stations it registered remain in the dedicated database as history.
+
+Use it for simulators that cannot be given a provisioned password, for example
+EVerest V2G 0.1.3: set its `csms_url` to `ws://<server-hostname>:8082` and a
+distinct `SIM-EV-` identity. The App's own generated Basic Auth header is
+ignored on this listener.
+
+`command_station_id` (default `SIM-EV-EVEREST-V2G-01`) selects the single
+station that scoped commands may target. It must be a `SIM-EV-` identity, and
+the existing gates still apply: observed `ocpp2.1`, online, tenant 1, exact
+active transaction and bounded profiles. Commands may now be enabled with
+either `profile_simulator_enabled` or `open_admission_enabled`; they still
+need the separate command credential.
