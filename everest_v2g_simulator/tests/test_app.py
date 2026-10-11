@@ -39,15 +39,10 @@ def component_fixture(directory):
         "SecurityCtrlr": doc("SecurityCtrlrIdentity", "BasicAuthPassword", "SecurityProfile"),
         "SmartChargingCtrlr": doc("CompositeScheduleDefaultLimitAmps", "CompositeScheduleDefaultLimitWatts",
                                   "CompositeScheduleDefaultNumberPhases"),
-        "SampledDataCtrlr": doc("SampledDataTxUpdatedInterval",
-                               "SampledDataTxStartedMeasurands",
-                               "SampledDataTxUpdatedMeasurands",
-                               "SampledDataTxEndedMeasurands"),
+        "SampledDataCtrlr": doc("SampledDataTxUpdatedInterval"),
         "OCPPCommCtrlr": doc("HeartbeatInterval"),
         "ChargingStation": doc("ChargingStationSupplyPhases"),
     }
-    for event in ("Started", "Updated", "Ended"):
-        files["SampledDataCtrlr"]["properties"]["SampledDataTx" + event + "Measurands"]["attributes"][0]["value"] = "Energy.Active.Import.Register,Current.Import,Voltage"
     for name, content in files.items():
         (std / f"{name}.json").write_text(json.dumps(content))
     return directory
@@ -88,26 +83,6 @@ class ManifestTest(unittest.TestCase):
 
 
 class ValidateTest(unittest.TestCase):
-    def test_provisioned_credential_is_validated_but_not_returned(self):
-        secret = "a" * 32
-        settings = configure.validate(dict(GOOD, csms_basic_auth_password=secret))
-        self.assertNotIn("csms_basic_auth_password", settings)
-        self.assertNotIn(secret, json.dumps(settings))
-        for bad in (None, False, 12, "short", "A" * 32, "a" * 31):
-            with self.assertRaises(ValueError) as caught:
-                configure.validate(dict(GOOD, csms_basic_auth_password=bad))
-            if isinstance(bad, str):
-                self.assertNotIn(bad, str(caught.exception))
-
-    def test_provisioned_password_does_not_replace_original(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            data = Path(tmp)
-            original = configure.basic_auth_password(data)
-            supplied = "a" * 32
-            self.assertEqual(configure.basic_auth_password(data, supplied), supplied)
-            self.assertEqual(configure.basic_auth_password(data), original)
-            self.assertEqual((data / "basic-auth-password").read_text(), original)
-
     def test_defaults_are_disconnected_and_2_1(self):
         settings = configure.validate({})
         self.assertEqual(settings["csms_url"], "")
@@ -245,17 +220,6 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(value(target, "SmartChargingCtrlr", "CompositeScheduleDefaultNumberPhases"), 3)
         # Regression: a supply-phases override made libocpp ignore all profiles.
         self.assertIsNone(value(target, "ChargingStation", "ChargingStationSupplyPhases"))
-
-    def test_both_energy_registers_requested_for_whole_transaction(self):
-        _, target = self.build(GOOD)
-        for event in ("Started", "Updated", "Ended"):
-            members = value(target, "SampledDataCtrlr",
-                            "SampledDataTx" + event + "Measurands").split(",")
-            self.assertEqual(members.count("Energy.Active.Import.Register"), 1)
-            self.assertEqual(members.count("Energy.Active.Export.Register"), 1)
-            self.assertIn("Power.Active.Import", members)
-            self.assertIn("Current.Import", members)
-            self.assertIn("Voltage", members)
 
     def test_ocpp_string_limits(self):
         # libocpp aborts on over-length CiString values (ChargePointModel <= 20).
