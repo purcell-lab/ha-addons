@@ -1,7 +1,7 @@
 # EVerest runtime image (build input)
 
-`ghcr.io/purcell-lab/everest-runtime:<VERSION>` is a multi-arch (amd64,
-arm64) image that holds only the stripped EVerest 2025.10.0 runtime the
+`ghcr.io/purcell-lab/everest-runtime:<VERSION>` is an image index (amd64;
+2025.10.0-1 also has arm64) that holds only the stripped EVerest 2025.10.0 runtime the
 EVerest Apps copy: `manager`, shared libraries, `share/everest`, the
 upstream demo certificates (AC App only), Josev (V2G App only), the union
 of both Apps' modules, and the licence files. It is `FROM scratch` and is
@@ -55,8 +55,8 @@ until the runtime is pinned and public.
    git push origin everest_runtime-v$(cat everest_runtime/VERSION)
    ```
 
-   Per architecture: tag check, no overwrite, build, identical-file gate,
-   push `<VERSION>-<arch>`. Then one multi-arch index `<VERSION>` with a
+   Builds amd64 only (the target HA host is generic-x86-64). Steps: tag check, no overwrite, build, identical-file gate,
+   push `<VERSION>-amd64`. Then one index `<VERSION>` with a
    provenance attestation. The run summary prints the line to pin.
 3. Make the `everest-runtime` package public (new GHCR packages start
    private), so anonymous CI and release pulls work.

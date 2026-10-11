@@ -16,11 +16,12 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
+        # amd64 only: the target HA host is generic-x86-64. To support
+        # aarch64 again, add runner ubuntu-24.04-arm / arch aarch64 here and
+        # in the other EVerest workflows, and to config.yaml arch.
         include:
           - runner: ubuntu-24.04
             arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
     permissions:

@@ -42,11 +42,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # amd64 only: the target HA host is generic-x86-64. To support
+        # aarch64 again, add runner ubuntu-24.04-arm / arch aarch64 here and
+        # in the other EVerest workflows, and to config.yaml arch.
         include:
           - runner: ubuntu-24.04
             arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
@@ -100,7 +101,7 @@ jobs:
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_simulator/config.yaml)
           image=$(sed -n 's/^image: //p' everest_simulator/config.yaml)
           test -n "$version" && test -n "$image"
-          for arch in amd64 aarch64; do
+          for arch in amd64; do
             ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"
             if docker manifest inspect "$ref" > /dev/null; then
               echo "public: $ref"
