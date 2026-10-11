@@ -246,6 +246,10 @@ class GeneratedConfigTest(unittest.TestCase):
         # Regression: a supply-phases override made libocpp ignore all profiles.
         self.assertIsNone(value(target, "ChargingStation", "ChargingStationSupplyPhases"))
 
+    def test_transaction_samples_every_second(self):
+        _, target = self.build(GOOD)
+        self.assertEqual(value(target, "SampledDataCtrlr", "SampledDataTxUpdatedInterval"), 1)
+
     def test_both_energy_registers_requested_for_whole_transaction(self):
         _, target = self.build(GOOD)
         for event in ("Started", "Updated", "Ended"):

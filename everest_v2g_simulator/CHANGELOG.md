@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.4 (unreleased)
+## 0.1.5 (unreleased)
+
+- Send OCPP transaction meter samples every second instead of every ten
+  seconds, so the CSMS record can time step response and direction changes.
+- Status page redesign: icons, a bidirectional power bar and a two-minute
+  power trend; live reading chips coloured green for import/charging and blue
+  for export/discharge, always with a +/- sign, arrow icon and text label;
+  signed, coloured composite schedule values; discovery self-test moved to
+  the bottom. Readings refresh every second.
+- Accessibility: visible keyboard focus, AA contrast in light and dark themes,
+  reduced-motion support and a polite screen-reader announcement only when
+  the power direction changes. No new network access; icons are inline SVG
+  under the existing Content-Security-Policy.
+
+## 0.1.4 (released 2026-10-11)
 
 - Add an optional provisioned Basic Authentication password for an isolated CSMS.
 - Preserve the original generated password for rollback; never include the
