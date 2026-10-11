@@ -25,7 +25,10 @@ directly. Type, mode, owner and SHA-256 content (or link target) must match
 for every path under `/opt/everest`, `/usr/share/doc/everest`,
 `/opt/ha-everest` and `/usr/local/lib/python3.11`. Timestamps are not
 compared, including the source-mtime field inside `.pyc` bytecode (the
-build checkout time); the rest of each `.pyc` must match. Differences elsewhere (Debian packages resolved by apt at build
+build checkout time); the rest of each `.pyc` must match.
+Python's marshal encoding is not byte-reproducible between builds, so a
+`.pyc` pair that still differs passes only if the image's own Python 3.11
+loads both and the code objects compare equal. Differences elsewhere (Debian packages resolved by apt at build
 time) are listed for information. It runs in `everest-runtime.yml` on pull
 requests and again as the release gate in `everest-runtime-publish.yml`.
 
