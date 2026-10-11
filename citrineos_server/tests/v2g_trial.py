@@ -83,7 +83,9 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         return {"time": time.time(), "power_w": (meter.get("power_W") or {}).get("total"),
                 "import_wh": (meter.get("energy_Wh_import") or {}).get("total"),
                 "export_wh": (meter.get("energy_Wh_export") or {}).get("total"),
-                "state": session.get("state")}
+                "state": session.get("state"),
+                "limits": s.get("evse", {}).get("limits"),
+                "composite_schedule": s.get("composite_schedule")}
 
     def stamp():
         return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -147,24 +149,31 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         assert event["payload"]["chargingProfile"]["chargingSchedule"][0]["chargingSchedulePeriod"] == periods
         report["profile_evidence"] = event
         samples = []
+        report["samples"] = samples
         while time.time() < start.timestamp() + step*len(targets):
             sample = reading(); sample["relative_s"] = sample["time"] - start.timestamp()
             samples.append(sample)
             time.sleep(1)
+        failures = []
         for i, watts in enumerate(targets):
             window = [s for s in samples if i*step+8 <= s["relative_s"] <= (i+1)*step-3]
             assert len(window) >= 8 and all(isinstance(s["power_w"],(int,float)) for s in window)
             mean = statistics.mean(s["power_w"] for s in window)
-            report["steps"].append({"setpoint_w": watts, "mean_power_w": mean, "samples": len(window)})
-            assert abs(mean-watts) <= max(50,abs(watts)*0.03), report["steps"][-1]
+            passed = abs(mean-watts) <= max(50,abs(watts)*0.03)
+            report["steps"].append({"setpoint_w": watts, "mean_power_w": mean,
+                                   "samples": len(window), "passed": passed})
+            if not passed:
+                failures.append(f"Power tracking failed at {watts} W: mean {mean} W")
         usable = [s for s in samples if s["relative_s"] >= 0]
         energies = {}
         for key, direction in (("import",1),("export",-1)):
             actual = usable[-1][key+"_wh"] - usable[0][key+"_wh"]
             integral = sum(max(0,direction*(a["power_w"]+b["power_w"])/2)*
                 (b["time"]-a["time"])/3600 for a,b in zip(usable,usable[1:]))
-            assert actual > 0 and abs(actual-integral) <= max(5,integral*0.10), (key,actual,integral)
-            energies[key] = {"metered_wh":actual,"integrated_wh":integral}
+            passed = actual > 0 and abs(actual-integral) <= max(5,integral*0.10)
+            energies[key] = {"metered_wh":actual,"integrated_wh":integral,"passed":passed}
+            if not passed:
+                failures.append(f"{key} energy consistency failed")
         report["energy"] = energies
         report["client_meter"] = probe("meter")
         assert report["client_meter"]["meter_transaction_id"] == txid
@@ -179,7 +188,8 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         assert ui("/api/ev/unplug","POST").get("sent")
         until(lambda: reading()["state"] == "Unplugged", "Final unplugged state")
         report["clear_dispatch"] = probe("clear")
-        report["samples"] = samples
+        report["acceptance_failures"] = failures
+        assert not failures, "; ".join(failures)
         report["result"] = "passed"
     except Exception as error:
         report.update(result="failed", error_type=type(error).__name__, error=str(error))
