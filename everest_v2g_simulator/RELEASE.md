@@ -17,15 +17,24 @@ AC 0.1.1 and V2G 0.1.3 only.
    runtime and Josev (Apache-2.0), Debian's OpenJDK 17 (GPLv2 with the
    Classpath Exception, copyright files under `/usr/share/doc/`) and this
    App's packaging.
-2. **Push the release tag** on the reviewed commit (the PR head):
+2. **Start publication** on the reviewed commit (the PR head), one of two ways:
 
-   ```bash
-   git tag -a everest_v2g_simulator-v<version> -m "EVerest DC V2G test charger <version>" <commit>
-   git push origin everest_v2g_simulator-v<version>
-   ```
+   - **Manual run (preferred).** Actions, *Publish EVerest V2G App image*,
+     Run workflow, with `version` (e.g. `0.1.5`) and `target` (the PR head
+     commit sha). A Claude session can start the same run through the GitHub
+     API. After the image is pushed and attested, the run creates the
+     annotated tag `everest_v2g_simulator-v<version>` on the exact commit it
+     built. This is the pattern used by `nem_pd7day` and `localvolts_v2`.
+   - **Tag push**, for example by publishing a GitHub release with a new tag:
 
-   `everest-v2g-publish.yml` then, per architecture: checks the tag matches
-   `config.yaml`, refuses to overwrite an existing version, builds, runs the
+     ```bash
+     git tag -a everest_v2g_simulator-v<version> -m "EVerest DC V2G test charger <version>" <commit>
+     git push origin everest_v2g_simulator-v<version>
+     ```
+
+   `everest-v2g-publish.yml` then, per architecture: checks the tag or the
+   requested version matches `config.yaml` (a manual run also refuses a
+   version whose tag already exists), refuses to overwrite an existing version, builds, runs the
    same release gate as PR CI (`tests/ci_image_checks.sh`: DC V2G modules
    and no private keys; V2G, fallback, pinned 2.0.1 and offline acceptance;
    fail-closed without NET_ADMIN; listeners; external firewall probe with
@@ -46,8 +55,10 @@ AC 0.1.1 and V2G 0.1.3 only.
 
 - A published version is never replaced. Fixes need a version bump and a
   new tag.
-- Only tags matching `everest_v2g_simulator-v*` publish. Pull requests and
-  branch pushes never do; the job token can write only this repository's
+- Only a tag matching `everest_v2g_simulator-v*` or a manual run publishes.
+  Pull requests and branch pushes never do. A manual run never moves an
+  existing tag, and its tag is made with the workflow token, so it does not
+  start a second publication; the job token can write only this repository's
   packages.
 - Verify a pull independently: `docker manifest inspect
   ghcr.io/purcell-lab/amd64-everest-v2g-simulator:0.1.0` (no login).
