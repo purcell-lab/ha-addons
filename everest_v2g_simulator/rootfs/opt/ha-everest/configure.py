@@ -40,6 +40,9 @@ def validate(options):
     power = options.get("max_power_kw", 11)
     acknowledged = options.get("acknowledge_test_isolation", False)
     ha_control = options.get("ha_control", False)
+    provisioned = options.get("csms_basic_auth_password", "")
+    if not isinstance(provisioned, str) or (provisioned and not re.fullmatch(r"[0-9a-f]{32}", provisioned)):
+        raise ValueError("CSMS credential must be empty or a provisioned 32-character lowercase hex value")
     if not isinstance(ha_control, bool):
         raise ValueError("ha_control must be true or false")
     if not isinstance(cpid, str) or not re.fullmatch(r"SIM-EV-[A-Za-z0-9_-]{1,36}", cpid):
@@ -138,8 +141,16 @@ def bind(data, settings):
     return archived
 
 
-def basic_auth_password(data):
-    """Security Profile 1 password, generated once and never logged."""
+def basic_auth_password(data, provisioned=""):
+    """Use an explicit lab credential or preserve the original local password.
+
+    A supplied credential is never copied into status/settings or written over
+    the original file. Clearing the option restores the old password for rollback.
+    """
+    if provisioned:
+        if not isinstance(provisioned, str) or not re.fullmatch(r"[0-9a-f]{32}", provisioned):
+            raise ValueError("invalid provisioned CSMS credential")
+        return provisioned
     path = data / "basic-auth-password"
     if not path.exists():
         atomic_write(path, secrets.token_hex(16))
@@ -212,6 +223,26 @@ def component_config(source, target, settings, password):
     # made libocpp drop every profile from composite schedules (2025.10.0).
     # Ten-second transaction samples so stepped schedules are visible in HA.
     edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 10})
+    # The upstream lists omit export energy even though the simulated meter
+    # provides it. Preserve existing measurands and request both directions
+    # in Started, Updated and Ended frames; never synthesize export from net.
+    sampled_path = std / "SampledDataCtrlr.json"
+    sampled = json.loads(sampled_path.read_text())
+    required = ("Energy.Active.Import.Register", "Energy.Active.Export.Register",
+                "Power.Active.Import")
+    for event in ("Started", "Updated", "Ended"):
+        prop = "SampledDataTx" + event + "Measurands"
+        definition = sampled["properties"][prop]
+        actual = next(a for a in definition["attributes"] if a.get("type", "Actual") == "Actual")
+        current = actual.get("value") or definition.get("default") or ""
+        if not isinstance(current, str):
+            raise ValueError("Invalid upstream sampled measurands")
+        measurands = [x.strip() for x in current.split(",") if x.strip()]
+        for measurand in required:
+            if measurand not in measurands:
+                measurands.append(measurand)
+        _set(sampled, prop, ",".join(measurands))
+    sampled_path.write_text(json.dumps(sampled, indent=2))
     edit("OCPPCommCtrlr", {"HeartbeatInterval": 60})
 
 
@@ -408,7 +439,7 @@ def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=N
     archived = bind(data, settings)
     if archived:
         print(f"First connection: state from disconnected starts moved to {archived.name}/.", flush=True)
-    password = basic_auth_password(data)
+    password = basic_auth_password(data, options.get("csms_basic_auth_password", ""))
     store = data / "everest"
     for sub in ("ocpp201", "ocpp_logs"):
         (store / sub).mkdir(parents=True, exist_ok=True, mode=0o700)
