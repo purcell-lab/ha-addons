@@ -1,0 +1,5 @@
+FROM python:3.14-slim-bookworm
+RUN pip install --no-cache-dir aiohttp==3.14.3
+COPY citrine-client/custom_components/citrine_ha/ /opt/client/
+COPY citrineos_server/tests/client_probe.py /opt/client_probe.py
+ENTRYPOINT ["sleep", "infinity"]

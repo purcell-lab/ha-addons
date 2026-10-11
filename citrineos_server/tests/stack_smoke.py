@@ -124,6 +124,9 @@ try:
         docker("start","lab-simulator")
         from simulator_trial import trial
         trial(docker,request,simulator_password)
+    if os.environ.get("TEST_V2G_SIMULATOR")=="1":
+        from v2g_trial import trial as v2g_trial
+        v2g_trial(docker, request, options[-1], names, values, TMP)
     print(json.dumps({"result":"passed","release":"v2.0.1","migration_count":int(before),
                       "authenticated_tariff":True,"empty_discovery":True,
                       "mutation_denied":True,"restart_persistence":True,"logical_restore":True,
