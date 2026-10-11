@@ -1,7 +1,10 @@
 # Handover: EVerest build process, runtime image and 0.1.1 / 0.1.3 releases
 
 Status at 2026-10-11 (AEST). PR #17 merged into main. AC 0.1.1 and V2G 0.1.3
-are published and running on the HA host.
+are published and running on the HA host. Docs PR #15 (TxProfile runs 1 to
+3) was merged just before PR #17 (`a9516a4`, then `85e2263`) without a
+conflict, so no rebase is needed. The V2G `VALIDATION.md` on main holds both
+those runs and the 0.1.3 entry.
 
 ## Bottom line
 
@@ -239,9 +242,7 @@ answered, Unplugged and idle. No charging session was run on HA for AC.
    characterised.
 3. **TxProfile CI flake.** One aarch64 run read +11,000 W for the −5,000 W
    step. CI is amd64 only now, but the same class was seen before on amd64.
-4. **Docs PR #15 conflicts.** PR #15 (TxProfile runs 1 to 3) may conflict
-   with this PR in `VALIDATION.md`. Rebase it after this merge.
-5. **Installed Apps track old branches.** Moving them to the main
+4. **Installed Apps track old branches.** Moving them to the main
    repository copy needs approval.
 
 ## How to
