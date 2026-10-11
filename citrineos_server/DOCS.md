@@ -1,5 +1,11 @@
 # CitrineOS isolated laboratory
 
+**New controlled path: NO-GO for activation.** Merged source is not a deployed
+release. The current EVerest runtime does not reliably honour 0 W profiles; keep
+command controls off until the documented gates pass. Read the
+[full implementation, build and test handover](../docs/citrine-everest-handover.md)
+before preparing an update.
+
 This App runs pinned CitrineOS **v2.0.1**, not an OCPP protocol version.
 Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
 Nothing binds a host port. No OCPP listener is enabled by default.

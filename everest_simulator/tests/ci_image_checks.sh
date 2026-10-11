@@ -1,17 +1,28 @@
 #!/bin/sh
 # Release gate for a built App image, shared by PR CI and the publish job.
 # Usage: ci_image_checks.sh <image-ref>   (run from the repository root)
+# CHECKS=full (default, release gate) runs every acceptance scenario.
+# CHECKS=minimal (pull request CI) runs OCPP 2.1 charging and the offline
+# start only; the 2.0.1 fallback and pinned 2.0.1 scenarios run at release.
 set -eu
 IMAGE="$1"
+CHECKS="${CHECKS:-full}"
+case "$CHECKS" in
+  full) SCENARIOS="offline ocpp21 fallback pinned201" ;;
+  minimal) SCENARIOS="offline ocpp21" ;;
+  *) echo "CHECKS must be full or minimal"; exit 2 ;;
+esac
+echo "== Checks: $CHECKS ($SCENARIOS)"
 
 echo "== Packaged runtime has no V2G or ISO 15118 modules"
 docker run --rm --entrypoint sh "$IMAGE" -c \
   'ls /opt/everest/libexec/everest/modules; ! ls /opt/everest/libexec/everest/modules | grep -E "V2G|Josev|Iso15118|Slac"'
 
-echo "== OCPP 2.1, 2.0.1 fallback, pinned 2.0.1 and offline acceptance (no network)"
+echo "== Acceptance (no network): $SCENARIOS"
 docker tag "$IMAGE" everest:test
 docker build -q -t everest:smoke -f everest_simulator/tests/Dockerfile.smoke .
-docker run --rm --network none everest:smoke
+# shellcheck disable=SC2086
+docker run --rm --network none everest:smoke $SCENARIOS
 
 echo "== Offline App entrypoint, listeners and clean shutdown"
 name="everest-check-$$"

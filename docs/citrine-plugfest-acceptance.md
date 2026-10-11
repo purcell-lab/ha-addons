@@ -1,6 +1,13 @@
 # CitrineOS: full Plugfest demonstration plan
 
-Status: staged development and acceptance target, not a declaration of live capability.
+Status: source consolidation authorised; activation remains blocked. This is an
+acceptance target, not a declaration of live capability. See
+[the full implementation/build/test handover](citrine-everest-handover.md).
+
+The native CitrineOS/EVerest run verified +6/-5/+3 kW, both energy registers and
+explicit stop/closure, but **0 W left measured power at +3 kW**. Keep the native
+test failing until corrected; source merge does not approve deployment.
+[Native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38102326637)
 Scope agreed with Mark on 11 October 2026: demonstrate the complete proposed
 CSIP-AUS-to-EV charging and V2G path using CitrineOS and move the existing EVerest
 V2G simulator. Mark subsequently confirmed: use that simulator first and defer
@@ -89,16 +96,16 @@ it does not establish physical-device or multi-vendor interoperability.
 
 | ID | Demonstration | Evidence required | Present status |
 |---|---|---|---|
-| P01 | Identity, security and protocol negotiation | Exact station identity, approved credential, observed `ocpp2.1`, accepted boot; wrong password and unknown identity refused | MicroOCPP 2.0.1 baseline only; V2G migration pending |
-| P02 | Start and stop through HA | Operator action, dispatched OCPP ID, charger reply, `Started` / `Ended`, final idle and measured zero | New controlled HA profile pending |
-| P03 | Multi-step charging and V2G | +6 kW, -5 kW, +3 kW, then zero, one exact transaction; power and both energy registers agree | Scoped 2.1 server policy staged; Citrine/EVerest integration proof pending |
+| P01 | Identity, security and protocol negotiation | Exact station identity, approved credential, observed `ocpp2.1`, accepted boot; wrong password and unknown identity refused | Native 2.1 registration and gateway negative controls evidenced; full station-auth negative matrix and live migration pending |
+| P02 | Start and stop through HA | Operator action, dispatched OCPP ID, charger reply, `Started` / `Ended`, final idle and measured zero | Actual API client start/stop and observed closure passed in CI; installed HA entity test pending |
+| P03 | Multi-step charging and V2G | +6 kW, -5 kW, +3 kW, then zero, one exact transaction; power and both energy registers agree | First three steps passed in final CI run; zero failed; earlier intermittent discharge mismatch unresolved |
 | P04 | Current and scheduled envelopes | Independent test-feed `opModImpLimW`, `opModExpLimW`, `opModLoadLimW`, validity, source and freshness captured | Live feed and mappings to be checked |
 | P05 | HAEO constrained plan | Solver input/output captures including EV, residual load, PV, storage and price; feasible plan within site limits | Citrine schedule adapter pending |
 | P06 | Import, export and load clips | Tighten each limit separately; show which constraint binds and measured response; restore safely | Planned |
 | P07 | Material schedule update | Correlated replacement `TxProfile`, exact active transaction, correct precedence, old schedule no longer governing | Planned |
 | P08 | Zero, suspend and resume | Explicit zero power, no unintended direction change, then deliberate resume under current limits | Planned |
 | P09 | Failure and stale-data handling | Separate loss of CSIP feed, planner, HA, CSMS and EVSE link; verify local safe state and recovery | Not implemented/accepted |
-| P10 | Telemetry and closure | Fresh signed power; separate monotonic import/export Wh; timestamps, complete transaction and zero after stop | HA telemetry work pending; inherited final-power-sample issue remains |
+| P10 | Telemetry and closure | Fresh signed power; separate monotonic import/export Wh; timestamps, complete transaction and zero after stop | Both registers and final zero/closed transaction reached actual API client in CI; live HA validation pending |
 | P11 | Charging-only fallback | Explicit separate 2.0.1 run with positive limits; negative/setpoint-only 2.1 intent rejected before dispatch | Baseline charging exists; deliberate fallback test pending |
 | P12 | Secondary SunSpec path | Real SunSpec model discovery and constrained setpoint/readback on an isolated test target | Target and permission not yet identified |
 | P13 | Charger-vendor interoperability (deferred) | Later repeat core matrix against independent approved charger-side implementations; record unsupported features | Explicitly deferred by Mark; not a simulator-demo gate |

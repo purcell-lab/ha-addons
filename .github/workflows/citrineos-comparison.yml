@@ -1,0 +1,106 @@
+name: CitrineOS pinned next comparison
+on:
+  pull_request:
+    paths:
+      - "citrineos_comparison/**"
+      - ".github/workflows/citrineos-comparison.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: citrineos-comparison-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare-components:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: release
+            commit: 1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372
+          - version: next
+            commit: 19ef2b452f8dc1e5bcd97cd3c1aac072c821f588
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: citrineos/citrineos-core
+          ref: ${{ matrix.commit }}
+          path: server-source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: purcell-lab/CitrineOS-HA-Integration
+          ref: 475e270ba7d0a824cfa60db58bc304f478fcce44
+          path: staged-client
+          persist-credentials: false
+      - name: Verify exact source pins
+        env:
+          VERSION: ${{ matrix.version }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          pins = json.load(open("citrineos_comparison/pins.json"))
+          for path, expected in [("server-source", pins[os.environ["VERSION"]]["commit"]),
+                                 ("staged-client", pins["staged_client_commit"])]:
+              actual = subprocess.check_output(["git", "-C", path, "rev-parse", "HEAD"], text=True).strip()
+              assert actual == expected
+          PY
+      - name: Harness safety tests
+        run: python -m unittest discover -s citrineos_comparison -p test_harness.py -v
+      - name: Pull release image by digest
+        if: matrix.version == 'release'
+        run: |
+          image=$(python -c 'import json; print(json.load(open("citrineos_comparison/pins.json"))["release"]["image"])')
+          docker pull --platform linux/amd64 "$image"
+          docker tag "$image" citrine-comparison:test
+      - name: Build exact next commit (no publication)
+        if: matrix.version == 'next'
+        run: docker build --platform linux/amd64 -t citrine-comparison:test -f citrineos_comparison/Dockerfile server-source
+      - name: Capture image identity
+        run: |
+          mkdir -p reports/${{ matrix.version }}
+          chmod 0777 reports/${{ matrix.version }}
+          test "$(docker image inspect citrine-comparison:test --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "${{ matrix.commit }}"
+          docker image inspect citrine-comparison:test --format '{{json .Id}}' > reports/${{ matrix.version }}/image-id.json
+      - name: Probe compiled components with networking disabled
+        run: |
+          docker run --rm --network none --read-only --user 1000:1000 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            -v "$PWD/citrineos_comparison:/tests:ro" \
+            -v "$PWD/reports/${{ matrix.version }}:/report" \
+            -e SOURCE_COMMIT=${{ matrix.commit }} \
+            -e REPORT_PATH=/report/runtime.json \
+            --entrypoint node citrine-comparison:test /tests/probe.mjs
+      - name: Check staged HA discovery query against exact source
+        run: |
+          python -m pip install graphql-core==3.2.6
+          python citrineos_comparison/schema_check.py server-source staged-client reports/${{ matrix.version }}/schema.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citrine-${{ matrix.version }}-comparison
+          path: reports/${{ matrix.version }}/
+          if-no-files-found: error
+  report:
+    needs: compare-components
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: citrine-release-comparison
+          path: reports/release
+      - uses: actions/download-artifact@v4
+        with:
+          name: citrine-next-comparison
+          path: reports/next
+      - name: Compare completed evidence
+        run: python citrineos_comparison/summarize.py reports | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: citrine-pinned-next-comparison
+          path: reports/

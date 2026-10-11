@@ -1,0 +1,65 @@
+name: EVerest runtime image
+# Builds the shared EVerest runtime image (everest_runtime/) and proves that
+# both Apps built from it are file-for-file identical to their published
+# release images under the EVerest, App and Python paths. Pull requests
+# never publish.
+on:
+  pull_request:
+    paths:
+      - "everest_runtime/**"
+      - "everest_simulator/Dockerfile"
+      - "everest_v2g_simulator/Dockerfile"
+      - ".github/scripts/everest_runtime.sh"
+      - ".github/scripts/everest_identical_files.sh"
+      - ".github/scripts/image_tree_compare.py"
+      - ".github/scripts/test_image_tree_compare.py"
+      - ".github/workflows/everest-runtime.yml"
+      - ".github/workflows/everest-runtime-publish.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: everest-runtime-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare-tool:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/scripts/test_image_tree_compare.py -v
+      - run: sh -n .github/scripts/everest_runtime.sh && sh -n .github/scripts/everest_identical_files.sh
+  identical-files:
+    strategy:
+      fail-fast: false
+      matrix:
+        # amd64 only: the target HA host is generic-x86-64. To support
+        # aarch64 again, add runner ubuntu-24.04-arm / arch aarch64 here and
+        # in the other EVerest workflows, and to config.yaml arch.
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk (the runtime build pulls the 4.3 GB upstream image)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+      - name: Build the EVerest runtime image (no publication)
+        run: |
+          docker build --build-arg RUNTIME_VERSION="$(cat everest_runtime/VERSION)" \
+            -t everest-runtime:local everest_runtime
+          docker image ls everest-runtime:local
+          echo "Runtime image: $(docker image inspect -f '{{.Size}}' everest-runtime:local) bytes uncompressed, $(docker save everest-runtime:local | gzip -c | wc -c) bytes gzipped" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Apps built from it match the published releases
+        run: sh .github/scripts/everest_identical_files.sh everest-runtime:local ${{ matrix.arch }}
+      - name: Keep the comparison reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: identical-files-${{ matrix.arch }}
+          path: identical-files/
+          if-no-files-found: ignore
