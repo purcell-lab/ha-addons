@@ -89,10 +89,10 @@ for _ in $(seq 30); do
 done
 docker logs "$name" 2>&1 | grep "Discovery self-test" || true
 test "$passed" = yes || { echo "Discovery self-test did not pass at start"; exit 1; }
-# HA OS regression guard (0.1.2): unscoped SDP multicast must leave by the
-# private V2G link, not eth0, on this IPv6 network.
-docker logs "$name" 2>&1 | grep "Discovery self-test PASSED" | grep -q "unscoped-multicast-via=v2g" \
-  || { echo "unscoped SDP multicast does not use the private V2G link"; exit 1; }
+# HA OS condition (0.1.2): on this IPv6 network an unscoped multicast would
+# leave by eth0, as on HA OS. The self-test above must pass under it.
+docker logs "$name" 2>&1 | grep "Discovery self-test PASSED" | grep -q "unscoped-multicast-via=eth0" \
+  || { echo "test network does not reproduce the HA OS route (unscoped multicast via eth0)"; exit 1; }
 docker exec "$name" python3 -c 'import json, urllib.request
 d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/diagnostics"))
 s = d["snapshot"]
