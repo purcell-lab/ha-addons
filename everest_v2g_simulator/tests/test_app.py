@@ -627,16 +627,33 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertIn("image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator", CONFIG_TEXT)
         self.assertIn("IMAGE=ghcr.io/purcell-lab/${{ matrix.arch }}-everest-v2g-simulator", self.publish)
 
-    def test_only_tags_trigger_publication(self):
+    def test_only_tags_or_manual_runs_trigger_publication(self):
         trigger = self.publish.split("\non:", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn('"everest_v2g_simulator-v*"', trigger)
-        for forbidden in ("pull_request", "branches", "workflow_dispatch", "schedule"):
+        self.assertIn("workflow_dispatch:", trigger)
+        for forbidden in ("pull_request", "branches", "schedule"):
             self.assertNotIn(forbidden, trigger)
         self.assertNotIn("packages: write", self.ci)
 
+    def test_manual_run_tags_built_commit_after_push_and_never_moves_a_tag(self):
+        publish, tag = self.publish.split("\n  tag:\n", 1)
+        # The publish job checks the requested version and refuses an existing tag.
+        self.assertIn('test "$REQUESTED" = "$version"', publish)
+        self.assertIn('git ls-remote --exit-code --tags origin "refs/tags/$tag"', publish)
+        self.assertNotIn("contents: write", publish)
+        # Only the tag job may write, only on a manual run, after publish, on
+        # the exact commit that was built.
+        self.assertIn("needs: publish", tag)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", tag)
+        self.assertIn("contents: write", tag)
+        self.assertIn("ref: ${{ needs.publish.outputs.sha }}", tag)
+        self.assertIn('git tag -a "$TAG"', tag)
+        self.assertNotIn("--force", tag)
+        self.assertNotIn("git tag -f", tag)
+
     def test_gate_before_push_and_no_overwrite_or_latest(self):
         order = [self.publish.index(step) for step in (
-            "Tag must match the App version", "Refuse to overwrite a published version",
+            "Tag or requested version must match the App version", "Refuse to overwrite a published version",
             "ci_image_checks.sh", 'docker push "$IMAGE:$VERSION"')]
         self.assertEqual(order, sorted(order))
         self.assertEqual(self.publish.count("docker push"), 1)
