@@ -1,9 +1,8 @@
 # OCPP 2.0.1 App validation
 
-Updated 10 October 2026. Version 0.1.1 is installed and connected to an
-isolated Home Assistant OCPP 2.0.1 test entry. Version 0.1.2 is a staged
-UI power-control correction, not yet installed. No version is an OCPP
-certification claim.
+Updated 10 October 2026. Version 0.1.2 is installed on the isolated Home
+Assistant OCPP 2.0.1 test entry. Version 0.1.3 is a staged post-stop metering
+correction. No version is an OCPP certification claim.
 
 ## Completed in the development sandbox
 
@@ -77,11 +76,24 @@ on 10 October 2026. The mock central system received:
 This proves browser controls → native metering → OCPP 2.0.1 mock receiver.
 It does **not** prove the live HA central-system sensor mapping.
 
-**Known final-sample limitation:** the Ended event contains the most recent
+**Version 0.1.2 final-sample limitation:** the Ended event contains the most recent
 nonzero power value while the simulator subsequently reads zero. Consumers
 must not infer ongoing charging solely from that retained sample. Verify
 HA's ended-transaction/power handling in the live acceptance test; no
 post-stop zero MeterValues guarantee is made here.
+
+Version 0.1.3 addresses this ordering defect at sample time. Its regression
+first failed against 0.1.2 with a nonzero final power sample (~10,998 W).
+After correction it checks zero power/current/voltage in actual
+`Transaction.End` samples for unplug, local tag withdrawal and remote stop,
+without dropping the final energy register. It also tests readiness
+pause/resume, no stopped energy growth, successive cumulative registers and
+an untouched second connector. Live 0.1.3 acceptance remains pending.
+
+The 0.1.2 live HA test subsequently achieved approximately 11 kW and
+0.330 kWh session energy. Closure cleared the transaction but retained
+nonzero power. See METERING_INVESTIGATION.md for that evidence and the
+separate cumulative-energy classification defect.
 
 An initial local fixture overlapped a native smoke invocation because its
 launcher PID differed from its child PID. That contaminated run was discarded.
@@ -100,17 +112,17 @@ Live direct MCP API probes received nginx HTTP 403 from peer 172.30.32.1,
 which is not the permitted Supervisor Ingress peer. The ACL remains intact.
 Browser rendering through actual Ingress was reported by the operator.
 The isolated test entry negotiated 2.0.1 and completed initial setup.
-The live bounded positive-power test remains outstanding: the approved MCP
-surface cannot proxy the simulator's mutating API, and a Supervisor ingress
+The live bounded positive-power test passed with operator UI controls.
+The approved MCP surface cannot proxy the simulator's mutating API, and a Supervisor ingress
 session request was Unauthorized. No ACL bypass or broader credentials were
 used. The operator must use authenticated Open Web UI for the live controls.
-Version 0.1.2 installation needs separate approval.
+Version 0.1.3 installation needs separate approval.
 
 ## Reproduce
 
 ```sh
 python3 -m unittest discover -s microocpp_simulator/tests -v
-docker build --build-arg BUILD_ARCH=amd64 --build-arg BUILD_VERSION=0.1.2 \
+docker build --build-arg BUILD_ARCH=amd64 --build-arg BUILD_VERSION=0.1.3 \
   -t microocpp:test microocpp_simulator
 docker build -t microocpp:smoke -f microocpp_simulator/tests/Dockerfile.smoke .
 docker run --rm --network none microocpp:smoke
