@@ -1,0 +1,5752 @@
+{
+  "result": "failed",
+  "station": "SIM-EV-EVEREST-V2G-01",
+  "steps": [
+    {
+      "setpoint_w": 6000,
+      "mean_power_w": 11000.0,
+      "samples": 18,
+      "passed": false
+    },
+    {
+      "setpoint_w": -5000,
+      "mean_power_w": -5000.0,
+      "samples": 18,
+      "passed": true
+    },
+    {
+      "setpoint_w": 3000,
+      "mean_power_w": 3000.0,
+      "samples": 18,
+      "passed": true
+    },
+    {
+      "setpoint_w": 0,
+      "mean_power_w": 3000.0,
+      "samples": 18,
+      "passed": false
+    }
+  ],
+  "security_negative_controls": "reader/wrong-credential/foreign-station rejected",
+  "registered_at": "2026-10-11T02:07:15.212450+00:00",
+  "start_dispatch": {
+    "action": "start",
+    "state": "dispatched_awaiting_station_evidence",
+    "dispatched_at": "2026-10-11T02:07:19.633128+00:00",
+    "station_id": "SIM-EV-EVEREST-V2G-01",
+    "dispatch_response_at": "2026-10-11T02:07:19.698472+00:00"
+  },
+  "transaction_id": "ac2bad76-7966-45e0-a966-e26bdde524cb",
+  "charging_observed_at": "2026-10-11T02:07:36.575933+00:00",
+  "profile_dispatch": {
+    "action": "profile",
+    "state": "dispatched_awaiting_station_evidence",
+    "dispatched_at": "2026-10-11T02:07:46.751912+00:00",
+    "station_id": "SIM-EV-EVEREST-V2G-01",
+    "transaction_id": "ac2bad76-7966-45e0-a966-e26bdde524cb",
+    "dispatch_response_at": "2026-10-11T02:07:46.796405+00:00"
+  },
+  "profile_evidence": {
+    "message_id": "5d2df9f0-c881-4983-a1f0-1cb2a73aca73",
+    "action": "SetChargingProfile",
+    "received": "2026-10-11T02:07:46.801Z",
+    "payload": {
+      "chargingProfile": {
+        "chargingProfileKind": "Absolute",
+        "chargingProfilePurpose": "TxProfile",
+        "chargingSchedule": [
+          {
+            "chargingRateUnit": "W",
+            "chargingSchedulePeriod": [
+              {
+                "dischargeLimit": -11000,
+                "limit": 11000,
+                "operationMode": "CentralSetpoint",
+                "setpoint": 6000,
+                "startPeriod": 0
+              },
+              {
+                "dischargeLimit": -11000,
+                "limit": 11000,
+                "operationMode": "CentralSetpoint",
+                "setpoint": -5000,
+                "startPeriod": 30
+              },
+              {
+                "dischargeLimit": -11000,
+                "limit": 11000,
+                "operationMode": "CentralSetpoint",
+                "setpoint": 3000,
+                "startPeriod": 60
+              },
+              {
+                "dischargeLimit": -11000,
+                "limit": 11000,
+                "operationMode": "CentralSetpoint",
+                "setpoint": 0,
+                "startPeriod": 90
+              }
+            ],
+            "duration": 180,
+            "id": 9001,
+            "startSchedule": "2026-10-11T02:07:54.576+00:00"
+          }
+        ],
+        "id": 9001,
+        "stackLevel": 1,
+        "transactionId": "ac2bad76-7966-45e0-a966-e26bdde524cb"
+      },
+      "evseId": 1
+    },
+    "payload_bytes": 815,
+    "status": "Accepted",
+    "status_info": null,
+    "responded": "2026-10-11T02:07:46.851Z"
+  },
+  "samples": [
+    {
+      "time": 1791684467.0078554,
+      "power_w": 11000.0,
+      "import_wh": 43.6,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 15.94
+        },
+        "age_s": 0.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -7.568190574645996
+    },
+    {
+      "time": 1791684468.0710633,
+      "power_w": 11000.0,
+      "import_wh": 46.66,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 15.94
+        },
+        "age_s": 1.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -6.5049827098846436
+    },
+    {
+      "time": 1791684469.1353045,
+      "power_w": 11000.0,
+      "import_wh": 51.24,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -5.440741539001465
+    },
+    {
+      "time": 1791684470.198524,
+      "power_w": 11000.0,
+      "import_wh": 54.3,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.9
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -4.377521991729736
+    },
+    {
+      "time": 1791684471.2718246,
+      "power_w": 11000.0,
+      "import_wh": 57.35,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.9
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -3.3042213916778564
+    },
+    {
+      "time": 1791684472.3434196,
+      "power_w": 11000.0,
+      "import_wh": 60.41,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -2.232626438140869
+    },
+    {
+      "time": 1791684473.4164026,
+      "power_w": 11000.0,
+      "import_wh": 63.47,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -1.1596434116363525
+    },
+    {
+      "time": 1791684474.488304,
+      "power_w": 11000.0,
+      "import_wh": 66.52,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": -0.08774209022521973
+    },
+    {
+      "time": 1791684475.5538788,
+      "power_w": 11000.0,
+      "import_wh": 71.1,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "limit": 11000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 68
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 98
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 188
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:46.000Z"
+      },
+      "relative_s": 0.9778327941894531
+    },
+    {
+      "time": 1791684476.6205263,
+      "power_w": 11000.0,
+      "import_wh": 74.16,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 2.044480323791504
+    },
+    {
+      "time": 1791684477.6860409,
+      "power_w": 11000.0,
+      "import_wh": 77.22,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 3.109994888305664
+    },
+    {
+      "time": 1791684478.7495608,
+      "power_w": 11000.0,
+      "import_wh": 80.27,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 4.1735148429870605
+    },
+    {
+      "time": 1791684479.8146381,
+      "power_w": 11000.0,
+      "import_wh": 83.33,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 5.238592147827148
+    },
+    {
+      "time": 1791684480.8796487,
+      "power_w": 11000.0,
+      "import_wh": 86.38,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 6.303602695465088
+    },
+    {
+      "time": 1791684481.944242,
+      "power_w": 11000.0,
+      "import_wh": 89.44,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 7.3681960105896
+    },
+    {
+      "time": 1791684483.0094657,
+      "power_w": 11000.0,
+      "import_wh": 94.02,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 8.433419704437256
+    },
+    {
+      "time": 1791684484.0727863,
+      "power_w": 11000.0,
+      "import_wh": 97.08,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 9.496740341186523
+    },
+    {
+      "time": 1791684485.1357856,
+      "power_w": 11000.0,
+      "import_wh": 100.13,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 10.559739589691162
+    },
+    {
+      "time": 1791684486.2008462,
+      "power_w": 11000.0,
+      "import_wh": 103.19,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 58
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 88
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 178
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:07:56.000Z"
+      },
+      "relative_s": 11.624800205230713
+    },
+    {
+      "time": 1791684487.2635949,
+      "power_w": 11000.0,
+      "import_wh": 106.24,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 12.687548875808716
+    },
+    {
+      "time": 1791684488.328823,
+      "power_w": 11000.0,
+      "import_wh": 109.3,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 13.752777099609375
+    },
+    {
+      "time": 1791684489.3932652,
+      "power_w": 11000.0,
+      "import_wh": 112.35,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 14.817219257354736
+    },
+    {
+      "time": 1791684490.4558704,
+      "power_w": 11000.0,
+      "import_wh": 115.41,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 15.87982439994812
+    },
+    {
+      "time": 1791684491.5213642,
+      "power_w": 11000.0,
+      "import_wh": 118.47,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 16.9453182220459
+    },
+    {
+      "time": 1791684492.5872612,
+      "power_w": 11000.0,
+      "import_wh": 123.05,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 18.011215209960938
+    },
+    {
+      "time": 1791684493.652947,
+      "power_w": 11000.0,
+      "import_wh": 126.1,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 19.076900959014893
+    },
+    {
+      "time": 1791684494.7259328,
+      "power_w": 11000.0,
+      "import_wh": 129.16,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 20.14988684654236
+    },
+    {
+      "time": 1791684495.7889855,
+      "power_w": 11000.0,
+      "import_wh": 132.22,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 48
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 78
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 168
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:06.000Z"
+      },
+      "relative_s": 21.212939500808716
+    },
+    {
+      "time": 1791684496.8548055,
+      "power_w": 11000.0,
+      "import_wh": 135.27,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 22.278759479522705
+    },
+    {
+      "time": 1791684497.9173477,
+      "power_w": 11000.0,
+      "import_wh": 138.33,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 23.341301679611206
+    },
+    {
+      "time": 1791684498.9813392,
+      "power_w": 11000.0,
+      "import_wh": 141.38,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 24.405293226242065
+    },
+    {
+      "time": 1791684500.0526345,
+      "power_w": 11000.0,
+      "import_wh": 144.44,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 25.476588487625122
+    },
+    {
+      "time": 1791684501.114941,
+      "power_w": 11000.0,
+      "import_wh": 149.02,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 26.53889489173889
+    },
+    {
+      "time": 1791684502.178467,
+      "power_w": 11000.0,
+      "import_wh": 152.08,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 27.602421045303345
+    },
+    {
+      "time": 1791684503.2427287,
+      "power_w": 11000.0,
+      "import_wh": 155.13,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 28.666682720184326
+    },
+    {
+      "time": 1791684504.305171,
+      "power_w": 11000.0,
+      "import_wh": 158.19,
+      "export_wh": 0.0,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 8.7
+        },
+        "age_s": 1.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 29.729125022888184
+    },
+    {
+      "time": 1791684505.3669484,
+      "power_w": -2444.44,
+      "import_wh": 159.72,
+      "export_wh": 0.34,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.9
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 30.790902376174927
+    },
+    {
+      "time": 1791684506.4325936,
+      "power_w": -1111.11,
+      "import_wh": 159.72,
+      "export_wh": 0.65,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 6000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 38
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 68
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 158
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:16.000Z"
+      },
+      "relative_s": 31.856547594070435
+    },
+    {
+      "time": 1791684507.495927,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 2.04,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 32.919881105422974
+    },
+    {
+      "time": 1791684508.5644784,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 4.12,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 33.98843240737915
+    },
+    {
+      "time": 1791684509.6292045,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 5.51,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 35.05315852165222
+    },
+    {
+      "time": 1791684510.6929743,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 6.9,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 36.11692833900452
+    },
+    {
+      "time": 1791684511.7566094,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 8.29,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 37.18056344985962
+    },
+    {
+      "time": 1791684512.8202744,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 9.68,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 38.24422836303711
+    },
+    {
+      "time": 1791684513.8911748,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 11.06,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 39.315128803253174
+    },
+    {
+      "time": 1791684514.959171,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 12.45,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 40.3831250667572
+    },
+    {
+      "time": 1791684516.0228324,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 13.84,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 28
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 58
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 148
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:26.000Z"
+      },
+      "relative_s": 41.446786403656006
+    },
+    {
+      "time": 1791684517.0883152,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 15.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 42.512269258499146
+    },
+    {
+      "time": 1791684518.1509306,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 17.31,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 43.57488465309143
+    },
+    {
+      "time": 1791684519.2157366,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 18.7,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 44.6396906375885
+    },
+    {
+      "time": 1791684520.2826617,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 20.09,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 45.706615686416626
+    },
+    {
+      "time": 1791684521.351596,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 21.48,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 46.77555012702942
+    },
+    {
+      "time": 1791684522.4156792,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 22.87,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 47.83963322639465
+    },
+    {
+      "time": 1791684523.4799383,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 24.26,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 48.903892278671265
+    },
+    {
+      "time": 1791684524.5443952,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 26.34,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 49.96834921836853
+    },
+    {
+      "time": 1791684525.6098607,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 27.73,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 18
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 48
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 138
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:36.000Z"
+      },
+      "relative_s": 51.033814668655396
+    },
+    {
+      "time": 1791684526.6721706,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 29.12,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 52.09612464904785
+    },
+    {
+      "time": 1791684527.7351654,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 30.51,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 53.15911936759949
+    },
+    {
+      "time": 1791684528.7982976,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 31.9,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 54.222251653671265
+    },
+    {
+      "time": 1791684529.8671672,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 33.29,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 55.29112124443054
+    },
+    {
+      "time": 1791684530.9308534,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 34.68,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 56.35480737686157
+    },
+    {
+      "time": 1791684531.9949794,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 36.06,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.8
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 57.418933391571045
+    },
+    {
+      "time": 1791684533.066506,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 38.15,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 58.49045991897583
+    },
+    {
+      "time": 1791684534.1317875,
+      "power_w": -5000.0,
+      "import_wh": 159.72,
+      "export_wh": 39.54,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.7
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 59.55574154853821
+    },
+    {
+      "time": 1791684535.1981664,
+      "power_w": 13500.0,
+      "import_wh": 161.59,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 60.62212038040161
+    },
+    {
+      "time": 1791684536.2643166,
+      "power_w": 3000.0,
+      "import_wh": 162.42,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": -5000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 8
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 38
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 128
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:46.000Z"
+      },
+      "relative_s": 61.688270568847656
+    },
+    {
+      "time": 1791684537.3298306,
+      "power_w": 3000.0,
+      "import_wh": 163.26,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 62.75378465652466
+    },
+    {
+      "time": 1791684538.3957152,
+      "power_w": 3000.0,
+      "import_wh": 164.09,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 63.819669246673584
+    },
+    {
+      "time": 1791684539.4680328,
+      "power_w": 3000.0,
+      "import_wh": 164.92,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 64.89198684692383
+    },
+    {
+      "time": 1791684540.536243,
+      "power_w": 3000.0,
+      "import_wh": 165.76,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 65.96019697189331
+    },
+    {
+      "time": 1791684541.6025565,
+      "power_w": 3000.0,
+      "import_wh": 167.01,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 67.02651047706604
+    },
+    {
+      "time": 1791684542.6727495,
+      "power_w": 3000.0,
+      "import_wh": 167.84,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 68.09670352935791
+    },
+    {
+      "time": 1791684543.7409062,
+      "power_w": 3000.0,
+      "import_wh": 168.67,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 69.16486024856567
+    },
+    {
+      "time": 1791684544.8026528,
+      "power_w": 3000.0,
+      "import_wh": 169.51,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 70.22660684585571
+    },
+    {
+      "time": 1791684545.86425,
+      "power_w": 3000.0,
+      "import_wh": 170.34,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 28
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 118
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:08:56.000Z"
+      },
+      "relative_s": 71.28820395469666
+    },
+    {
+      "time": 1791684546.9277253,
+      "power_w": 3000.0,
+      "import_wh": 171.17,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 72.35167932510376
+    },
+    {
+      "time": 1791684547.9937222,
+      "power_w": 3000.0,
+      "import_wh": 172.01,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 73.41767621040344
+    },
+    {
+      "time": 1791684549.057422,
+      "power_w": 3000.0,
+      "import_wh": 172.84,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 74.48137593269348
+    },
+    {
+      "time": 1791684550.1238933,
+      "power_w": 3000.0,
+      "import_wh": 174.09,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 75.54784727096558
+    },
+    {
+      "time": 1791684551.1951044,
+      "power_w": 3000.0,
+      "import_wh": 174.92,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 76.61905837059021
+    },
+    {
+      "time": 1791684552.2628055,
+      "power_w": 3000.0,
+      "import_wh": 175.76,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 77.68675947189331
+    },
+    {
+      "time": 1791684553.3260746,
+      "power_w": 3000.0,
+      "import_wh": 176.59,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 78.75002861022949
+    },
+    {
+      "time": 1791684554.393528,
+      "power_w": 3000.0,
+      "import_wh": 177.42,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 79.8174819946289
+    },
+    {
+      "time": 1791684555.457324,
+      "power_w": 3000.0,
+      "import_wh": 178.26,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.6
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 18
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 108
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:06.000Z"
+      },
+      "relative_s": 80.8812780380249
+    },
+    {
+      "time": 1791684556.5281906,
+      "power_w": 3000.0,
+      "import_wh": 179.09,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 81.95214462280273
+    },
+    {
+      "time": 1791684557.6003952,
+      "power_w": 3000.0,
+      "import_wh": 180.34,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 83.02434921264648
+    },
+    {
+      "time": 1791684558.6724336,
+      "power_w": 3000.0,
+      "import_wh": 181.17,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 84.0963876247406
+    },
+    {
+      "time": 1791684559.7424362,
+      "power_w": 3000.0,
+      "import_wh": 182.01,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 85.16639018058777
+    },
+    {
+      "time": 1791684560.8123662,
+      "power_w": 3000.0,
+      "import_wh": 182.84,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 86.23632025718689
+    },
+    {
+      "time": 1791684561.8798018,
+      "power_w": 3000.0,
+      "import_wh": 183.67,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 87.30375576019287
+    },
+    {
+      "time": 1791684562.9495256,
+      "power_w": 3000.0,
+      "import_wh": 184.51,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 88.37347960472107
+    },
+    {
+      "time": 1791684564.018285,
+      "power_w": 3000.0,
+      "import_wh": 185.34,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 4.35
+        },
+        "age_s": 0.5
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 89.4422390460968
+    },
+    {
+      "time": 1791684565.0904264,
+      "power_w": 3000.0,
+      "import_wh": 186.59,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 90.51438045501709
+    },
+    {
+      "time": 1791684566.155636,
+      "power_w": 3000.0,
+      "import_wh": 187.42,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 3000.0,
+            "start_period": 0
+          },
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 8
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 98
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:16.000Z"
+      },
+      "relative_s": 91.57959008216858
+    },
+    {
+      "time": 1791684567.2270353,
+      "power_w": 3000.0,
+      "import_wh": 188.26,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 92.65098929405212
+    },
+    {
+      "time": 1791684568.3025897,
+      "power_w": 3000.0,
+      "import_wh": 189.09,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 93.72654366493225
+    },
+    {
+      "time": 1791684569.3789923,
+      "power_w": 3000.0,
+      "import_wh": 189.92,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 94.80294632911682
+    },
+    {
+      "time": 1791684570.4528039,
+      "power_w": 3000.0,
+      "import_wh": 190.76,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 95.87675786018372
+    },
+    {
+      "time": 1791684571.526031,
+      "power_w": 3000.0,
+      "import_wh": 191.59,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 96.94998502731323
+    },
+    {
+      "time": 1791684572.5991025,
+      "power_w": 3000.0,
+      "import_wh": 192.42,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 98.0230565071106
+    },
+    {
+      "time": 1791684573.7191248,
+      "power_w": 3000.0,
+      "import_wh": 193.67,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.4
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 99.14307880401611
+    },
+    {
+      "time": 1791684574.791601,
+      "power_w": 3000.0,
+      "import_wh": 194.51,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 100.21555495262146
+    },
+    {
+      "time": 1791684575.8666782,
+      "power_w": 3000.0,
+      "import_wh": 195.34,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 88
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:26.000Z"
+      },
+      "relative_s": 101.2906322479248
+    },
+    {
+      "time": 1791684576.9394143,
+      "power_w": 3000.0,
+      "import_wh": 196.17,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.3
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 102.36336827278137
+    },
+    {
+      "time": 1791684578.0139737,
+      "power_w": 3000.0,
+      "import_wh": 197.01,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 103.43792772293091
+    },
+    {
+      "time": 1791684579.0857975,
+      "power_w": 3000.0,
+      "import_wh": 197.84,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 104.50975155830383
+    },
+    {
+      "time": 1791684580.1584065,
+      "power_w": 3000.0,
+      "import_wh": 199.09,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 105.58236050605774
+    },
+    {
+      "time": 1791684581.2308478,
+      "power_w": 3000.0,
+      "import_wh": 199.92,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 106.65480184555054
+    },
+    {
+      "time": 1791684582.3027234,
+      "power_w": 3000.0,
+      "import_wh": 200.76,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 107.72667741775513
+    },
+    {
+      "time": 1791684583.378885,
+      "power_w": 3000.0,
+      "import_wh": 201.59,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 108.80283904075623
+    },
+    {
+      "time": 1791684584.4514337,
+      "power_w": 3000.0,
+      "import_wh": 202.42,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 109.87538766860962
+    },
+    {
+      "time": 1791684585.5247145,
+      "power_w": 3000.0,
+      "import_wh": 203.26,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.2
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 78
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:36.000Z"
+      },
+      "relative_s": 110.94866847991943
+    },
+    {
+      "time": 1791684586.5967238,
+      "power_w": 3000.0,
+      "import_wh": 204.09,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 112.0206778049469
+    },
+    {
+      "time": 1791684587.6639032,
+      "power_w": 3000.0,
+      "import_wh": 204.92,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 113.08785724639893
+    },
+    {
+      "time": 1791684588.7287683,
+      "power_w": 3000.0,
+      "import_wh": 206.17,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 114.15272235870361
+    },
+    {
+      "time": 1791684589.7998862,
+      "power_w": 3000.0,
+      "import_wh": 207.01,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 115.22384023666382
+    },
+    {
+      "time": 1791684590.8728666,
+      "power_w": 3000.0,
+      "import_wh": 207.84,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 116.29682064056396
+    },
+    {
+      "time": 1791684591.9466424,
+      "power_w": 3000.0,
+      "import_wh": 208.67,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 117.370596408844
+    },
+    {
+      "time": 1791684593.0467398,
+      "power_w": 3000.0,
+      "import_wh": 209.51,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 0.0
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 118.47069382667542
+    },
+    {
+      "time": 1791684594.1245437,
+      "power_w": 3000.0,
+      "import_wh": 210.76,
+      "export_wh": 40.23,
+      "state": "Charging",
+      "limits": {
+        "value": {
+          "uuid": "evse_manager_1",
+          "nr_of_phases_available": 3,
+          "max_current": 0.0
+        },
+        "age_s": 1.1
+      },
+      "composite_schedule": {
+        "charging_rate_unit": "W",
+        "charging_schedule_period": [
+          {
+            "discharge_limit": -11000.0,
+            "limit": 11000.0,
+            "number_phases": 3,
+            "setpoint": 0.0,
+            "start_period": 0
+          },
+          {
+            "limit": 11000.0,
+            "start_period": 68
+          }
+        ],
+        "duration": 600,
+        "evse": 1,
+        "start_schedule": "2026-10-11T02:09:46.000Z"
+      },
+      "relative_s": 119.54849767684937
+    }
+  ],
+  "acceptance_failures": [
+    "Power tracking failed at 6000 W: mean 11000.0 W",
+    "Power tracking failed at 0 W: mean 3000.0 W"
+  ],
+  "energy": {
+    "import": {
+      "metered_wh": 139.66,
+      "integrated_wh": 141.03188746003707,
+      "passed": true
+    },
+    "export": {
+      "metered_wh": 40.23,
+      "integrated_wh": 38.42301490836144,
+      "passed": true
+    }
+  },
+  "client_meter": {
+    "power_w": 3000.0,
+    "import_kwh": 0.20700694274902345,
+    "export_kwh": 0.04023147964477539,
+    "meter_timestamp": "2026-10-11T02:09:49.508000+00:00",
+    "meter_fresh": true,
+    "meter_location": "Outlet",
+    "meter_transaction_id": "ac2bad76-7966-45e0-a966-e26bdde524cb",
+    "transaction_closed": false
+  },
+  "stop_dispatch": {
+    "action": "stop",
+    "state": "dispatched_awaiting_station_evidence",
+    "dispatched_at": "2026-10-11T02:09:55.577977+00:00",
+    "station_id": "SIM-EV-EVEREST-V2G-01",
+    "transaction_id": "ac2bad76-7966-45e0-a966-e26bdde524cb",
+    "dispatch_response_at": "2026-10-11T02:09:55.589635+00:00"
+  },
+  "closed_at": "2026-10-11T02:09:58.100879+00:00",
+  "final_meter": {
+    "power_w": 0.0,
+    "import_kwh": 0.21200694274902343,
+    "export_kwh": 0.04023147964477539,
+    "meter_timestamp": "2026-10-11T02:09:56.015000+00:00",
+    "meter_fresh": true,
+    "meter_location": "Outlet",
+    "meter_transaction_id": "ac2bad76-7966-45e0-a966-e26bdde524cb",
+    "transaction_closed": true
+  },
+  "clear_dispatch": {
+    "action": "clear",
+    "state": "dispatched_awaiting_station_evidence",
+    "dispatched_at": "2026-10-11T02:10:00.754601+00:00",
+    "station_id": "SIM-EV-EVEREST-V2G-01",
+    "dispatch_response_at": "2026-10-11T02:10:00.766076+00:00"
+  },
+  "error_type": "AssertionError",
+  "error": "Power tracking failed at 6000 W: mean 11000.0 W; Power tracking failed at 0 W: mean 3000.0 W"
+}
