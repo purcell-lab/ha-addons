@@ -11,6 +11,11 @@
   automatic load controller.
 - Add the full Plugfest demonstration acceptance plan. HA controls, integration
   testing, fail-safe enforcement and the complete envelope path remain gates.
+- Add opt-in `open_admission_enabled`: an unauthenticated internal listener on
+  port 8082 accepting any station identity over OCPP 2.1/2.0.1. Off by default;
+  port 8081 authentication is unchanged. See DOCS.md for the impersonation risk.
+- Add `command_station_id` to select the one `SIM-EV-` station scoped commands
+  may target (default `SIM-EV-EVEREST-V2G-01`).
 
 ## 0.1.0
 

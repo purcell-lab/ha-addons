@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ROUTES,STATION,validateCommand,targetAllows} from '../rootfs/control-policy.mjs';
+import {ROUTES,STATION,validateCommand,targetAllows,commandStation} from '../rootfs/control-policy.mjs';
 const url=i=>new URL('http://lab'+ROUTES[i]+'?identifier='+STATION+'&tenantId=1');
 const start={remoteStartId:12,evseId:1,idToken:{type:'ISO14443',idToken:'C17E0001'}};
 const profile=()=>({evseId:1,chargingProfile:{id:9001,stackLevel:1,chargingProfilePurpose:'TxProfile',
@@ -73,4 +73,18 @@ test('observed station and exact active transaction required; no start or clear 
   const duplicate=state();duplicate.data.Transactions.push({...duplicate.data.Transactions[0]});
   assert.equal(targetAllows(url(2),profile(),duplicate),false);
   assert.equal(targetAllows(url(2),profile(),{}),false);
+});
+test('configured command station replaces the default target, never widens it',()=>{
+  const other='SIM-EV-EVEREST-V2G-02';
+  const at=i=>new URL('http://lab'+ROUTES[i]+'?identifier='+other+'&tenantId=1');
+  assert.equal(validateCommand(at(0),start,other),true);
+  assert.equal(validateCommand(url(0),start,other),false);
+  assert.equal(validateCommand(at(0),start),false);
+  for(const bad of ['REAL-CHARGER','SIM-EV-','SIM-CITRINE-LAB-01'])
+    assert.equal(validateCommand(new URL('http://lab'+ROUTES[0]+'?identifier='+bad+'&tenantId=1'),start,bad),false);
+  const s=state();s.data.ChargingStations[0].ocppConnectionName=other;
+  assert.equal(targetAllows(at(2),profile(),s,other),true);
+  assert.equal(targetAllows(at(2),profile(),s),false);
+  assert.equal(commandStation({}),STATION);
+  assert.equal(commandStation({command_station_id:other}),other);
 });

@@ -1,6 +1,10 @@
 // A narrow laboratory command policy, not general-purpose device enrolment.
 // Upstream AJV validation remains mandatory after these additional constraints.
+// Default command target. Option command_station_id may select another
+// simulator identity in the same SIM-EV- namespace, one station at a time.
 export const STATION='SIM-EV-EVEREST-V2G-01';
+export const STATION_PATTERN=/^SIM-EV-[A-Za-z0-9_-]{1,36}$/;
+export const commandStation=o=>o.command_station_id||STATION;
 export const PROTOCOL='ocpp2.1';
 export const MAX_POWER_W=11000;
 export const ROUTES=[
@@ -17,12 +21,12 @@ const timestamp=n=>typeof n==='string'
   && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(n)
   && Number.isFinite(Date.parse(n));
 
-export function validateCommand(url,p) {
-  if(!ROUTES.includes(url.pathname)) return false;
+export function validateCommand(url,p,station=STATION) {
+  if(!ROUTES.includes(url.pathname)||!STATION_PATTERN.test(station)) return false;
   if([...url.searchParams.keys()].length!==2
     ||url.searchParams.getAll('identifier').length!==1
     ||url.searchParams.getAll('tenantId').length!==1
-    ||url.searchParams.get('identifier')!==STATION
+    ||url.searchParams.get('identifier')!==station
     ||url.searchParams.get('tenantId')!=='1') return false;
   if(url.pathname===ROUTES[0]) return keys(p,['remoteStartId','evseId','idToken'])
     &&int(p.remoteStartId,0,2147483647)&&p.evseId===1
@@ -67,13 +71,13 @@ export const TARGET_QUERY=`query ControlTarget($name: String!) {
     stationId tenantId transactionId isActive
   }
 }`;
-export function targetAllows(url,p,result) {
+export function targetAllows(url,p,result,station=STATION) {
   const stations=result?.data?.ChargingStations, transactions=result?.data?.Transactions;
   if(!Array.isArray(stations)||stations.length!==1||!Array.isArray(transactions)
     ||transactions.length>500)return false;
   const s=stations[0];
   if(!s||!int(s.id,1,Number.MAX_SAFE_INTEGER)||s.tenantId!==1
-    ||s.ocppConnectionName!==STATION||s.protocol!==PROTOCOL||s.isOnline!==true)return false;
+    ||s.ocppConnectionName!==station||s.protocol!==PROTOCOL||s.isOnline!==true)return false;
   if(transactions.some(t=>!t||t.tenantId!==1||t.isActive!==true
     ||!int(t.stationId,1,Number.MAX_SAFE_INTEGER)||!transaction(t.transactionId)))return false;
   const active=transactions.filter(t=>t.stationId===s.id);
