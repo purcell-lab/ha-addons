@@ -111,8 +111,17 @@ and power come only from the CSMS.
 - **EV stop session**: the EV ends the ISO 15118 session and unplugs.
 - **Unplug now**: immediate unplug, which ends any transaction.
 
-Live readings show direction, signed power (negative is discharge), meter
-import and export energy, DC voltage and current, and the rated power.
+Live readings refresh every second and show state, direction, signed power
+(negative is discharge), meter import and export energy, DC voltage and
+current, and the rated power. Green means import (charging) and blue means
+export (discharge, V2G); every value also carries a +/- sign, an arrow icon
+and a text label, so colour is never the only cue. A bidirectional bar and a
+two-minute trend show power against the rated limit. The discovery self-test
+panel is at the bottom of the page.
+
+The charger sends OCPP transaction meter samples to the CSMS every second
+(`SampledDataTxUpdatedInterval` 1), so step response and direction changes
+can be timed from the CSMS record.
 
 Each plug-in starts a fresh EV ISO 15118 stack. In upstream PyEvJosev, a
 failed discovery leaves the EV stack idle without returning, so every

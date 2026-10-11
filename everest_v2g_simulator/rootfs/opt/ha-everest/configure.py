@@ -221,8 +221,9 @@ def component_config(source, target, settings, password):
     })
     # ChargingStationSupplyPhases stays at the upstream value (3): setting it to 1
     # made libocpp drop every profile from composite schedules (2025.10.0).
-    # Ten-second transaction samples so stepped schedules are visible in HA.
-    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 10})
+    # One-second transaction samples so step response and direction changes
+    # can be timed from the CSMS record, not only seen.
+    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 1})
     # The upstream lists omit export energy even though the simulated meter
     # provides it. Preserve existing measurands and request both directions
     # in Started, Updated and Ended frames; never synthesize export from net.

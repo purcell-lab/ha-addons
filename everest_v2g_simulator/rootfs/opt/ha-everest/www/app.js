@@ -5,14 +5,60 @@ const fmt = (v, d = 0) => (typeof v === "number" && isFinite(v)) ? v.toLocaleStr
 
 function cell(row, text, cls) { const td = row.insertCell(); td.textContent = text; if (cls) td.className = cls; return td; }
 
+const SVG = "http://www.w3.org/2000/svg";
+function icon(name) {
+  const svg = document.createElementNS(SVG, "svg"); svg.setAttribute("class", "icon"); svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(SVG, "use"); use.setAttribute("href", "#i-" + name);
+  svg.append(use); return svg;
+}
+// Sign class: positive is import/charging (green), negative export/discharge (blue).
+const tone = (w, dead = 50) => (typeof w !== "number" || !isFinite(w)) ? "idle" : w > dead ? "pos" : w < -dead ? "neg" : "idle";
+// Signed text so meaning never depends on colour alone.
+const signed = (v, d = 0) => (typeof v === "number" && isFinite(v)) ? (v > 0 ? "+" : v < 0 ? "\u2212" : "") + fmt(Math.abs(v), d) : "\u2013";
+
+// items: [label, value, iconName, toneClass]
 function setLive(items) {
-  const dl = $("live");
-  dl.replaceChildren(...items.map(([label, value]) => {
-    const div = document.createElement("div");
+  $("live").replaceChildren(...items.map(([label, value, name, cls]) => {
+    const div = document.createElement("div"); div.className = "chip " + (cls || "idle");
+    const text = document.createElement("div");
     const dt = document.createElement("dt"); dt.textContent = label;
     const dd = document.createElement("dd"); dd.textContent = value;
-    div.append(dt, dd); return div;
+    text.append(dt, dd); div.append(icon(name || "state"), text); return div;
   }));
+}
+
+// Power bar and two-minute trend (client-side history at the refresh rate).
+const history = [];
+const HISTORY_S = 120;
+function drawPower(w, kw) {
+  const max = (kw || 11) * 1000;
+  const frac = typeof w === "number" && isFinite(w) ? Math.max(-1, Math.min(1, w / max)) : 0;
+  const half = 100 * Math.abs(frac);
+  $("barpos").setAttribute("width", frac > 0 ? half : 0);
+  $("barneg").setAttribute("x", frac < 0 ? 100 - half : 100);
+  $("barneg").setAttribute("width", frac < 0 ? half : 0);
+  const now = Date.now() / 1000;
+  history.push([now, typeof w === "number" && isFinite(w) ? w : null]);
+  while (history.length && history[0][0] < now - HISTORY_S) history.shift();
+  const pts = history.filter(([, v]) => v !== null).map(([t, v]) =>
+    [240 * (1 - (now - t) / HISTORY_S), 30 - 28 * Math.max(-1, Math.min(1, v / max))]);
+  const line = pts.map(([x, y]) => x.toFixed(1) + "," + y.toFixed(1)).join(" ");
+  $("sparkline").setAttribute("points", line);
+  const area = (keep) => pts.length ? [[pts[0][0], 30], ...pts.map(([x, y]) => [x, keep(y) ? y : 30]), [pts[pts.length - 1][0], 30]]
+    .map(([x, y]) => x.toFixed(1) + "," + y.toFixed(1)).join(" ") : "";
+  $("sparkpos").setAttribute("points", area((y) => y < 30));
+  $("sparkneg").setAttribute("points", area((y) => y > 30));
+}
+
+let lastDirection = "";
+function announce(direction) {
+  if (direction !== lastDirection) { $("livestatus").textContent = "Direction: " + direction; lastDirection = direction; }
+}
+
+function signedCell(row, v, unit) {
+  const td = cell(row, v != null ? signed(v) + unit : "\u2013", "num");
+  const t = tone(v, 0); if (t !== "idle") td.classList.add("v-" + t);
+  return td;
 }
 
 function val(entry) { return entry && entry.age_s < 15 ? entry.value : null; }
@@ -25,7 +71,7 @@ async function refreshStatus() {
     s = await r.json();
   } catch (e) {
     $("conn").textContent = "Status unavailable"; $("conn").className = "badge bad";
-    setLive([]); return;
+    setLive([]); drawPower(null); return;
   }
   const app = s.app || {};
   const conn = val(s.ocpp_connection);
@@ -40,17 +86,23 @@ async function refreshStatus() {
   const p = (pm.power_W || {}), e = (pm.energy_Wh_import || {}), x = (pm.energy_Wh_export || {});
   const i = (pm.current_A || {}), v = (pm.voltage_V || {});
   const w = typeof p.total === "number" ? p.total : null;
-  const dir = w === null ? "–" : w > 50 ? "Charging (import)" : w < -50 ? "Discharging (export, V2G)" : "Idle";
+  const t = tone(w);
+  const dir = w === null ? "\u2013" : t === "pos" ? "Charging" : t === "neg" ? "Discharging (V2G)" : "Idle";
+  const dirIcon = t === "pos" ? "in" : t === "neg" ? "out" : "swap";
+  const it = tone(typeof i.DC === "number" ? i.DC : null, 0.5);
   setLive([
-    ["State", si.state || "–"],
-    ["Direction", dir],
-    ["Power", fmt(w) + " W"],
-    ["Meter import", fmt(e.total, 1) + " Wh"],
-    ["Meter export", fmt(x.total, 1) + " Wh"],
-    ["DC voltage", fmt(v.DC, 1) + " V"],
-    ["DC current", fmt(i.DC, 1) + " A"],
-    ["Rated power", fmt(app.max_power_kw) + " kW each way"],
+    // EVerest reports "Charging" in both directions; the Direction chip carries the sign.
+    ["State", si.state || "\u2013", "state", "idle"],
+    ["Direction", dir, dirIcon, t],
+    ["Power", signed(w) + " W", "bolt", t],
+    ["Meter import", fmt(e.total, 1) + " Wh", "in", "pos"],
+    ["Meter export", fmt(x.total, 1) + " Wh", "out", "neg"],
+    ["DC voltage", fmt(v.DC, 1) + " V", "volt", "idle"],
+    ["DC current", signed(i.DC, 1) + " A", "amp", it],
+    ["Rated power", "\u00b1" + fmt(app.max_power_kw) + " kW", "gauge", "idle"],
   ]);
+  drawPower(w, app.max_power_kw);
+  announce(dir);
 
   const body = $("composite").tBodies[0]; body.replaceChildren();
   const cs = s.composite_schedule;
@@ -59,9 +111,9 @@ async function refreshStatus() {
       const row = body.insertRow();
       cell(row, fmt(per.start_period), "num");
       const unit = " " + (cs.charging_rate_unit || "");
-      cell(row, fmt(per.limit) + unit, "num");
-      cell(row, per.discharge_limit != null ? fmt(per.discharge_limit) + unit : "–", "num");
-      cell(row, per.setpoint != null ? fmt(per.setpoint) + unit : "–", "num");
+      signedCell(row, per.limit, unit);
+      signedCell(row, per.discharge_limit, unit);
+      signedCell(row, per.setpoint, unit);
     }
   } else { cell(body.insertRow(), "No schedule published yet").colSpan = 4; }
 }
@@ -149,4 +201,4 @@ $("runtest").addEventListener("click", async () => {
 });
 
 refreshStatus(); refreshProfiles(); refreshDiagnostics();
-setInterval(refreshStatus, 2000); setInterval(refreshProfiles, 4000); setInterval(refreshDiagnostics, 15000);
+setInterval(refreshStatus, 1000); setInterval(refreshProfiles, 4000); setInterval(refreshDiagnostics, 15000);

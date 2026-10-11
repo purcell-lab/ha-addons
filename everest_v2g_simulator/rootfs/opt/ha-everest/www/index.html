@@ -7,8 +7,32 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Inline icon sprite: the page CSP allows no external or data: images. -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-charger" viewBox="0 0 24 24"><path d="M5 3h8a2 2 0 0 1 2 2v14h1a1 1 0 0 0 1-1v-6l-2-2V7h1l2 2v9a3 3 0 0 1-3 3H3V5a2 2 0 0 1 2-2zm1 3v5h6V6H6zm2.5 7L7 16h2v3l2.5-4H9.5l1-2h-2z"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11h1a1 1 0 0 1 1 1v5h-2v2h-3v-2H8v2H5v-2H3v-5a1 1 0 0 1 1-1h1zm2.1 0h9.8l-1-3.2a1 1 0 0 0-1-.8H9.1a1 1 0 0 0-1 .8L7.1 11zM6.5 15a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm11 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M8 2h2v5h4V2h2v5h1a1 1 0 0 1 1 1v4a6 6 0 0 1-5 5.9V22h-2v-4.1A6 6 0 0 1 6 12V8a1 1 0 0 1 1-1h1V2z"/></symbol>
+  <symbol id="i-unplug" viewBox="0 0 24 24"><path d="M3.3 2l18.7 18.7-1.4 1.4-4.3-4.3a6 6 0 0 1-2.3.9V22h-2v-3.3A6 6 0 0 1 7 12.8V9.6L1.9 3.4 3.3 2zM16 7h1a1 1 0 0 1 1 1v4c0 .6-.1 1.2-.3 1.8L10.8 7H14V2h2v5zM8 2h2v3.2L8 3.2V2z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-3 7v6h6V9H9z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><path d="M11 3h2v11.2l4.6-4.6 1.4 1.4-7 7-7-7 1.4-1.4 4.6 4.6V3zM4 19h16v2H4v-2z"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M11 21h2V9.8l4.6 4.6 1.4-1.4-7-7-7 7 1.4 1.4L11 9.8V21zM4 3h16v2H4V3z"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4l-4 4 4 4V9h9V7H7V4zm10 8v3H8v2h9v3l4-4-4-4z"/></symbol>
+  <symbol id="i-volt" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-4 4h2l2 6 2-6h2l-3 8h-2L8 8z"/></symbol>
+  <symbol id="i-amp" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1 3h2l3 10h-2l-.7-2.5h-2.6L10 17H8l3-10zm1 2.8l-.8 2.7h1.6l-.8-2.7z"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 4a10 10 0 0 1 10 10c0 1.8-.5 3.5-1.3 5H3.3A10 10 0 0 1 12 4zm0 2a8 8 0 0 0-7.5 11h15A8 8 0 0 0 12 6zm4.2 2.4l1.4 1.4-4.2 4.2A2 2 0 1 1 12 12a2 2 0 0 1 .4 0l3.8-3.6z"/></symbol>
+  <symbol id="i-state" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-1.2 13.6l6.7-6.7-1.4-1.4-5.3 5.3-2.3-2.3-1.4 1.4 3.7 3.7z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3h2v16h16v2H3V3zm4 12l4-5 3 3 5-7 1.6 1.2-6.4 9-3-3-2.6 3.3L7 15z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5L13 3.5zM8 12v2h8v-2H8zm0 4v2h8v-2H8z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h2v2H3V5zm4 0h14v2H7V5zm-4 6h2v2H3v-2zm4 0h14v2H7v-2zm-4 6h2v2H3v-2zm4 0h14v2H7v-2z"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1-7.1 2.9l1.4 1.4A8 8 0 1 0 12 4v2a6 6 0 1 1-4.2 1.8l1.4 1.4A4 4 0 1 0 12 8v4H10V2h2z"/></symbol>
+</svg>
+
 <header>
-  <h1>EVerest DC V2G test charger</h1>
+  <div class="title">
+    <svg class="icon big accent"><use href="#i-charger"/></svg>
+    <h1>EVerest DC V2G test charger</h1>
+  </div>
   <div class="badges">
     <span id="conn" class="badge">Loading</span>
     <span id="ident" class="badge muted"></span>
@@ -18,17 +42,62 @@
 </header>
 <main>
   <section>
-    <h2>Simulated EV</h2>
+    <h2><svg class="icon"><use href="#i-car"/></svg>Simulated EV</h2>
     <div class="controls">
-      <button data-cmd="plugin">Plug in</button>
-      <button data-cmd="stop">EV stop session</button>
-      <button data-cmd="unplug" class="warn">Unplug now</button>
+      <button data-cmd="plugin"><svg class="icon"><use href="#i-plug"/></svg>Plug in</button>
+      <button data-cmd="stop"><svg class="icon"><use href="#i-stop"/></svg>EV stop session</button>
+      <button data-cmd="unplug" class="warn"><svg class="icon"><use href="#i-unplug"/></svg>Unplug now</button>
     </div>
     <p class="note">Plug in waits for authorisation. Start the transaction from the test central system (RequestStartTransaction). To discharge, send an OCPP 2.1 TxProfile period with operationMode CentralSetpoint and a negative setpoint in W.</p>
     <p id="cmdmsg" class="note" role="status"></p>
   </section>
+
   <section>
-    <h2>Discovery self-test</h2>
+    <h2><svg class="icon"><use href="#i-bolt"/></svg>Live readings</h2>
+    <!-- Bidirectional power bar: discharge grows left (blue), charge grows right (green). -->
+    <div class="flow" aria-hidden="true">
+      <span class="flow-end export"><svg class="icon"><use href="#i-out"/></svg>Export</span>
+      <svg class="powerbar" viewBox="0 0 200 14" preserveAspectRatio="none">
+        <rect class="track" x="0" y="0" width="200" height="14" rx="7"/>
+        <rect id="barneg" class="neg" x="100" y="0" width="0" height="14"/>
+        <rect id="barpos" class="pos" x="100" y="0" width="0" height="14"/>
+        <rect class="mid" x="99.5" y="0" width="1" height="14"/>
+      </svg>
+      <span class="flow-end import">Import<svg class="icon"><use href="#i-in"/></svg></span>
+    </div>
+    <dl class="chips" id="live"></dl>
+    <p id="livestatus" class="sr-only" role="status" aria-live="polite"></p>
+    <div class="trend">
+      <div class="trend-head"><svg class="icon"><use href="#i-chart"/></svg>Power, last 2 minutes <span class="note">(green charge, blue discharge)</span></div>
+      <svg id="spark" class="spark" viewBox="0 0 240 60" preserveAspectRatio="none" role="img" aria-label="Recent power trend">
+        <line class="zero" x1="0" y1="30" x2="240" y2="30"/>
+        <polygon id="sparkpos" class="pos" points=""/>
+        <polygon id="sparkneg" class="neg" points=""/>
+        <polyline id="sparkline" class="line" points=""/>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2><svg class="icon"><use href="#i-gauge"/></svg>Effective limit (composite schedule)</h2>
+    <p class="note">EVerest's combined result of all active profiles for EVSE 1, refreshed every 10 seconds. Green is charging (import), blue is discharging (export).</p>
+    <div class="tablewrap"><table id="composite"><thead><tr><th>Offset (s)</th><th>Limit</th><th>Discharge limit</th><th>Setpoint</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2><svg class="icon"><use href="#i-doc"/></svg>Last received TxProfile</h2>
+    <p id="txmeta" class="note">No TxProfile received yet.</p>
+    <div class="controls"><button id="copy" disabled>Copy JSON</button></div>
+    <pre id="txjson" tabindex="0"></pre>
+  </section>
+
+  <section>
+    <h2><svg class="icon"><use href="#i-list"/></svg>Recent profile requests</h2>
+    <div class="tablewrap"><table id="recent"><thead><tr><th>Received (UTC)</th><th>Reply</th><th>Action</th><th>Purpose</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2><svg class="icon"><use href="#i-radar"/></svg>Discovery self-test</h2>
     <p class="note">ISO 15118 discovery (SDP) from the EV end of the private link (v2g1) to the charger (v2g0): unicast, as CI's probe sends it, and multicast to ff02::1, as the simulated EV sends it. Runs once at start; a packet capture on both link ends shows where a request stops.</p>
     <p id="selftest" class="badge muted">Not run yet</p>
     <div class="controls"><button id="runtest">Run self-test</button></div>
@@ -37,25 +106,6 @@
       <summary>Link, multicast and firewall details</summary>
       <pre id="diagjson" tabindex="0"></pre>
     </details>
-  </section>
-  <section>
-    <h2>Live readings</h2>
-    <dl class="grid" id="live"></dl>
-  </section>
-  <section>
-    <h2>Effective limit (composite schedule)</h2>
-    <p class="note">EVerest's combined result of all active profiles for EVSE 1, refreshed every 10 seconds. Negative values mean discharge.</p>
-    <div class="tablewrap"><table id="composite"><thead><tr><th>Offset (s)</th><th>Limit</th><th>Discharge limit</th><th>Setpoint</th></tr></thead><tbody></tbody></table></div>
-  </section>
-  <section>
-    <h2>Last received TxProfile</h2>
-    <p id="txmeta" class="note">No TxProfile received yet.</p>
-    <div class="controls"><button id="copy" disabled>Copy JSON</button></div>
-    <pre id="txjson" tabindex="0"></pre>
-  </section>
-  <section>
-    <h2>Recent profile requests</h2>
-    <div class="tablewrap"><table id="recent"><thead><tr><th>Received (UTC)</th><th>Reply</th><th>Action</th><th>Purpose</th></tr></thead><tbody></tbody></table></div>
   </section>
 </main>
 <script src="app.js"></script>
