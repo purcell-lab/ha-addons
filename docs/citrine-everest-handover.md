@@ -1,6 +1,8 @@
 # CitrineOS and EVerest: implementation, build and test handover
 
-Prepared 11 October 2026, Australia/Brisbane. This brief covers the coordinated
+Prepared 11 October 2026, Australia/Brisbane. The seven implementation and
+correction PRs are merged; the final documentation consolidation records the
+post-merge test results below. This brief covers the coordinated
 Home Assistant Apps and CitrineOS HA-client work, including the older open
 MicroOCPP and comparison PRs. Mark authorised merging the open PRs; that is
 source consolidation, not permission to publish images, update Apps, restart HA,
@@ -9,7 +11,12 @@ rebind the simulator or activate controls.
 ## Executive decision
 
 **Source may be consolidated; the new controlled CitrineOS-to-EVerest path is
-NO-GO for live activation.** The native test demonstrates registration,
+NO-GO for live activation.** The latest consolidated test also held +11,000 W
+against a +6,000 W request, in addition to the zero-power failure. Profile
+tracking is not repeatably correct.
+[Consolidated native test](https://github.com/purcell-lab/ha-addons/actions/runs/38103855752)
+
+The earlier native test demonstrates registration,
 charging, discharge, both energy registers and explicit stop/closure, but a
 0 W profile leaves the simulated EV charging at 3,000 W. The native acceptance
 test remains red; it has not been skipped, weakened or converted to an expected
@@ -29,7 +36,8 @@ HAEO schedule bridge, fault handling and evidence dashboard.
 
 ## Repository and PR inventory
 
-“All PRs” in this handover means the six open PRs discovered in the two
+“All PRs” in this handover means the six open PRs initially discovered plus the
+documentation correction #19 opened during consolidation in the two
 repositories below, not unrelated BSV or other project repositories. The PR
 links are the authoritative merge records; older PR descriptions may retain
 historical “staged” or “do not merge” wording.
@@ -41,6 +49,7 @@ historical “staged” or “do not merge” wording.
 | [ha-addons #15](https://github.com/purcell-lab/ha-addons/pull/15) | Live HA OCPP/EVerest TxProfile evidence | Different CSMS path from the CitrineOS native trial |
 | [ha-addons #17](https://github.com/purcell-lab/ha-addons/pull/17) | Shared EVerest runtime and reduced PR build work | File equivalence is not behavioural or V2G safety equivalence |
 | [ha-addons #18](https://github.com/purcell-lab/ha-addons/pull/18) | Guarded CitrineOS controls, admission, telemetry and native tests | Known failed zero-power acceptance; no live activation |
+| [ha-addons #19](https://github.com/purcell-lab/ha-addons/pull/19) | Correct stale rebase note in runtime handover | Documentation only; #15 and #17 merged without that predicted conflict |
 | [CitrineOS-HA-Integration #2](https://github.com/purcell-lab/CitrineOS-HA-Integration/pull/2) | HA manual controls, schedules and telemetry | Existing read-only entries remain read-only |
 
 ### Source, published images and installed state are different
@@ -323,7 +332,7 @@ These distinctions are deliberate in the [comparison](https://github.com/purcell
 [client](https://github.com/purcell-lab/CitrineOS-HA-Integration/pull/2) and
 [native integration](https://github.com/purcell-lab/ha-addons/pull/18) work.
 
-## Test record and measured results
+## Pre-consolidation test record and measured results
 
 | Evidence | Result / interpretation |
 |---|---|
@@ -386,6 +395,7 @@ and [App #18](https://github.com/purcell-lab/ha-addons/pull/18).
 | Priority | Item | Acceptance before activation |
 |---|---|---|
 | P0 | Zero-power profile leaves charging at previous power | Measured zero in an active session, no silent conversion into session termination |
+| P0 | Consolidated +6 kW step remained at +11 kW | Repeatable profile execution across runs; inspect received/effective schedule and measured response, not just Accepted |
 | P0 | Expiry and communication-loss local safety unproven | Independently interrupt planner, HA, CSMS and EVSE link; measure safe state and recovery |
 | P1 | Intermittent discharge and transition overshoot | Repeated bounded reversal runs with voltage/current, limits and meter timing; explain failures |
 | P1 | Live HA controls not installed/validated | Fresh inventory, protected rollback, exact simulator binding, entity/button/service tests |
@@ -456,3 +466,109 @@ an uncertain command, and never clear a live discharge profile as a stop shortcu
 
 The authoritative evidence links and limitations are retained above so a new
 maintainer can resume without guessing the last successful or failed step.
+
+## Final consolidation record
+
+All seven PRs are merged; branch protection and ruleset queries returned no
+required checks on these repositories. Normal exact-head merges were used,
+without administrator override or removal of tests. Failed/incomplete checks
+remain visible. Merging was performed as explicitly requested source
+consolidation, not a declaration of release readiness.
+
+| PR | Merge commit |
+|---|---|
+| [Apps #4](https://github.com/purcell-lab/ha-addons/pull/4) | `410b99d5ee03741511e81ca522e4660bf376e6c9` |
+| [Apps #13](https://github.com/purcell-lab/ha-addons/pull/13) | `abe16fb1f46939545af0860882e9442e3fff6689` |
+| [Apps #15](https://github.com/purcell-lab/ha-addons/pull/15) | `a9516a43af2fcce56b9cc3105c72e8e9d6f944b8` |
+| [Apps #17](https://github.com/purcell-lab/ha-addons/pull/17) | `85e22631e1421446fca63ec4be5961674f539188` |
+| [Apps #18](https://github.com/purcell-lab/ha-addons/pull/18) | `a19e629a56deb5cecc32e64e05766f63c2aa65a4` |
+| [Apps #19](https://github.com/purcell-lab/ha-addons/pull/19) | `86dcc72c6b0a87dc622ef68afa0ff7620515df9f` |
+| [HA client #2](https://github.com/purcell-lab/CitrineOS-HA-Integration/pull/2) | `8c0a2c2ab344343b488fe3b267c520189bd77550` |
+
+Apps main at inventory: `86dcc72c6b0a87dc622ef68afa0ff7620515df9f`.
+Client main: `8c0a2c2ab344343b488fe3b267c520189bd77550`.
+The repository copy of the core handover is `docs/citrine-everest-handover.md`;
+this delivered copy additionally contains the final merge and verification ledger.
+
+### Checks rerun against the consolidated local source
+
+- HA client: 73 passed with both cross-repository source paths supplied.
+- Server: 4 packaging, 2 readiness and 12 Node policy tests passed.
+- V2G App: 68 run, 67 passed and one local environment-dependent skip; resource
+  warnings remain.
+- MicroOCPP: 14 focused tests passed.
+- Dedicated Citrine simulator: 3 tests passed.
+- Pinned-next harness: 3 tests passed.
+- Image-tree comparison tool: 5 tests passed when run as a script. The first
+  attempt via unittest discovery was incompatible with its unguarded
+  `unittest.main`; the documented working command is:
+
+```sh
+python .github/scripts/test_image_tree_compare.py
+```
+
+These are local component results, not a substitute for the red native
+zero-power test or an installed HA test.
+
+### Consolidated CI
+
+The exact pre-merge App head `974ee9ca7461f93e822bb50953b4e39cf9270a98`
+starts the consolidated workflows:
+
+- [Native V2G](https://github.com/purcell-lab/ha-addons/actions/runs/38103855752)
+- [Private stack](https://github.com/purcell-lab/ha-addons/actions/runs/38103855774)
+- [V2G App](https://github.com/purcell-lab/ha-addons/actions/runs/38103855728)
+
+All three workflows completed. The native test and V2G overall workflow failed;
+the private stack passed. These are release blockers, not grounds to delete
+checks, overwrite a released version or activate controls.
+[Native](https://github.com/purcell-lab/ha-addons/actions/runs/38103855752)
+[V2G App](https://github.com/purcell-lab/ha-addons/actions/runs/38103855728)
+[Private stack](https://github.com/purcell-lab/ha-addons/actions/runs/38103855774)
+
+| Consolidated check | Observed outcome |
+|---|---|
+| +6,000 W step | **Fail: +11,000 W mean** |
+| -5,000 W step | Pass: -5,000 W mean |
+| +3,000 W step | Pass: +3,000 W mean |
+| 0 W step | **Fail: +3,000 W mean** |
+| Energy-window consistency | Pass: import 139.66 Wh versus 141.03 Wh integrated; export 40.23 Wh versus 38.42 Wh |
+| Client final meter | 0 W, cumulative 0.212007 kWh import / 0.040231 kWh export, exact transaction closed |
+| Explicit stop | Closure and measured zero observed; profile cleanup then dispatched |
+
+These results refer to synthetic transaction
+`ac2bad76-7966-45e0-a966-e26bdde524cb`, not the earlier successful +6 kW run.
+The received profile was accepted; the first power step did not follow it.
+[Consolidated native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38103855752)
+
+The V2G amd64 build and minimum image checks passed, but `published-image`
+failed because `amd64-everest-v2g-simulator:0.1.4` is not public/pullable.
+That is the correct separation between buildable source and a published release.
+[V2G workflow](https://github.com/purcell-lab/ha-addons/actions/runs/38103855728)
+
+The documentation-correction runtime comparison also failed against old V2G
+0.1.2: exactly `configure.py` and its compiled Python cache differ, consistent
+with the newly added credential and measurand code. AC's strict comparison
+reported zero differences. This failure does not by itself prove the shared
+runtime binaries changed, but the overall “unchanged App files” claim no longer
+applies to the new functional App revision.
+[Runtime comparison](https://github.com/purcell-lab/ha-addons/actions/runs/38103888141)
+
+**Build-test follow-up:** separate runtime equivalence from deliberate App
+behaviour changes. Compare runtime candidates using the same reviewed App
+source at both ends, or review a new release baseline when one exists. Do not
+silently exempt functional files or assert unchanged behaviour from binary
+equivalence.
+
+For a deliberately changed runtime, the existing build/check commands are:
+
+```sh
+docker build \
+  --build-arg RUNTIME_VERSION="$(cat everest_runtime/VERSION)" \
+  -t everest-runtime:local everest_runtime
+sh .github/scripts/everest_identical_files.sh everest-runtime:local amd64
+```
+
+The second command currently detects the documented App-source differences.
+It is not expected to go green until the comparison design/baseline is reviewed.
+No change to this checker or runtime publication was made during consolidation.
