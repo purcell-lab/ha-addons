@@ -62,10 +62,10 @@ def trial(docker, request, server_options, names, secret_values, temporary):
 x=json.load(sys.stdin)
 r=urllib.request.Request('http://127.0.0.1:8000'+x['path'],method=x['method'],
  headers={'X-HA-EVerest':'1'})
-with urllib.request.urlopen(r,timeout=5) as response: print(response.read().decode())
+with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as response: print(response.read().decode())
 """
         p = subprocess.run(["docker", "exec", "-i", "lab-v2g", "python3", "-c", code],
-            input=json.dumps({"path": path, "method": method}), capture_output=True, text=True, timeout=12)
+            input=json.dumps({"path": path, "method": method}), capture_output=True, text=True, timeout=40 if method=="POST" else 12)
         if p.returncode:
             raise RuntimeError("Simulator UI not ready")
         return json.loads(p.stdout)
@@ -114,6 +114,10 @@ with urllib.request.urlopen(r,timeout=5) as response: print(response.read().deco
                           and s["isOnline"] for s in rows()), "Native 2.1 registration")
         until(lambda: ui()["app"].get("negotiated") == "ocpp2.1", "EVSE observed 2.1")
         until(lambda: reading()["state"] == "Unplugged", "Idle EVSE")
+        # The boot-time discovery self-test owns the plugin lock. An idle
+        # session does not mean that this independent readiness test finished.
+        until(lambda: ui("/api/diagnostics?brief=1").get("selftest", {}).get("pass") is True,
+              "Boot-time discovery self-test", 60)
         report["registered_at"] = stamp()
         assert ui("/api/ev/plugin", "POST").get("sent")
         until(lambda: reading()["state"] in ("AuthRequired", "Preparing"), "Plugged readiness")
