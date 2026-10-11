@@ -1,9 +1,21 @@
 #!/bin/sh
 # Release gate for a built V2G App image, shared by PR CI and the publish job.
 # Usage: ci_image_checks.sh <image-ref>   (run from the repository root)
+# CHECKS=full (default, release gate) runs every acceptance scenario and the
+# discovery recovery run on an IPv6 eth0 network.
+# CHECKS=minimal (pull request CI) runs one OCPP 2.1 V2G session with the
+# TxProfile steps, the fail-closed, self-test, listener and firewall checks.
+# Offline, recovery, 2.0.1 fallback and pinned 2.0.1 run at release.
 set -eu
 IMAGE="$1"
 TESTS=everest_v2g_simulator/tests
+CHECKS="${CHECKS:-full}"
+case "$CHECKS" in
+  full) SCENARIOS="offline recovery v2g21 fallback pinned201" ;;
+  minimal) SCENARIOS="v2g21" ;;
+  *) echo "CHECKS must be full or minimal"; exit 2 ;;
+esac
+echo "== Checks: $CHECKS ($SCENARIOS)"
 
 echo "== Packaged runtime has the DC V2G modules and no private keys"
 docker run --rm --entrypoint sh "$IMAGE" -c '
@@ -20,10 +32,11 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
   java -version 2>&1 | head -1; nft --version'
 
-echo "== Offline, discovery recovery, OCPP 2.1 V2G, 2.0.1 fallback and pinned 2.0.1 acceptance (no network)"
+echo "== Acceptance (no network): $SCENARIOS"
 docker tag "$IMAGE" everest-v2g:test
 docker build -q -t everest-v2g:smoke -f "$TESTS/Dockerfile.smoke" .
-docker run --rm --network none --cap-add NET_ADMIN everest-v2g:smoke
+# shellcheck disable=SC2086
+docker run --rm --network none --cap-add NET_ADMIN everest-v2g:smoke $SCENARIOS
 
 echo "== Fails closed without NET_ADMIN"
 nocap="v2g-nocap-$$"
@@ -45,10 +58,14 @@ docker network create --ipv6 --subnet 172.31.250.0/24 --subnet fd00:2026:10::/64
 echo "== Discovery with an IPv6 eth0 (as on Home Assistant OS)"
 # Upstream Josev sent SDP by the first multicast route, which is eth0 on this
 # IPv6 network and on HA OS; only the patched EV completes discovery here.
-docker run --rm --network "$net" --cap-add NET_ADMIN everest-v2g:smoke recovery > /tmp/recovery-eth0.log 2>&1 \
-  || { tail -120 /tmp/recovery-eth0.log; exit 1; }
-grep "unscoped multicast via" /tmp/recovery-eth0.log
-grep -q "unscoped multicast via eth0" /tmp/recovery-eth0.log
+if [ "$CHECKS" = full ]; then
+  docker run --rm --network "$net" --cap-add NET_ADMIN everest-v2g:smoke recovery > /tmp/recovery-eth0.log 2>&1 \
+    || { tail -120 /tmp/recovery-eth0.log; exit 1; }
+  grep "unscoped multicast via" /tmp/recovery-eth0.log
+  grep -q "unscoped multicast via eth0" /tmp/recovery-eth0.log
+else
+  echo "recovery run on IPv6 eth0: release gate only; the start self-test below still runs on this network"
+fi
 docker create --network "$net" --cap-add NET_ADMIN --name "$name" "$IMAGE" >/dev/null
 docker cp "$TESTS/offline-options.json" "$name":/data/options.json
 docker cp "$TESTS/listeners.py" "$name":/tmp/listeners.py
@@ -72,6 +89,10 @@ for _ in $(seq 30); do
 done
 docker logs "$name" 2>&1 | grep "Discovery self-test" || true
 test "$passed" = yes || { echo "Discovery self-test did not pass at start"; exit 1; }
+# HA OS regression guard (0.1.2): unscoped SDP multicast must leave by the
+# private V2G link, not eth0, on this IPv6 network.
+docker logs "$name" 2>&1 | grep "Discovery self-test PASSED" | grep -q "unscoped-multicast-via=v2g" \
+  || { echo "unscoped SDP multicast does not use the private V2G link"; exit 1; }
 docker exec "$name" python3 -c 'import json, urllib.request
 d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/diagnostics"))
 s = d["snapshot"]

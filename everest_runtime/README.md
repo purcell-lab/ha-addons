@@ -19,9 +19,9 @@ does, once per runtime version. The images HA installs are unchanged.
 ## What proves it changes nothing
 
 `.github/scripts/everest_identical_files.sh` builds each App from the
-runtime image and compares it with the published release image of the
-same version (AC 0.1.0, V2G 0.1.2), built from the upstream image
-directly. Type, mode, owner and SHA-256 content (or link target) must match
+runtime image and compares it with the reference releases in
+`REFERENCE` (AC 0.1.0, V2G 0.1.2), built from the upstream image
+directly. Version labels may differ; files may not. Type, mode, owner and SHA-256 content (or link target) must match
 for every path under `/opt/everest`, `/usr/share/doc/everest`,
 `/opt/ha-everest` and `/usr/local/lib/python3.11`. Timestamps are not
 compared, including the source-mtime field inside `.pyc` bytecode (the

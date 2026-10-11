@@ -76,7 +76,9 @@ jobs:
             --build-arg EVEREST_RUNTIME="${{ steps.runtime.outputs.ref }}" \
             -t everest:test everest_simulator
           docker image ls everest:test
-      - name: Image release gate (same script as the publish job)
+      - name: Minimum viable image checks (the publish job runs the full gate)
+        env:
+          CHECKS: minimal
         run: sh everest_simulator/tests/ci_image_checks.sh everest:test
   published-image:
     # Merge gate: config.yaml points HA at a prebuilt image, so the exact

@@ -1,5 +1,5 @@
 name: EVerest OCPP 2.1 Test Charger
-version: "0.1.0"
+version: "0.1.1"
 slug: everest_simulator
 description: Isolated EVerest software-in-the-loop AC charger; OCPP 2.1 with 2.0.1 fallback.
 url: https://github.com/purcell-lab/ha-addons
