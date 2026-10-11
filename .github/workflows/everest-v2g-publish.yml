@@ -1,15 +1,32 @@
 name: Publish EVerest V2G App image
-# Publication is an explicit operator action: it runs only when a maintainer
-# pushes a tag everest_v2g_simulator-v<version> matching config.yaml. Pull
-# requests and branch pushes never publish.
+# Publication is an explicit operator action, started one of two ways:
+# - a maintainer pushes a tag everest_v2g_simulator-v<version> matching
+#   config.yaml (for example by publishing a GitHub release), or
+# - a maintainer runs this workflow manually (workflow_dispatch) with the
+#   version and the commit to publish. That run publishes the image and then
+#   creates the annotated tag on the exact commit it built, because a tag made
+#   with the workflow token would not start this workflow again. Same pattern
+#   as purcell-lab/nem_pd7day and purcell-lab/localvolts_v2.
+# Pull requests and branch pushes never publish. No run overwrites an image or
+# moves an existing tag.
 on:
   push:
     tags:
       - "everest_v2g_simulator-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "App version without a leading v, e.g. 0.1.5. Must match everest_v2g_simulator/config.yaml at the target."
+        required: true
+        type: string
+      target:
+        description: "Commit sha (preferred) or branch to publish, e.g. the reviewed PR head."
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: everest-v2g-publish-${{ github.ref }}
+  group: everest-v2g-publish-${{ inputs.version || github.ref }}
   cancel-in-progress: false
 jobs:
   publish:
@@ -24,6 +41,9 @@ jobs:
             arch: amd64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
+    outputs:
+      sha: ${{ steps.version.outputs.sha }}
+      tag: ${{ steps.version.outputs.tag }}
     permissions:
       contents: read
       packages: write
@@ -31,15 +51,38 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
-      - name: Tag must match the App version
+        with:
+          ref: ${{ inputs.target || github.ref }}
+      - name: Tag or requested version must match the App version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REQUESTED: ${{ inputs.version }}
         run: |
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_v2g_simulator/config.yaml)
           image=$(sed -n 's/^image: //p' everest_v2g_simulator/config.yaml)
-          test "$GITHUB_REF_NAME" = "everest_v2g_simulator-v$version" || {
-            echo "::error::tag $GITHUB_REF_NAME does not match config.yaml version $version"; exit 1; }
+          tag="everest_v2g_simulator-v$version"
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+              echo "::error::version '$REQUESTED' is not X.Y.Z"; exit 1; }
+            test "$REQUESTED" = "$version" || {
+              echo "::error::requested $REQUESTED but config.yaml at the target says $version"; exit 1; }
+            # Never move a tag: a dispatch publishes only an untagged version.
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "::error::tag $tag already exists; this workflow never moves a tag"; exit 1
+            fi
+          else
+            test "$GITHUB_REF_NAME" = "$tag" || {
+              echo "::error::tag $GITHUB_REF_NAME does not match config.yaml version $version"; exit 1; }
+          fi
           test "$image" = "ghcr.io/purcell-lab/{arch}-everest-v2g-simulator"
+          sha=$(git rev-parse HEAD)
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "SOURCE_SHA=$sha" >> "$GITHUB_ENV"
           echo "IMAGE=ghcr.io/purcell-lab/${{ matrix.arch }}-everest-v2g-simulator" >> "$GITHUB_ENV"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Publishing $version from $sha ($EVENT)" >> "$GITHUB_STEP_SUMMARY"
       - name: Log in to GHCR (job token, this repository's packages only)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Refuse to overwrite a published version
@@ -60,7 +103,7 @@ jobs:
         run: |
           docker build --build-arg BUILD_ARCH=${{ matrix.arch }} --build-arg BUILD_VERSION="$VERSION" \
             --label org.opencontainers.image.version="$VERSION" \
-            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
             -t "$IMAGE:$VERSION" everest_v2g_simulator
           docker image ls "$IMAGE"
       - name: Release gate (same checks as PR CI)
@@ -78,3 +121,31 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+  tag:
+    # Manual runs only: tag the exact commit the publish job built, after the
+    # image is pushed and attested. A tag push already has its tag.
+    # If only this job fails, use "Re-run failed jobs": a full re-run would
+    # stop at "Refuse to overwrite a published version".
+    needs: publish
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+      - name: Create the annotated release tag on the published commit
+        env:
+          SHA: ${{ needs.publish.outputs.sha }}
+          TAG: ${{ needs.publish.outputs.tag }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SHA"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "::error::tag $TAG appeared during the run; not moving it"; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "EVerest DC V2G test charger ${TAG#everest_v2g_simulator-v}" "$SHA"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $TAG at $SHA" >> "$GITHUB_STEP_SUMMARY"
