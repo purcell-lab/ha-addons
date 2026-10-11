@@ -39,10 +39,15 @@ def component_fixture(directory):
         "SecurityCtrlr": doc("SecurityCtrlrIdentity", "BasicAuthPassword", "SecurityProfile"),
         "SmartChargingCtrlr": doc("CompositeScheduleDefaultLimitAmps", "CompositeScheduleDefaultLimitWatts",
                                   "CompositeScheduleDefaultNumberPhases"),
-        "SampledDataCtrlr": doc("SampledDataTxUpdatedInterval"),
+        "SampledDataCtrlr": doc("SampledDataTxUpdatedInterval",
+                               "SampledDataTxStartedMeasurands",
+                               "SampledDataTxUpdatedMeasurands",
+                               "SampledDataTxEndedMeasurands"),
         "OCPPCommCtrlr": doc("HeartbeatInterval"),
         "ChargingStation": doc("ChargingStationSupplyPhases"),
     }
+    for event in ("Started", "Updated", "Ended"):
+        files["SampledDataCtrlr"]["properties"]["SampledDataTx" + event + "Measurands"]["attributes"][0]["value"] = "Energy.Active.Import.Register,Current.Import,Voltage"
     for name, content in files.items():
         (std / f"{name}.json").write_text(json.dumps(content))
     return directory
@@ -240,6 +245,17 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(value(target, "SmartChargingCtrlr", "CompositeScheduleDefaultNumberPhases"), 3)
         # Regression: a supply-phases override made libocpp ignore all profiles.
         self.assertIsNone(value(target, "ChargingStation", "ChargingStationSupplyPhases"))
+
+    def test_both_energy_registers_requested_for_whole_transaction(self):
+        _, target = self.build(GOOD)
+        for event in ("Started", "Updated", "Ended"):
+            members = value(target, "SampledDataCtrlr",
+                            "SampledDataTx" + event + "Measurands").split(",")
+            self.assertEqual(members.count("Energy.Active.Import.Register"), 1)
+            self.assertEqual(members.count("Energy.Active.Export.Register"), 1)
+            self.assertIn("Power.Active.Import", members)
+            self.assertIn("Current.Import", members)
+            self.assertIn("Voltage", members)
 
     def test_ocpp_string_limits(self):
         # libocpp aborts on over-length CiString values (ChargePointModel <= 20).

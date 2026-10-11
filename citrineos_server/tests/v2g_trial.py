@@ -155,6 +155,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
             samples.append(sample)
             time.sleep(1)
         failures = []
+        report["acceptance_failures"] = failures
         for i, watts in enumerate(targets):
             window = [s for s in samples if i*step+8 <= s["relative_s"] <= (i+1)*step-3]
             assert len(window) >= 8 and all(isinstance(s["power_w"],(int,float)) for s in window)
@@ -176,15 +177,21 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
                 failures.append(f"{key} energy consistency failed")
         report["energy"] = energies
         report["client_meter"] = probe("meter")
-        assert report["client_meter"]["meter_transaction_id"] == txid
-        assert report["client_meter"]["meter_fresh"] is True
-        assert report["client_meter"]["import_kwh"] is not None
-        assert report["client_meter"]["export_kwh"] is not None
+        for key, expected in (("meter_transaction_id", txid), ("meter_fresh", True)):
+            if report["client_meter"].get(key) != expected:
+                failures.append(f"CSMS meter {key} mismatch")
+        for key in ("import_kwh", "export_kwh"):
+            if report["client_meter"].get(key) is None:
+                failures.append(f"CSMS meter {key} unavailable")
         report["stop_dispatch"] = probe("stop", transaction_id=txid)
         until(lambda: any(t["transactionId"] == txid and not t["isActive"] and t["endTime"]
                           for t in transactions()), "Closed CSMS transaction")
         until(lambda: (p:=reading()["power_w"]) is not None and abs(p) <= 1, "Measured zero after stop")
         report["closed_at"] = stamp()
+        report["final_meter"] = probe("meter")
+        if (report["final_meter"].get("meter_transaction_id") != txid
+                or report["final_meter"].get("transaction_closed") is not True):
+            failures.append("Client did not observe exact transaction closure")
         assert ui("/api/ev/unplug","POST").get("sent")
         until(lambda: reading()["state"] == "Unplugged", "Final unplugged state")
         report["clear_dispatch"] = probe("clear")
