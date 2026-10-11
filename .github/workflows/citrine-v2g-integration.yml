@@ -12,7 +12,28 @@ concurrency:
   group: citrine-v2g-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  requires:
+    # The native trial provisions the V2G App's csms_basic_auth_password,
+    # which arrives with V2G 0.1.4 (held in its own pull request until its
+    # image is published). Until main's V2G App has that option, the trial
+    # is skipped with a notice instead of failing. It re-enables itself.
+    runs-on: ubuntu-24.04
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -q '^  csms_basic_auth_password:' everest_v2g_simulator/config.yaml; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            msg="Skipped: needs the V2G App csms_basic_auth_password option (V2G 0.1.4, not yet released). main carries the released 0.1.3."
+            echo "::notice::$msg"; echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
   native-v2g:
+    needs: requires
+    if: needs.requires.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
