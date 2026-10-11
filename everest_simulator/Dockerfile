@@ -6,7 +6,7 @@
 # this App uses into a Debian 12 base (same ABI as the upstream build).
 # The release check (everest-runtime.yml) proves the result is file-for-file
 # identical to the image built from the upstream demo image directly.
-ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:2025.10.0-1
+ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:2025.10.0-1@sha256:ad99f273e062f09c58fa030cd938df1d612ccbe04b65d1201864b4a72a8e455f
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 FROM ${EVEREST_RUNTIME} AS runtime
