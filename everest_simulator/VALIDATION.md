@@ -62,6 +62,21 @@ CI step means (A) for the same schedule:
 - The demo build is coverage-instrumented and logs composite schedules
   every interval; both are handled in `app.py`.
 
+## 0.1.1: rebuilt from the shared runtime image (2026-10-11)
+
+0.1.1 is 0.1.0 rebuilt from `ghcr.io/purcell-lab/everest-runtime:2025.10.0-1`
+(no functional change). Full detail: `everest_runtime/HANDOVER.md`.
+
+- Identical-file release gate against 0.1.0: 365 strict paths on amd64 and
+  aarch64, 0 differences.
+- Full release gate passed in the
+  [publish run](https://github.com/purcell-lab/ha-addons/actions/runs/38101003191).
+  The amd64 image is `sha256:4bc0dce016ad728c61f0d8ab445b4d14f5c9e4df8aba57c7d482c94c7cccc309`.
+- Live on HA OS 18.3 (amd64): booted and connected to
+  `ws://172.30.32.1:19003` with `ocpp2.0.1` (that CSMS offers only 2.0.1,
+  as with 0.1.0). The BootNotification was answered, and the App is
+  Unplugged and idle. No charging session was run on HA.
+
 ## Not claimed
 
 OCPP 2.1 conformance beyond the messages above, ISO 15118, V2G or

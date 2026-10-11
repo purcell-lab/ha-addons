@@ -144,6 +144,30 @@ namespace on global or link-local addresses.
   retries; that delay, not the switch state alone, explains why HA could
   not stop it. Its cause is not established.
 
+## 0.1.3: rebuilt from the shared runtime image (2026-10-11)
+
+0.1.3 is 0.1.2 rebuilt from `ghcr.io/purcell-lab/everest-runtime:2025.10.0-1`
+(no functional change). Full detail: `everest_runtime/HANDOVER.md`.
+
+- Identical-file release gate against 0.1.2: 746 strict paths (amd64) and
+  742 (aarch64), 0 differences. 71 pip-compiled `.pyc` differ only in
+  marshal encoding and have equal code objects.
+- Full release gate passed in the
+  [publish run](https://github.com/purcell-lab/ha-addons/actions/runs/38101003167).
+  The amd64 image is `sha256:6275b998182913f550bde8f924cd0ea1153be0b1129fea638b6eb15e62eea77f`.
+- Live on HA OS 18.3 (amd64):
+  - The start-up self-test passed with `unscoped-multicast-via=eth0`, and
+    OCPP negotiated `ocpp2.1`.
+  - A plug-in, then charge control on, charged at 11,000 W.
+  - The transaction reached HA after 258 s, six seconds after the last of
+    five unanswered `SecurityEventNotification` calls timed out (one
+    `GetCertificateStatus` also timed out). This is the probable cause of
+    the first-transaction delay; it is not fixed.
+  - TxProfile 210304 (+6,000 / −5,000 / +3,000 W, 20 s steps) settled
+    exactly on each target, within 5 to 7 s of each change. Each change
+    showed one interim sample (−1,111 W, then 13,500 W).
+  - Charge control off led to Finished, and unplug to Unplugged and idle.
+
 ## Not claimed
 
 OCPP 2.1 or ISO 15118-20 conformance beyond the messages above, AC
