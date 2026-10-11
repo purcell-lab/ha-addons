@@ -18,9 +18,14 @@ tracking is not repeatably correct.
 
 The earlier native test demonstrates registration,
 charging, discharge, both energy registers and explicit stop/closure, but a
-0 W profile leaves the simulated EV charging at 3,000 W. The native acceptance
-test remains red; it has not been skipped, weakened or converted to an expected
-pass. [Native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38102326637)
+0 W profile leaves the simulated EV charging at 3,000 W. On 11 October 2026
+Mark chose to stop that defect blocking CI: the native test now records the
+0 W step as a strict known defect (`KNOWN_DEFECT_SETPOINTS` in
+`citrineos_server/tests/v2g_trial.py`). It still runs, is written to the
+evidence file and raises a CI warning; it fails the job again if the 0 W step
+starts passing, so the allowance is removed. Every other step, both energy
+checks and closure still fail the job. The defect itself is not fixed and
+remains a deployment blocker. [Native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38102326637)
 
 Two later runs tracked discharge correctly after an earlier -5,000 W request
 produced -1,111.11 W. Its cause remains unresolved; passing repeats do not
@@ -297,7 +302,7 @@ the test summary rather than relying only on exit code.
 TEST_NATIVE_SIMULATOR=1 python3 citrineos_server/tests/stack_smoke.py
 
 # Actual HA API client → CitrineOS → EVerest, in disposable containers.
-# This is expected to remain red until the known zero-power defect is fixed.
+# The 0 W step is a known defect: it warns but does not fail this run.
 TEST_V2G_SIMULATOR=1 python3 citrineos_server/tests/stack_smoke.py
 
 # App packaging and runtime acceptance: minimum viable PR path.

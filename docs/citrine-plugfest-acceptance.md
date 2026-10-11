@@ -5,8 +5,9 @@ acceptance target, not a declaration of live capability. See
 [the full implementation/build/test handover](citrine-everest-handover.md).
 
 The native CitrineOS/EVerest run verified +6/-5/+3 kW, both energy registers and
-explicit stop/closure, but **0 W left measured power at +3 kW**. Keep the native
-test failing until corrected; source merge does not approve deployment.
+explicit stop/closure, but **0 W left measured power at +3 kW**. CI now records
+that step as a strict known defect (warning, not failure); it is still a
+deployment blocker, and source merge does not approve deployment.
 [Native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38102326637)
 Scope agreed with Mark on 11 October 2026: demonstrate the complete proposed
 CSIP-AUS-to-EV charging and V2G path using CitrineOS and move the existing EVerest
