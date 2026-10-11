@@ -143,6 +143,46 @@ namespace on global or link-local addresses.
   only at 06:19:37, when the App logged a dropped OCPP message after
   retries; that delay, not the switch state alone, explains why HA could
   not stop it. Its cause is not established.
+- TxProfile from HA on HA OS with 0.1.2 (2026-10-11 07:30 AEST): during a
+  live session (transaction `f4a603c2-9ee8-448e-ae9f-e970c5d7b76d`), HA's
+  `ocpp.set_charge_rate` with `custom_profile` sent the CI profile (id
+  210301, Absolute, 20 s per step, CentralSetpoint) to EVSE 1. HA raised no
+  error, so the station replied `Accepted`. Power from the App's status
+  object, relative to `startSchedule`:
+
+  | Setpoint | Observed | HA meter energy | Expected |
+  |---|---|---|---|
+  | +6,000 W | +6,000 W from -3 s (first setpoint applies early) | 33.3 Wh import, 0.6 to 20.6 s | 33.3 Wh |
+  | -5,000 W (export) | -1,111 W at 22 s, -5,000 W from 27 s | 26.9 Wh export register | 27.8 Wh |
+  | +3,000 W | +3,000 W from 47 s | 25.0 Wh import over 29.5 s | 24.6 Wh |
+
+  The status object polls every 5 s, so these times are upper bounds on
+  the response. HA's import power sensor showed -5.0 kW during export and
+  its export power sensor stayed `unknown`; the export energy register
+  counted correctly. Turning off `switch.charger5_charge_control` sent
+  RequestStopTransaction: power reached 0 W and HA closed the transaction
+  within 2 s. After unplug the self-test passed. This shows receipt,
+  acceptance and execution of one 2.1 TxProfile through HA; it is not a
+  conformance result.
+- Repeat (2026-10-11 08:12 AEST, transaction
+  `c227697d-9167-4e59-a2ae-76acb8741653`, profile 210302): the same
+  result. +6,000 W from 0 s (33.3 Wh import, 33.5 Wh expected), -5,000 W
+  by 24.5 s, +3,000 W by 44.7 s (22.5 Wh over 27.8 s, 23.2 Wh expected).
+  HA's stop closed the transaction within 2 s and the self-test passed.
+  One status sample at the start of charging read 24,750 W, above the
+  11 kW rating; HA's meter showed 11.0 kW. The documented transient
+  (13.5 kW) is at a direction change; this one was at the start of
+  charging and larger. Cause not established.
+- Third run (2026-10-11 08:19 AEST, transaction
+  `7b334b66-c101-47b2-95a3-482efe961b42`, profile 210303): the same
+  result. +6,000 W from 0 s (33.3 Wh import, 33.3 Wh expected), -5,000 W
+  by 23.8 s (26.3 Wh export), +3,000 W by 43.8 s (25.0 Wh over 30 s, 25.0
+  Wh expected). HA's stop closed the transaction at once and the self-test
+  passed. No status sample above the rating this time.
+- CI flake (PR #16, amd64, 2026-10-11): in `v2g21` the station accepted the
+  profile but the first +6,000 W step never applied (11,000 W throughout);
+  the -5,000 W and +3,000 W steps applied on time. A re-run passed. Not
+  yet reproduced on HA OS; cause not established.
 
 ## Not claimed
 
