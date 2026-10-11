@@ -25,3 +25,11 @@ test('simulator admission remains opt-in with a separate password',()=>{
   assert.throws(()=>validate({...good,simulator_enabled:true,simulator_password:good.api_token}));
   assert.doesNotThrow(()=>validate({...good,simulator_enabled:true,simulator_password:'e'.repeat(40)}));
 });
+test('V2G admission and command privilege require two separate explicit flags',()=>{
+  const v2g={...good,profile_simulator_enabled:true,profile_simulator_password:'f'.repeat(32)};
+  assert.doesNotThrow(()=>validate(v2g));
+  assert.throws(()=>validate({...good,profile_simulator_enabled:true}));
+  assert.throws(()=>validate({...good,command_control_enabled:true,command_token:'e'.repeat(64)}));
+  assert.throws(()=>validate({...v2g,command_control_enabled:true,command_token:good.api_token}));
+  assert.doesNotThrow(()=>validate({...v2g,command_control_enabled:true,command_token:'e'.repeat(64)}));
+});

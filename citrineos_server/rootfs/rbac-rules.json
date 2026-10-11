@@ -1,1 +1,1 @@
-{"1":{"/commands/tariff":{"GET":["lab-reader"]}}}
+{"1":{"/commands/tariff":{"GET":["lab-reader","lab-controller"]},"/ocpp/2.1/evdriver/requestStartTransaction":{"POST":["lab-controller"]},"/ocpp/2.1/evdriver/requestStopTransaction":{"POST":["lab-controller"]},"/ocpp/2.1/smartcharging/setChargingProfile":{"POST":["lab-controller"]},"/ocpp/2.1/smartcharging/clearChargingProfile":{"POST":["lab-controller"]}}}

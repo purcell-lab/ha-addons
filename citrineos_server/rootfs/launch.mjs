@@ -4,6 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {STATION,PROTOCOL,MAX_POWER_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -23,9 +24,14 @@ export function validate(o) {
       || [o.database_password,o.broker_password,o.hasura_secret,o.api_token].includes(o.simulator_password)))
     throw new Error('A distinct simulator credential is required');
   if(o.simulator_enabled!==undefined && typeof o.simulator_enabled!=='boolean') throw new Error('Invalid simulator flag');
+  for(const flag of ['profile_simulator_enabled','command_control_enabled'])
+    if(o[flag]!==undefined&&typeof o[flag]!=='boolean')throw new Error('Invalid control flag');
+  if(o.profile_simulator_enabled&&!/^[a-f0-9]{32}$/.test(o.profile_simulator_password||''))throw new Error('Missing profile simulator credential');
+  if(o.command_control_enabled&&(!o.profile_simulator_enabled||!/^[a-f0-9]{64}$/.test(o.command_token||'')
+    ||[o.api_token,o.database_password,o.broker_password,o.hasura_secret].includes(o.command_token)))throw new Error('Distinct command credential required');
 }
 export function permitted(method, path) {
-  return (method === 'GET' && ['/health/ready','/commands/tariff','/lab/status'].includes(path))
+  return (method === 'GET' && ['/health/ready','/commands/tariff','/lab/status','/lab/control-policy'].includes(path))
     || (method === 'POST' && path === '/v1/graphql');
 }
 export function equalToken(actual, expected) {
@@ -56,11 +62,11 @@ function makeSigner() {
   const {privateKey,publicKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
   const jwk={...publicKey.export({format:'jwk'}),kid:'lab',use:'sig',alg:'RS256'};
   const b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
-  return {jwk,token() {
+  return {jwk,token(control=false) {
     const now=Math.floor(Date.now()/1000);
     const unsigned=b64({alg:'RS256',kid:'lab',typ:'JWT'})+'.'+b64({
       iss:'citrine-ha-lab',aud:'citrine-api',sub:'ha-lab-reader',tenant_id:'1',
-      roles:['lab-reader'],iat:now,exp:now+60,
+      roles:[control?'lab-controller':'lab-reader'],iat:now,exp:now+60,
     });
     return unsigned+'.'+crypto.sign('RSA-SHA256',Buffer.from(unsigned),privateKey).toString('base64url');
   }};
@@ -80,8 +86,9 @@ export async function main() {
     return;
   }
   fs.mkdirSync(`${DATA}/assets`,{recursive:true});
-  const listeners=o.simulator_enabled ? [{
-    id:'citrine-lab-201',host:'0.0.0.0',port:8081,protocols:['ocpp2.0.1'],
+  const listeners=(o.simulator_enabled||o.profile_simulator_enabled) ? [{
+    id:'citrine-lab-2x',host:'0.0.0.0',port:8081,
+    protocols:o.profile_simulator_enabled?['ocpp2.1','ocpp2.0.1']:['ocpp2.0.1'],
     securityProfile:1,allowUnknownChargingStations:false,ignoreAuthenticationHeaders:false,
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   }] : [];
@@ -99,7 +106,7 @@ export async function main() {
   };
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
   for(const [k,v] of Object.entries(config)) env['CITRINEOS_'+k]=JSON.stringify(v);
-  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password].filter(Boolean);
+  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token].filter(Boolean);
   let child, shutting=false;
   const streams=[];
   function logPipe(stream) {
@@ -135,7 +142,7 @@ export async function main() {
   console.log('Applying pinned migrations to the dedicated laboratory database.');
   await run(['db:migrate'],`${APP}/node_modules/.bin/sequelize-cli`);
   await run([`${APP}/dist/scripts/provision-partitions.js`]);
-  if(o.simulator_enabled) {
+  if(o.simulator_enabled||o.profile_simulator_enabled) {
     const {seedSimulator}=await import('./seed-simulator.mjs');
     await seedSimulator(o);
   }
@@ -165,24 +172,48 @@ export async function main() {
     try {
       const url=new URL(req.url,'http://lab');
       const publicHealth=req.method==='GET' && url.pathname==='/health/ready';
-      if(!publicHealth && !equalToken(req.headers.authorization,`Bearer ${o.api_token}`)) {
+      const controller=o.command_control_enabled===true&&equalToken(req.headers.authorization,`Bearer ${o.command_token}`);
+      if(!publicHealth && !controller && !equalToken(req.headers.authorization,`Bearer ${o.api_token}`)) {
         res.writeHead(401);res.end('{"error":"Authentication required"}');return;
       }
-      if(!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Read-only laboratory"}');return;}
+      const command=req.method==='POST'&&ROUTES.includes(url.pathname);
+      if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
+      if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
+      if(url.pathname==='/lab/control-policy') {
+        res.end(JSON.stringify({station_id:STATION,can_control:controller,protocol:PROTOCOL,
+          commands:ROUTES,max_import_w:MAX_POWER_W,max_export_w:MAX_POWER_W,
+          max_profile_seconds:600,max_periods:10,automatic_control:false,
+          clear_requires_closed_transaction:true,real_devices_enabled:false}));return;
+      }
       if(url.pathname==='/lab/status') {
         res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:listeners.length,
-          simulator_identity:o.simulator_enabled?'SIM-CITRINE-LAB-01':null,read_only:true}));return;
+          simulator_identity:o.simulator_enabled?'SIM-CITRINE-LAB-01':null,
+          profile_simulator_identity:o.profile_simulator_enabled?STATION:null,read_only:!controller}));return;
       }
       let target,headers={},body;
-      if(url.pathname==='/v1/graphql') {
+      if(url.pathname==='/v1/graphql'||command) {
         let size=0;const chunks=[];
         for await(const c of req) {size+=c.length;if(size>65536){res.writeHead(413);res.end('{}');return;}chunks.push(c);}
         body=Buffer.concat(chunks).toString();
         const parsed=JSON.parse(body);
+        if(command) {
+          if(!validateCommand(url,parsed)){res.writeHead(400);res.end('{"error":"Command outside lab bounds"}');return;}
+          const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+            method:'POST',headers:{'Content-Type':'application/json',
+              'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
+            body:JSON.stringify({query:TARGET_QUERY,variables:{name:STATION}}),
+          });
+          if(!targetAllows(url,parsed,state)){
+            res.writeHead(409);res.end('{"error":"Observed station protocol or transaction does not permit this command"}');return;
+          }
+          target='http://127.0.0.1:8088'+url.pathname+url.search;
+          headers={'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`};
+        } else {
         if(!parsed || Array.isArray(parsed) || typeof parsed.query!=='string') {res.writeHead(400);res.end('{}');return;}
         target=`http://${o.hasura_host}:8080/v1/graphql`;
         // Caller-supplied role, tenant and admin headers are never forwarded.
         headers={'Content-Type':'application/json','x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'};
+        }
       } else {
         if(url.pathname==='/commands/tariff') {
           for(const [k,v] of url.searchParams) if(k!=='tenantId' || v!=='1') {
@@ -196,12 +227,14 @@ export async function main() {
       const r=await fetch(target,{method:req.method,headers,body,redirect:'error',signal:AbortSignal.timeout(10000)});
       res.writeHead(r.status);res.end(await r.text());
     } catch {
-      res.writeHead(502);res.end('{"error":"Laboratory dependency unavailable"}');
+      // A timeout after forwarding may mean the station received the command.
+      // The caller must reconcile, not retry automatically.
+      res.writeHead(502);res.end('{"error":"Laboratory dependency unavailable; command outcome may be unknown. Do not retry automatically."}');
     }
   });
   gateway.requestTimeout=15000;gateway.headersTimeout=10000;
   await new Promise(r=>gateway.listen(8080,'0.0.0.0',r));streams.push(gateway);
-  console.log(`CitrineOS v2.0.1 isolated lab ready. Read-only gateway; ${listeners.length} charger listener(s).`);
+  console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) main().catch(()=>{
   console.error('Laboratory startup failed; inspect dependency health. Credentials omitted.');

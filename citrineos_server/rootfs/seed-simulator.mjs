@@ -1,4 +1,5 @@
 import {createRequire} from 'node:module';
+import {STATION} from './control-policy.mjs';
 const requireApp=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');
 const {Client}=createRequire(requireApp.resolve('@citrineos/dal'))('pg');
 export async function seedSimulator(o) {
@@ -8,14 +9,18 @@ export async function seedSimulator(o) {
   try {
     await db.query('BEGIN');
     const other=await db.query(`SELECT id FROM "ChargingStations"
-      WHERE "tenantId" <> 1 OR "ocppConnectionName" <> 'SIM-CITRINE-LAB-01' LIMIT 1`);
+      WHERE "tenantId" <> 1 OR "ocppConnectionName" NOT IN ('SIM-CITRINE-LAB-01',$1) LIMIT 1`,[STATION]);
     if(other.rowCount) throw new Error('Dedicated database contains a different station');
+    const targets=[];
+    if(o.simulator_enabled)targets.push(['SIM-CITRINE-LAB-01',o.simulator_password,2]);
+    if(o.profile_simulator_enabled)targets.push([STATION,o.profile_simulator_password,1]);
+    for(const [name,password,connectors] of targets) {
     await db.query(`INSERT INTO "ChargingStations"
       ("ocppConnectionName","tenantId","isOnline","use16StatusNotification0","createdAt","updatedAt")
-      VALUES ('SIM-CITRINE-LAB-01',1,false,true,NOW(),NOW()) ON CONFLICT DO NOTHING`);
+      VALUES ($1,1,false,true,NOW(),NOW()) ON CONFLICT DO NOTHING`,[name]);
     const {rows:[station]}=await db.query(`SELECT id FROM "ChargingStations"
-      WHERE "tenantId"=1 AND "ocppConnectionName"='SIM-CITRINE-LAB-01'`);
-    for (const n of [1,2]) {
+      WHERE "tenantId"=1 AND "ocppConnectionName"=$1`,[name]);
+    for (const n of Array.from({length:connectors},(_,i)=>i+1)) {
       await db.query(`INSERT INTO "Evses"
         ("stationId","tenantId","evseTypeId",removed,"createdAt","updatedAt")
         VALUES ($1,1,$2,false,NOW(),NOW()) ON CONFLICT DO NOTHING`,[station.id,n]);
@@ -40,7 +45,8 @@ export async function seedSimulator(o) {
       ("stationId","tenantId","componentId","variableId",type,"dataType",value,mutability,persistent,constant,"createdAt","updatedAt")
       VALUES ($1,1,$2,$3,'Actual','string',$4,'ReadOnly',true,true,NOW(),NOW())
       ON CONFLICT ("stationId",type,"variableId","componentId") DO UPDATE SET value=EXCLUDED.value,"updatedAt"=NOW()`,
-      [station.id,component.id,variable.id,o.simulator_password]);
+      [station.id,component.id,variable.id,password]);
+    }
     await db.query(`INSERT INTO "Authorizations"
       ("idToken","idTokenType","tenantId",status,"concurrentTransaction","isPrepaid","createdAt","updatedAt")
       VALUES ('C17E0001','ISO14443',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);

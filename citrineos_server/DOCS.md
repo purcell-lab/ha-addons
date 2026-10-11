@@ -1,5 +1,11 @@
 # CitrineOS isolated laboratory
 
+**New controlled path: NO-GO for activation.** Merged source is not a deployed
+release. The current EVerest runtime does not reliably honour 0 W profiles; keep
+command controls off until the documented gates pass. Read the
+[full implementation, build and test handover](../docs/citrine-everest-handover.md)
+before preparing an update.
+
 This App runs pinned CitrineOS **v2.0.1**, not an OCPP protocol version.
 Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
 Nothing binds a host port. No OCPP listener is enabled by default.
@@ -104,3 +110,15 @@ Upstream references:
 [server release](https://github.com/citrineos/citrineos-core/releases/tag/v2.0.1),
 [deployment architecture](https://github.com/citrineos/citrineos-core/blob/v2.0.1/docker-compose.yml),
 [HA-client compatibility PR](https://github.com/purcell-lab/CitrineOS-HA-Integration/pull/1).
+# Staged Plugfest control extension
+
+The 0.4.0 changes are a development draft. They add opt-in OCPP 2.1 admission
+and a separate, narrowly scoped command credential for the existing EVerest V2G
+simulator only. All command controls remain off by default; Hasura remains
+read-only. Do not enable this draft until the full gateway, HA-client,
+local-fallback and Citrine/EVerest integration gates pass.
+
+See [the full Plugfest acceptance plan](../docs/citrine-plugfest-acceptance.md)
+for the proposed end-to-end scope, migration procedure and remaining work.
+The previous isolated/read-only instructions below describe the installed
+baseline, not proof that the new controlled profile is ready.

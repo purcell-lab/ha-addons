@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 (staged, not accepted for deployment)
+
+- Add opt-in enrolment for the existing `SIM-EV-EVEREST-V2G-01` simulator.
+- Offer OCPP 2.1 alongside the existing 2.0.1 listener.
+- Separate command credentials from read access; allow only bounded simulator
+  start/stop, transaction profiles and post-closure exact-profile cleanup.
+- Check observed 2.1 protocol and active transaction before dispatch.
+- Retain read-only Hasura, no host ports, no real-device enrolment and no
+  automatic load controller.
+- Add the full Plugfest demonstration acceptance plan. HA controls, integration
+  testing, fail-safe enforcement and the complete envelope path remain gates.
+
 ## 0.1.0
 
 - Stage an amd64, manual-boot, disconnected-only CitrineOS package.
