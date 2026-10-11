@@ -12,6 +12,12 @@ import time
 STATION = "SIM-EV-EVEREST-V2G-01"
 
 
+def discovery_ready(value):
+    """Absent/null self-test means pending, not ready and not an exception."""
+    return (isinstance(value, dict) and isinstance(value.get("selftest"), dict)
+            and value["selftest"].get("pass") is True)
+
+
 def trial(docker, request, server_options, names, secret_values, temporary):
     password, commander = secrets.token_hex(16), secrets.token_hex(32)
     secret_values.extend([password, commander,
@@ -116,7 +122,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         until(lambda: reading()["state"] == "Unplugged", "Idle EVSE")
         # The boot-time discovery self-test owns the plugin lock. An idle
         # session does not mean that this independent readiness test finished.
-        until(lambda: ui("/api/diagnostics?brief=1").get("selftest", {}).get("pass") is True,
+        until(lambda: discovery_ready(ui("/api/diagnostics?brief=1")),
               "Boot-time discovery self-test", 60)
         report["registered_at"] = stamp()
         assert ui("/api/ev/plugin", "POST").get("sent")
