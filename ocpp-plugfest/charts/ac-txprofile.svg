@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" width="760" height="380" font-family="system-ui,sans-serif" font-size="12">
+<style>.grid{stroke:#ddd}.axis{stroke:#555}.sent{fill:none;stroke:#1f6feb;stroke-width:2.5;stroke-dasharray:7 4}.cs{fill:none;stroke:#2da44e;stroke-width:2}.csms{fill:none;stroke:#cf222e;stroke-width:2}.dot-cs{fill:#2da44e}.dot-csms{fill:#cf222e}text{fill:#24292f}</style>
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="380.0" y="22" text-anchor="middle" font-size="15" font-weight="600">AC: SIM-EV-EVEREST-G1 via CitrineOS 8082</text>
+<line class="grid" x1="70" x2="740" y1="290.0" y2="290.0"/>
+<text x="64" y="294.0" text-anchor="end">0</text>
+<line class="grid" x1="70" x2="740" y1="230.0" y2="230.0"/>
+<text x="64" y="234.0" text-anchor="end">2</text>
+<line class="grid" x1="70" x2="740" y1="170.0" y2="170.0"/>
+<text x="64" y="174.0" text-anchor="end">4</text>
+<line class="grid" x1="70" x2="740" y1="110.0" y2="110.0"/>
+<text x="64" y="114.0" text-anchor="end">6</text>
+<line class="grid" x1="70" x2="740" y1="50.0" y2="50.0"/>
+<text x="64" y="54.0" text-anchor="end">8</text>
+<line class="grid" x1="157.8" x2="157.8" y1="50" y2="320"/>
+<text x="157.8" y="336" text-anchor="middle">0</text>
+<line class="grid" x1="276.4" x2="276.4" y1="50" y2="320"/>
+<text x="276.4" y="336" text-anchor="middle">30</text>
+<line class="grid" x1="395.1" x2="395.1" y1="50" y2="320"/>
+<text x="395.1" y="336" text-anchor="middle">60</text>
+<line class="grid" x1="513.8" x2="513.8" y1="50" y2="320"/>
+<text x="513.8" y="336" text-anchor="middle">90</text>
+<line class="grid" x1="632.5" x2="632.5" y1="50" y2="320"/>
+<text x="632.5" y="336" text-anchor="middle">120</text>
+<line class="axis" x1="70" x2="740" y1="290.0" y2="290.0"/>
+<text x="405.0" y="358" text-anchor="middle">seconds from profile start (2026-10-16 19:09:59 AEST)</text>
+<text transform="translate(18 185.0) rotate(-90)" text-anchor="middle">power kW (negative = discharge)</text>
+<polyline class="sent" points="157.8,110.0 276.4,110.0 276.4,200.0 395.1,200.0 395.1,80.0 513.8,80.0 513.8,290.0 632.5,290.0"/>
+<polyline class="csms" points="89.8,80.7 138.0,80.7 138.0,82.7 256.0,82.7 256.0,231.2 374.6,231.2 374.6,290.0 493.2,290.0 493.2,220.2 611.9,220.2 611.9,290.0 700.4,290.0 700.4,85.9 740.0,85.9"/>
+<circle class="dot-cs" cx="100.1" cy="87.3" r="3.5"/>
+<circle class="dot-cs" cx="230.6" cy="232.2" r="3.5"/>
+<circle class="dot-cs" cx="349.3" cy="290.0" r="3.5"/>
+<circle class="dot-cs" cx="471.9" cy="221.9" r="3.5"/>
+<circle class="dot-cs" cx="586.6" cy="290.0" r="3.5"/>
+<circle class="dot-cs" cx="681.6" cy="81.8" r="3.5"/>
+<circle class="dot-csms" cx="89.8" cy="80.7" r="3.5"/>
+<circle class="dot-csms" cx="138.0" cy="82.7" r="3.5"/>
+<circle class="dot-csms" cx="256.0" cy="231.2" r="3.5"/>
+<circle class="dot-csms" cx="374.6" cy="290.0" r="3.5"/>
+<circle class="dot-csms" cx="493.2" cy="220.2" r="3.5"/>
+<circle class="dot-csms" cx="611.9" cy="290.0" r="3.5"/>
+<circle class="dot-csms" cx="700.4" cy="85.9" r="3.5"/>
+<line class="sent" x1="80" x2="108" y1="38" y2="38"/>
+<text x="114" y="42">TxProfile sent by CSMS</text>
+<line class="cs" x1="300" x2="328" y1="38" y2="38"/>
+<text x="334" y="42">CS measured (point samples)</text>
+<line class="csms" x1="520" x2="548" y1="38" y2="38"/>
+<text x="554" y="42">CSMS recorded (MeterValues)</text>
+</svg>
