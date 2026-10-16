@@ -99,6 +99,8 @@ VALIDATION.md:
 
 The image carries `/usr/share/doc/everest/EVerest-LICENSE` and the
 licence/notice files of every CPM-fetched dependency under
-`/usr/share/doc/everest/third_party/`. Josev is Apache-2.0. Debian packages,
-including OpenJDK 17, carry their own copyright files under
-`/usr/share/doc/`.
+`/usr/share/doc/everest/third_party/`. Josev is Apache-2.0. Debian packages
+carry their own copyright files under `/usr/share/doc/`. The Java runtime
+under `/opt/java` is a jlink image of Debian's OpenJDK 17 (GPLv2 with the
+Classpath Exception); its module legal notices are in `/opt/java/legal/`
+and Debian's copyright file is `/usr/share/doc/openjdk-17/copyright`.

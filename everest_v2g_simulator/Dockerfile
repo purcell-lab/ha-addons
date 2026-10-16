@@ -33,6 +33,25 @@ COPY requirements-josev.txt /tmp/
 RUN pip install --no-cache-dir --no-deps --require-hashes --only-binary=:all: \
       --target /stage/usr/local/lib/python3.11/dist-packages -r /tmp/requirements-josev.txt
 
+# Josev needs Java only for its EXI codec (EXICodec.jar through py4j). A
+# jlink runtime with just the modules those jars use (jdeps) replaces the
+# full openjdk-17-jre-headless package: about 184 MB down to a few tens.
+# --add-options bakes a small fixed heap into the runtime (Green-class
+# hosts have 4 GB), so it applies however the manager starts Josev.
+FROM ${DEBIAN_IMAGE} AS jre
+ARG JAVA_MODULES="java.base,java.compiler,java.desktop,java.management,java.naming,java.rmi,java.sql,java.xml,jdk.unsupported"
+RUN mkdir -p /usr/share/man/man1 \
+    && apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends openjdk-17-jdk-headless binutils \
+    && rm -rf /var/lib/apt/lists/* \
+    && jlink --add-modules "${JAVA_MODULES}" --strip-debug --no-man-pages \
+       --no-header-files --compress=2 \
+       --add-options="-Xms16m -Xmx128m -XX:MaxMetaspaceSize=64m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k" \
+       --output /stage/opt/java \
+    && mkdir -p /stage/usr/bin && ln -s /opt/java/bin/java /stage/usr/bin/java \
+    && install -D -m 0644 /usr/share/doc/openjdk-17-jre-headless/copyright \
+       /stage/usr/share/doc/openjdk-17/copyright
+
 FROM ${DEBIAN_IMAGE}
 ARG BUILD_VERSION
 ARG BUILD_ARCH
@@ -41,19 +60,18 @@ LABEL io.hass.type="app" \
       io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons" \
       org.opencontainers.image.licenses="Apache-2.0"
-# Slim images omit man directories; the JRE's postinst needs man1.
-RUN mkdir -p /usr/share/man/man1 \
-    && apt-get update -qq \
+RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends \
        libboost-log1.74.0 libboost-program-options1.74.0 libboost-filesystem1.74.0 \
        libssl3 libsqlite3-0 libcap2 libstdc++6 ca-certificates \
        mosquitto nginx-light python3 python3-paho-mqtt python3-yaml procps \
-       openjdk-17-jre-headless python3-pydantic python3-cryptography python3-netifaces \
+       python3-pydantic python3-cryptography python3-netifaces \
        python3-psutil python3-dateutil openssl iproute2 nftables \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/nginx /data
 COPY --from=slim /stage/ /
 COPY --from=pydeps /stage/ /
+COPY --from=jre /stage/ /
 COPY rootfs/ /
 COPY UPSTREAM.md /usr/share/doc/everest/UPSTREAM.md
 # Upstream's admin-panel controller listens on all interfaces; this App

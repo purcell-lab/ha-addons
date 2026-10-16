@@ -30,7 +30,12 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
     -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
   grep -q "ha-everest: EV ISO 15118 stack stopped" /opt/everest/libexec/everest/modules/PyEvJosev/module.py
   grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
-  java -version 2>&1 | head -1; nft --version'
+  java -version 2>&1 | head -1; nft --version
+  test "$(readlink -f /usr/bin/java)" = /opt/java/bin/java
+  test ! -e /usr/lib/jvm'
+
+echo "== EXI codec round trip on the slim Java runtime"
+docker run --rm -v "$PWD/$TESTS:/tests:ro" --entrypoint python3 "$IMAGE" /tests/exi_roundtrip.py
 
 echo "== Acceptance (no network): $SCENARIOS"
 docker tag "$IMAGE" everest-v2g:test

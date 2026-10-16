@@ -10,9 +10,9 @@ Each step below is a separate operator decision; none happens automatically.
 ## Steps
 
 1. **Approve publication** of a public container image with the EVerest
-   runtime and Josev (Apache-2.0), Debian's OpenJDK 17 (GPLv2 with the
-   Classpath Exception, copyright files under `/usr/share/doc/`) and this
-   App's packaging.
+   runtime and Josev (Apache-2.0), a jlink runtime of Debian's OpenJDK 17
+   (GPLv2 with the Classpath Exception; notices in `/opt/java/legal/` and
+   `/usr/share/doc/openjdk-17/`) and this App's packaging.
 2. **Start publication** on the reviewed commit (the PR head), one of two ways:
 
    - **Manual run (preferred).** Actions, *Publish EVerest V2G App image*,
