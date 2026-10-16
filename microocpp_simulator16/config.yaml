@@ -1,5 +1,5 @@
 name: MicroOCPP 1.6 Smart Charging
-version: "0.1.2"
+version: "0.1.3"
 slug: microocpp_simulator16
 description: Isolated OCPP 1.6J test charger with watt-based smart charging.
 url: https://github.com/purcell-lab/ha-addons
@@ -17,7 +17,9 @@ options:
   backend_url: ""
   charge_point_id: SIM-16-MICROOCPP-01
   acknowledge_test_isolation: false
+  archive_and_rebind: false
 schema:
   backend_url: str
   charge_point_id: match(^SIM-16-[A-Za-z0-9_-]{1,37}$)
   acknowledge_test_isolation: bool
+  archive_and_rebind: bool

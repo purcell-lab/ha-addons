@@ -118,6 +118,12 @@ def prepare(root):
     replace_once(main, "sigaction(SIGINT, &sigIntHandler, NULL);",
                  "sigaction(SIGINT, &sigIntHandler, NULL);\n"
                  "    sigaction(SIGTERM, &sigIntHandler, NULL);")
+    replace_once(main, "#include <iostream>", "#include <iostream>\n#include <cstdlib>")
+    replace_once(main, "mg_mgr_init(&mgr);", """mg_mgr_init(&mgr);
+    // Use Supervisor/Docker DNS, never the upstream public resolver.
+    if (const char *dns = std::getenv("MO_LAB_DNS_URL")) {
+        mgr.dns4.url = dns;
+    }""")
     # Keep CSMS ChangeConfiguration from changing the network identity.
     client = root / "lib/MicroOcppMongoose/src/MicroOcppMongooseClient.cpp"
     replace_once(client, "readonly = false;", "readonly = true;")

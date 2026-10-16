@@ -35,6 +35,7 @@ address is built into the App.
 | `backend_url` | Empty | OCPP base URL, without appended CPID. Initial release accepts only credential-free `ws` on an explicit port. |
 | `charge_point_id` | `SIM-MICROOCPP-01` | Required `SIM-` namespace, up to 40 suffix characters. |
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty backend. |
+| `archive_and_rebind` | `false` | Move existing simulator state into a timestamped archive, then bind the configured destination. |
 
 Use only on an isolated trusted test network. There is **no TLS or Basic Auth
 support in this packaging release**; do not send real RFID identifiers or
@@ -142,8 +143,11 @@ The first configured endpoint and identity are bound in
 stored transaction records to another station/backend. An empty backend
 pauses networking without deleting this binding.
 
-For a genuinely new test destination, stop the App, archive its data and
-reset/reinstall its data using your normal HA administration procedure.
+For a genuinely new test destination, finish or reconcile open test
+transactions first. Set `archive_and_rebind: true` and the new destination together to rebind:
+on start the App moves `mo_store` and `test-identity.json` into
+`/data/archive-<UTC timestamp>/` (never deleted), then binds the new destination.
+Set the option back to `false` afterwards; each start with it `true` archives again.
 Never erase data simply to hide an unresolved test transaction. No automatic
 state deletion or live HA configuration edits are performed.
 

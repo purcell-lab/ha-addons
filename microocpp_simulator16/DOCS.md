@@ -48,10 +48,14 @@ power/current without wiping the energy register.
 | `backend_url` | Empty | Credential-free WS test endpoint with explicit port; empty disconnects. |
 | `charge_point_id` | `SIM-16-MICROOCPP-01` | Required isolated 1.6 test namespace. |
 | `acknowledge_test_isolation` | false | Required before connecting. |
+| `archive_and_rebind` | false | Archive existing state, then bind the configured destination. |
 
 The first endpoint and identity are bound to the App data. Pausing preserves
-this binding and existing records. Rebinding requires a deliberate data
-archive/reset, not an automatic migration. Restart preserves profiles and
+this binding and existing records. Rebinding is never automatic.
+Set `archive_and_rebind: true` and the new destination together to rebind:
+on start the App moves `mo_store` and `test-identity.json` into
+`/data/archive-<UTC timestamp>/` (never deleted), then binds the new destination.
+Set the option back to `false` afterwards; each start with it `true` archives again. Restart preserves profiles and
 protocol records, but resets all plug/readiness flags. Simulated energy is
 in memory and resets on process restart.
 

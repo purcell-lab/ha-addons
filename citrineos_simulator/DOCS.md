@@ -29,6 +29,12 @@ Stop the simulator App to disconnect it. Disable `simulator_enabled` and restart
 only the CitrineOS server to remove its listener. Keep all other chargers and
 simulator connections unchanged.
 
+The first destination is bound in `/data/test-identity.json`; a changed backend is refused.
+Set `archive_and_rebind: true` and the new destination together to rebind:
+on start the App moves `mo_store` and `test-identity.json` into
+`/data/archive-<UTC timestamp>/` (never deleted), then binds the new destination.
+Set the option back to `false` afterwards; each start with it `true` archives again.
+
 Focused integration testing lives in `citrineos_server/tests/simulator_trial.py`
 and runs the real MicroOCPP image against pinned CitrineOS and private dependencies.
 The upstream source, licence and retained patches are described in `UPSTREAM.md`.

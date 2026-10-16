@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import configure, validate
+from app import configure, lab_dns_url, validate
 
 
 class OptionsTest(unittest.TestCase):
@@ -105,6 +105,37 @@ class OptionsTest(unittest.TestCase):
                                  "acknowledge_test_isolation": True})
             self.assertFalse((data / "test-identity.json").exists())
             self.assertTrue(transaction.exists())
+
+    def test_archive_and_rebind_moves_state_aside(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            options = {"backend_url": "ws://test:9000", "acknowledge_test_isolation": True}
+            configure(data, options)
+            transaction = data / "mo_store/tx-1-1.json"
+            transaction.write_text('{"existing":"test transaction"}')
+            moved = dict(options, backend_url="ws://other:9000")
+            with self.assertRaises(ValueError):
+                configure(data, moved)
+            configure(data, dict(moved, archive_and_rebind=True))
+            archive = next(data.glob("archive-*"))
+            self.assertEqual(archive.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((archive / "mo_store" / transaction.name).read_text(),
+                             '{"existing":"test transaction"}')
+            self.assertEqual(json.loads((archive / "test-identity.json").read_text())["backend_url"],
+                             "ws://test:9000")
+            self.assertEqual(json.loads((data / "test-identity.json").read_text())["backend_url"],
+                             "ws://other:9000")
+            self.assertFalse((data / "mo_store" / transaction.name).exists())
+
+    def test_archive_and_rebind_must_be_boolean(self):
+        for value in ("true", 1, None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate({"archive_and_rebind": value})
+
+    def test_lab_dns_url_uses_first_ipv4_resolver(self):
+        self.assertEqual(lab_dns_url("# x\nnameserver fd00::1\nnameserver 172.30.32.3\n"
+                                     "nameserver 1.1.1.1\n"), "udp://172.30.32.3:53")
+        self.assertIsNone(lab_dns_url("nameserver ::1\nnameserver bogus\n"))
 
 
 if __name__ == "__main__":
