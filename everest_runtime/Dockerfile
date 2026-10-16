@@ -8,8 +8,8 @@
 #
 # Contents, all under the paths the Apps use:
 #   /opt/everest/bin/manager
-#   /opt/everest/lib/            shared libraries and lib/everest
-#   /opt/everest/share/everest/
+#   /opt/everest/lib/            shared libraries the binaries load, lib/everest
+#   /opt/everest/share/everest/  (empty www, data for the selected modules)
 #   /opt/everest/etc/everest/certs/    upstream demo certificates (AC App only)
 #   /opt/everest/libexec/everest/3rd_party/josev/   (V2G App only)
 #   /opt/everest/libexec/everest/modules/<MODULES>  union of both Apps
@@ -37,8 +37,30 @@ COPY --from=everest /ext/dist/libexec/everest/modules/ /tmp/dist-modules/
 COPY --from=everest /licences/ /stage/usr/share/doc/everest/
 RUN set -eu; \
     mkdir -p /stage/opt/everest/lib /stage/opt/everest/libexec/everest/modules; \
-    cp -a /tmp/dist-lib/*.so* /tmp/dist-lib/everest /stage/opt/everest/lib/; \
+    cp -a /tmp/dist-lib/everest /stage/opt/everest/lib/; \
     for module in ${MODULES}; do cp -a "/tmp/dist-modules/${module}" /stage/opt/everest/libexec/everest/modules/; done; \
+    # Keep only the EVerest shared libraries that the manager, the selected
+    # modules and everestpy load (DT_NEEDED closure). This drops, for
+    # example, libeverest_api_types (20 MB, linked by no shipped binary)
+    # and the unversioned .so symlinks used only for linking.
+    elfs() { find "$@" -type f | while read -r f; do \
+      [ "$(head -c 4 "$f" | od -An -c | tr -d ' ')" = '177ELF' ] && echo "$f"; done; :; }; \
+    needed() { for f in "$@"; do readelf -d "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'; done | sort -u; }; \
+    want=$(needed $(elfs /stage/opt/everest/bin /stage/opt/everest/libexec /stage/opt/everest/lib/everest)); seen=""; \
+    while [ "$want" != "$seen" ]; do seen=$want; \
+      want=$( (echo "$want"; for n in $want; do [ -e "/tmp/dist-lib/$n" ] && needed "/tmp/dist-lib/$n"; done; :) | sort -u); \
+    done; \
+    for n in $want; do [ -e "/tmp/dist-lib/$n" ] || continue; \
+      cp -a "/tmp/dist-lib/$n" /stage/opt/everest/lib/; \
+      t=$(readlink "/tmp/dist-lib/$n" || true); [ -z "$t" ] || cp -a "/tmp/dist-lib/$t" /stage/opt/everest/lib/; \
+    done; \
+    # Unused data: the admin panel web UI (the Apps replace the admin-panel
+    # controller with a stub; the manager still requires the directory to
+    # exist, so it is kept empty) and data for modules not in MODULES.
+    find /stage/opt/everest/share/everest/www -mindepth 1 -delete; \
+    for d in /stage/opt/everest/share/everest/modules/*; do \
+      case " ${MODULES} " in *" $(basename "$d") "*) ;; *) rm -rf "$d" ;; esac; \
+    done; \
     find /stage/opt/everest -type f | while read -r f; do \
       if [ "$(head -c 4 "$f" | od -An -c | tr -d ' ')" = '177ELF' ]; then strip --strip-unneeded "$f"; fi; \
     done; \

@@ -204,7 +204,7 @@ Normal builds should not repeatedly pull the upstream build toolchain image.
 `.github/scripts/everest_runtime.sh` resolves the pinned public runtime, or
 requests a local runtime build when the runtime source changed or is unavailable.
 The identical-file tool compares types, modes, owners and content/link targets
-against `everest_runtime/REFERENCE`, with documented Python-bytecode equivalence
+against App builds from the pinned runtime (originally `everest_runtime/REFERENCE`), with documented Python-bytecode equivalence
 handling. A file-equivalence pass is not an interoperability pass.
 [Runtime build and verification](https://github.com/purcell-lab/ha-addons/pull/17)
 

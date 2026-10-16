@@ -1,7 +1,8 @@
 name: EVerest runtime image
 # Builds the shared EVerest runtime image (everest_runtime/) and proves that
-# both Apps built from it are file-for-file identical to their published
-# release images under the EVerest, App and Python paths. Pull requests
+# both Apps built from it are file-for-file identical to the same Apps built
+# from the pinned runtime under the EVerest, App and Python paths, apart
+# from the reviewed everest_runtime/EXPECTED_DIFFERENCES. Pull requests
 # never publish.
 on:
   pull_request:

@@ -2,7 +2,8 @@ name: Publish EVerest runtime image
 # Publication is an explicit operator action: it runs only when a maintainer
 # pushes a tag everest_runtime-v<version> matching everest_runtime/VERSION.
 # Each architecture is built natively, must pass the identical-file check
-# against the published App releases, and is pushed as <version>-<arch>;
+# against App builds from the pinned runtime (with the reviewed
+# EXPECTED_DIFFERENCES), and is pushed as <version>-<arch>;
 # then a multi-arch index <version> is created. Nothing is overwritten.
 on:
   push:
@@ -56,7 +57,7 @@ jobs:
           docker build --build-arg RUNTIME_VERSION="$VERSION" \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
             -t "$REPO:$VERSION-${{ matrix.arch }}" everest_runtime
-      - name: Release gate (identical files against the published App releases)
+      - name: Release gate (identical files against App builds from the pinned runtime)
         run: sh .github/scripts/everest_identical_files.sh "$REPO:$VERSION-${{ matrix.arch }}" ${{ matrix.arch }}
       - name: Push (architecture tag only)
         run: docker push "$REPO:$VERSION-${{ matrix.arch }}"

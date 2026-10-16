@@ -64,8 +64,12 @@ is built in three stages:
 3. `FROM scratch` with only `/opt/everest` and `/usr/share/doc/everest`,
    labelled with the upstream digest.
 
-`VERSION` holds the runtime version (`2025.10.0-1`). `REFERENCE` names the
-App releases that the identical-file check compares against.
+`VERSION` holds the runtime version (`2025.10.0-2`, unpublished; Apps pin
+`2025.10.0-1`). 2025.10.0-2 also keeps only the EVerest libraries the
+shipped binaries load (dropping the unused 20 MB `libeverest_api_types`)
+and empties the admin panel web UI. The identical-file check compares
+each App built from a candidate runtime with the same App built from the
+pinned runtime; `EXPECTED_DIFFERENCES` lists the reviewed exceptions.
 
 ### 2. App images
 
@@ -255,8 +259,8 @@ answered, Unplugged and idle. No charging session was run on HA for AC.
 - **Move to a new EVerest release** (for example 2025.12.1):
   1. Change the upstream image and digest in `everest_runtime/Dockerfile`
      and bump `VERSION` (for example `2025.12.1-1`).
-  2. Expect differences against `REFERENCE`. Review them, then update
-     `REFERENCE` or make the check informational for that change.
+  2. Expect differences against the pinned runtime. Review them and list
+     the intended ones in `EXPECTED_DIFFERENCES`.
   3. Publish the runtime with approval, then pin it and release new App
      versions.
 - **Drop an architecture:** remove its runner from the matrices in the five
