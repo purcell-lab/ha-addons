@@ -35,15 +35,16 @@ Home Assistant Green (HA OS, aarch64), LAN 192.168.86.90
 │       └─ store 31ac84d3 = purcell-lab/ha-addons#claude/green-e2e
 │
 ├─ CitrineOS lab stack (store 31ac84d3, built locally on the Green)
-│   database 0.1.1 ─ broker 0.1.1 ─ hasura 0.1.1 ─ server 0.4.0
+│   database 0.1.1 ─ broker 0.1.1 ─ hasura 0.1.1 ─ server 0.5.0
 │       8080 gateway · 8081 SP1 simulators · 8082 SP0 open admission
 │       8083 SP1 Plugfest (host port published only during a slot)
+│   Operator UI 0.1.0 (prebuilt GHCR) → gateway 8080, HA Ingress only
 │
 ├─ Charging-station simulators
-│   EVerest V2G 0.1.6 (31ac84d3, prebuilt GHCR)  → CitrineOS 8083 via LAN IP
+│   EVerest V2G 0.1.6 (31ac84d3, prebuilt GHCR)  → CitrineOS 8083 (internal hostname)
 │   EVerest AC  0.1.1 (31ac84d3, prebuilt GHCR)  → CitrineOS 8082
-│   MicroOCPP 1.6 0.1.1 (7fbee41d, local build)  → HA OCPP 19002
-│   MicroOCPP 2.0.1 0.1.3 (7fbee41d, local build) — stopped (#38)
+│   MicroOCPP 1.6 0.1.2 (7fbee41d, prebuilt GHCR) → HA OCPP 19002
+│   MicroOCPP 2.0.1 0.1.5 (7fbee41d, prebuilt GHCR) → CitrineOS 8082
 │
 └─ Open Dynamic Export 0.1.0 (7fbee41d, prebuilt GHCR; ODE v0.20.0)
     offline test configuration, inverter control disabled
@@ -125,16 +126,17 @@ Settings → Apps → App store → ⋮ → Repositories:
 ## 5. CitrineOS lab stack
 
 Install from store `31ac84d3`, in this order: **database → broker → Hasura
-→ server**. Keep boot `manual` and auto-update off for each App. On the
-Green each is built locally by Supervisor (no `image:` key), taking about 70
-to 90 s per App.
+→ server**, then optionally the **Operator UI**. Keep boot `manual` and
+auto-update off for each App. On the Green the four stack Apps are built
+locally by Supervisor (no `image:` key), taking about 70 to 90 s per App.
+The Operator UI is a prebuilt image.
 
 ### Secrets
 
 Generate distinct values, never reused across Apps or stations:
 
 ```sh
-python3 -c "import secrets;print(secrets.token_hex(32))"      # database, broker, hasura, api_token, command_token
+python3 -c "import secrets;print(secrets.token_hex(32))"      # database, broker, hasura, api_token, command_token, operator_token
 python3 -c "import secrets;print(secrets.token_hex(16))"      # Plugfest/V2G station password (32 hex)
 ```
 
@@ -149,8 +151,9 @@ no spaces. `secrets.token_urlsafe(24)` gives 32 characters.
 | `citrineos_broker` | `password` (the broker secret) |
 | `citrineos_hasura` | `database_host: 31ac84d3-citrineos-database`, `database_password`, `admin_secret` (the Hasura secret) |
 | `citrineos_server` | see below |
+| `citrineos_operator_ui` | see [Operator UI](#operator-ui) |
 
-`citrineos_server` 0.4.0 (green-e2e build):
+`citrineos_server` 0.5.0:
 
 ```yaml
 mode: isolated                      # 'disconnected' until all secrets are set
@@ -171,11 +174,14 @@ plugfest_enabled: true              # 8083 SP1 listener
 plugfest_stations:
   - id: SIM-EV-EVEREST-V2G-03
     password: <32 hex>              # also set in the V2G App
+operator_ui_enabled: true           # gateway accepts operator_token (Hasura role operator_ro)
+operator_token: <64 hex>            # also set in the Operator UI App
+operator_commands_enabled: true     # fixed operator command set, any online station
 ```
 
 | Port | Listener | Exposure |
 |---|---|---|
-| 8080 | Gateway (Bearer `api_token`; commands also need `command_token`) | Internal |
+| 8080 | Gateway (Bearer `api_token`; commands also need `command_token`; Operator UI uses `operator_token`) | Internal |
 | 8081 | SP1, provisioned simulators | Internal |
 | 8082 | SP0 open admission | **Internal only, never published** |
 | 8083 | SP1 Plugfest: provisioned `plugfest_stations` only, unknown IDs rejected | Host port `8083` **only during a slot** |
@@ -192,29 +198,69 @@ Start-up and checks:
 4. On each start the seed provisions every Plugfest station (station row,
    Boots `Accepted`, `SecurityCtrlr.BasicAuthPassword`). It also revokes the
    password of any station removed from the list.
-5. Stop in this order: server, Hasura, broker, database.
+5. Stop in this order: Operator UI, server, Hasura, broker, database.
+
+### Operator UI
+
+`citrineos_operator_ui` 0.1.0 (store 31ac84d3, image
+`ghcr.io/purcell-lab/{arch}-citrineos-operator-ui`) is the upstream
+CitrineOS v2.0.1 Operator UI, opened from the HA sidebar through Ingress.
+
+```yaml
+gateway_url: http://31ac84d3-citrineos-server:8080
+operator_token: <64 hex>            # same as the server's operator_token
+commands_enabled: true              # needs operator_commands_enabled on the server
+```
+
+- **Data is read-only.** GraphQL goes to the gateway as Hasura role
+  `operator_ro`: select-only, tenant-filtered, with password values hidden.
+  Mutations are refused.
+- **Commands** are limited to a fixed set (start/stop transaction, unlock,
+  clear cache, Reset, ChangeAvailability, TriggerMessage, base report and
+  variable reads, transaction status, and charging-profile set/clear/get
+  plus composite schedule). They are allowed only to an online tenant-1
+  station on its own OCPP version (2.0.1 or 2.1); everything else is
+  refused and every command is logged. RBAC role: `lab-operator`. With `commands_enabled: false` the App refuses them
+  before they reach the gateway.
+- **Access.** The App's Node proxy on 8099 accepts connections only from the
+  Supervisor Ingress peer (172.30.32.2). It adds the operator token, so the
+  browser never sees a token. No host port is published.
+- **Known limits.** File upload and storage need cloud storage and stay
+  disabled, so the browser console shows `Error: Unauthenticated` for those
+  calls. Maps need a Google Maps key and show an error. Pages don't update
+  live; reload to refresh. See the App's DOCS.
+- Check: open the panel, see the stations, and send a TriggerMessage to an
+  online station. Confirm a mutation is refused.
 
 ## 6. Charging station simulators
 
 Each simulator starts disconnected. The first connected start binds its URL
 and identity to the App's data. EVerest Apps change that only with
-`archive_and_rebind: true` for one start; MicroOCPP Apps can't change it
-without a data reset (#29).
+`archive_and_rebind: true` for one start. The old state is moved to a
+timestamped `archive-…` folder in the App data, never deleted. All Apps
+have this option (MicroOCPP from 0.1.5 / 0.1.3, #29). Set it back to
+`false` after that start; every start with it `true` archives again.
 
 | App (store) | Image | Options used |
 |---|---|---|
-| `everest_v2g_simulator` 0.1.6 (31ac84d3) | `ghcr.io/purcell-lab/aarch64-everest-v2g-simulator:0.1.6` | `csms_url: ws://192.168.86.90:8083`, `charge_point_id: SIM-EV-EVEREST-V2G-03`, `ocpp_version: "2.1"`, `max_power_kw: 11`, `ha_control: true`, `csms_basic_auth_password: <32 hex>`, `acknowledge_test_isolation: true` |
+| `everest_v2g_simulator` 0.1.6 (31ac84d3) | `ghcr.io/purcell-lab/aarch64-everest-v2g-simulator:0.1.6` | `csms_url: ws://31ac84d3-citrineos-server:8083`, `charge_point_id: SIM-EV-EVEREST-V2G-03`, `ocpp_version: "2.1"`, `max_power_kw: 11`, `ha_control: true`, `csms_basic_auth_password: <32 hex>`, `acknowledge_test_isolation: true` |
 | `everest_simulator` 0.1.1 (31ac84d3) | `ghcr.io/purcell-lab/aarch64-everest-simulator:0.1.1` | `csms_url: ws://31ac84d3-citrineos-server:8082`, `charge_point_id: SIM-EV-EVEREST-G1`, `ocpp_version: "2.1"`, `phases: "1"`, `max_current_a: 32`, `acknowledge_test_isolation: true` |
-| `microocpp_simulator16` 0.1.1 (7fbee41d) | local build | `backend_url: ws://172.30.32.1:19002`, `charge_point_id: SIM-16-MICROOCPP-01`, `acknowledge_test_isolation: true` |
-| `microocpp_simulator` 0.1.3 (7fbee41d) | local build | `backend_url: ws://31ac84d3-citrineos-server:8082`, `charge_point_id: SIM-MICROOCPP-G1`. **Doesn't connect** (hostname DNS, #38) |
+| `microocpp_simulator16` 0.1.2 (7fbee41d) | `ghcr.io/purcell-lab/aarch64-microocpp-simulator16:0.1.2` | `backend_url: ws://172.30.32.1:19002`, `charge_point_id: SIM-16-MICROOCPP-01`, `acknowledge_test_isolation: true` |
+| `microocpp_simulator` 0.1.5 (7fbee41d) | `ghcr.io/purcell-lab/aarch64-microocpp-simulator:0.1.5` | `backend_url: ws://31ac84d3-citrineos-server:8082`, `charge_point_id: SIM-MICROOCPP-G1`, `acknowledge_test_isolation: true` |
 
 Notes:
-- **V2G uses the LAN address**, not the internal hostname, so the test goes
-  through the published 8083 port exactly as a vendor charger would. It
+- **V2G uses the internal hostname** on 8083, so it stays online between
+  slots while host port 8083 is closed. It still uses the same SP1
+  listener, `plugfest_stations` entry and Basic auth as a vendor charger.
+  To repeat the vendor-path test through the published port, publish 8083
+  and rebind to `ws://192.168.86.90:8083` (with `archive_and_rebind: true`
+  for one start), then rebind back afterwards. The App
   needs `privileged: NET_ADMIN` for its isolated v2g0/v2g1 link, and its
   start-up discovery self-test must report PASSED.
-- **MicroOCPP needs an IP address**, not a hostname (#38). The HA Core IP
-  `172.30.32.1` is stable; other App IPs change on restart.
+- **MicroOCPP resolves Supervisor hostnames** from 0.1.5 / 0.1.3 (#38):
+  the launcher passes the resolv.conf nameserver to Mongoose. The 1.6 App
+  uses the HA Core IP `172.30.32.1`, which is stable; other App IPs change
+  on restart, so use hostnames for them.
 - **Driving the simulators** (all through Ingress or HA):
 
 | Simulator | Plug in / unplug | Start |
@@ -273,7 +319,7 @@ On the Green it runs the **offline test configuration** used by CI:
 |---|---|---|
 | everest_simulator, everest_v2g_simulator | `image: ghcr.io/purcell-lab/{arch}-…`: Supervisor **pulls** the published image | V2G 0.1.6: aarch64 + amd64. AC 0.1.1: aarch64 + amd64 |
 | citrineos_database, broker, hasura, server, simulator | No `image:`: Supervisor **builds** the Dockerfile on the device | aarch64 + amd64 on PR #34 / green-e2e; amd64 only on main |
-| microocpp_simulator, microocpp_simulator16 | Built locally on main. PR #35 adds `image:` (`{arch}-microocpp-simulator[16]`) to skip the on-device compile. | aarch64 + amd64 |
+| microocpp_simulator, microocpp_simulator16 | `image: ghcr.io/purcell-lab/{arch}-microocpp-simulator[16]`: Supervisor **pulls** (2.0.1 0.1.5, 1.6 0.1.3 published) | aarch64 + amd64 |
 | open_dynamic_export | `image: ghcr.io/purcell-lab/{arch}-open-dynamic-export`: Supervisor **pulls** (0.1.0 published) | aarch64 + amd64 |
 
 ### EVerest images
@@ -323,6 +369,7 @@ CHECKS=full sh everest_v2g_simulator/tests/ci_image_checks.sh v2g:test
 | App | Base (digest-pinned) |
 |---|---|
 | server | `ghcr.io/citrineos/citrineos-server:v2.0.1@sha256:15316dff…` (multi-arch; arm64 manifest recorded in `compatibility-lock.json`) with the `launch.mjs` wrapper |
+| operator UI | `node:24.16.0@sha256:40ad9f30…` build stage (upstream `citrineos-core` at `1a83638c`, plus `operator-ui.patch`), `node:24.16.0-slim@sha256:2c87ef9b…` runtime. Next.js is built with the placeholder base path `/__ha_ingress_base__`, which the proxy rewrites to the Ingress prefix |
 | database | main: `postgis/postgis:16-3.5@…` (amd64 only). PR #34: `imresamu/postgis:16-3.5-bullseye@sha256:3ffaa98c…` (same PostgreSQL 16.9 / PostGIS 3.5.2, multi-arch) |
 | broker | `rabbitmq:3.13.7-management@…` + jq 1.8.1 |
 | hasura | `hasura/graphql-engine:v2.40.3@…` + gosu |
@@ -381,7 +428,8 @@ Every published image comes from a GitHub Actions workflow on `ubuntu-24.04`
 | `everest-runtime` | `everest-runtime-publish.yml` | Push tag `everest_runtime-v$(cat everest_runtime/VERSION)` |
 | `{arch}-everest-simulator` | `everest-publish.yml` | Push tag `everest_simulator-v<version>` |
 | `{arch}-everest-v2g-simulator` | `everest-v2g-publish.yml` | **Run workflow** with `version` + `target` (commit SHA), or a tag |
-| `{arch}-microocpp-simulator[16]` | `microocpp-publish.yml` (PR #35) | Run workflow with `app`, `version` and `target`, or a tag |
+| `{arch}-microocpp-simulator[16]` | `microocpp-publish.yml` | Run workflow with `app`, `version` and `target`, or a tag |
+| `{arch}-citrineos-operator-ui` | `operator-ui-publish.yml` | **Run workflow** with `version` + `target`, or a tag (0.1.0 published) |
 | `{arch}-open-dynamic-export` | `ode-publish.yml` | **Run workflow** with `version` + `target`, or a tag (0.1.0: run 38887442611) |
 
 **Release sequence.** Each step is a separate approval.
@@ -426,6 +474,8 @@ pip install PyYAML==6.0.2        # Node 24; nginx, openssl for EVerest tests
 python -m unittest discover -s citrineos_server/tests -p test_packaging.py -v
 python -m unittest discover -s citrineos_server/tests -p test_v2g_readiness.py -v
 node --test citrineos_server/tests/*.test.mjs
+node --test citrineos_operator_ui/tests/proxy.test.mjs
+python -m unittest discover -s citrineos_operator_ui/tests -p test_packaging.py -v
 python -m unittest discover -s everest_simulator/tests -v
 python -m unittest discover -s everest_v2g_simulator/tests -v
 python -m unittest discover -s microocpp_simulator/tests -v
@@ -443,6 +493,7 @@ container names, so run only one at a time.
 | `TEST_NATIVE_SIMULATOR=1 python3 citrineos_server/tests/stack_smoke.py` | MicroOCPP baseline |
 | `TEST_V2G_SIMULATOR=1 python3 citrineos_server/tests/stack_smoke.py` | HA client → CitrineOS → EVerest V2G |
 | `TEST_PLUGFEST=1 python3 citrineos_server/tests/stack_smoke.py` | 8083: accepted boot, wrong password, unknown ID, revocation (plugfest-sp1) |
+| `TEST_OPERATOR=1 python3 citrineos_server/tests/stack_smoke.py` | Operator scope: read-only GraphQL, refused mutation, operator command delivered (`operator_probe.py`) |
 
 Charts for new test runs: add `data/<run>.json`, then
 `python3 make_charts.py`.
@@ -453,17 +504,19 @@ Charts for new test runs: add `data/<run>.json`, then
    OCPP (v0.12.1) through HACS.
 2. Add both App stores (section 3).
 3. Generate fresh secrets. Install and configure database, broker, Hasura and
-   server, then start them in that order.
+   server, then start them in that order. Optionally install the Operator
+   UI with the server's `operator_token` and start it.
 4. Add the CitrineOS HA entry (`v2_scoped_lab_control`). Add the OCPP entry
    on 19002 with a short `meter_interval`.
 5. Install the simulators (section 6). Start each disconnected, then set the
    URL and identity.
-6. For V2G on 8083: add its ID and password to `plugfest_stations`, publish
-   host port 8083, and restart the server.
+6. For V2G on 8083: add its ID and password to `plugfest_stations` and
+   restart the server. V2G connects by the internal hostname, so host port
+   8083 stays closed unless a test needs the LAN path.
 7. Optional: install Open Dynamic Export from the main store with the
    offline test configuration (section 6), then start it and check the
    coordinator status.
-8. Run the three tests in [README.md](README.md). Then remove the 8083 host
-   port and stop the simulators.
+8. Run the three tests in [README.md](README.md). If you published the 8083
+   host port, remove it afterwards. Stop the simulators.
 9. At the event, replace the simulator entries in `plugfest_stations` with
    the vendors' IDs and passwords, and follow `docs/plugfest-runbook.md`.
