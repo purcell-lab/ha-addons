@@ -1,4 +1,5 @@
 """Validated HA options, persistent state, and bounded two-process supervision."""
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ def validate(options):
     acknowledged = options.get("acknowledge_test_isolation", False)
     if not isinstance(cpid, str) or not re.fullmatch(r"SIM-16-[A-Za-z0-9_-]{1,37}", cpid):
         raise ValueError("charge_point_id must be a SIM-16- test identity")
+    if not isinstance(options.get("archive_and_rebind", False), bool):
+        raise ValueError("archive_and_rebind must be true or false")
     if not isinstance(backend, str) or len(backend) > 200:
         raise ValueError("backend_url must be a string of at most 200 characters")
     if backend:
@@ -69,9 +72,25 @@ def update_config(path, values):
     atomic_json(path, doc)
 
 
+def archive_if_requested(data, options):
+    """Explicit, operator-selected rebinding: move state aside, never delete it."""
+    if options.get("archive_and_rebind") is not True:
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    archive = data / f"archive-{stamp}"
+    archive.mkdir(mode=0o700)
+    for name in ("mo_store", "test-identity.json"):
+        if (data / name).exists():
+            (data / name).rename(archive / name)
+    return archive
+
+
 def configure(data, options):
     backend, cpid = validate(options)
     data.mkdir(parents=True, exist_ok=True)
+    archived = archive_if_requested(data, options)
+    if archived:
+        print(f"Archived previous simulator state to {archived.name}; set archive_and_rebind back to false.", flush=True)
     identity = data / "test-identity.json"
     target = {"backend_url": backend, "charge_point_id": cpid}
     # A paused (empty URL) start must not erase the previous destination.
@@ -101,6 +120,16 @@ def configure(data, options):
     return bool(backend)
 
 
+def lab_dns_url(resolv_conf):
+    """Mongoose does not consult libc resolv.conf; give it the Supervisor resolver."""
+    for value in re.findall(r"^nameserver\s+(\S+)", resolv_conf, re.M):
+        try:
+            return "udp://" + str(ipaddress.IPv4Address(value)) + ":53"
+        except ValueError:
+            continue
+    return None
+
+
 def run():
     os.umask(0o077)
     try:
@@ -123,6 +152,9 @@ def run():
     signal.signal(signal.SIGINT, stop)
     result = 1
     try:
+        dns = lab_dns_url(Path("/etc/resolv.conf").read_text())
+        if dns:
+            os.environ["MO_LAB_DNS_URL"] = dns
         children.append(subprocess.Popen([str(ROOT / "mo_simulator")], cwd=DATA))
         children.append(subprocess.Popen(["nginx", "-c", str(ROOT / "nginx.conf"),
                                           "-g", "daemon off;"]))

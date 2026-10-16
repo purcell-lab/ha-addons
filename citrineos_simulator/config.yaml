@@ -1,5 +1,5 @@
 name: CitrineOS Dedicated Test Charger
-version: "0.1.0"
+version: "0.1.1"
 slug: citrineos_simulator
 description: Dedicated MicroOCPP 2.0.1 charger for the isolated CitrineOS lab; bounded synthetic charging only.
 url: https://github.com/purcell-lab/ha-addons
@@ -18,9 +18,11 @@ options:
   password: ""
   acknowledge_test_isolation: false
   bounded_trial_id: ""
+  archive_and_rebind: false
 schema:
   backend_url: str
   charge_point_id: match(^SIM-CITRINE-LAB-01$)
   password: password
   acknowledge_test_isolation: bool
   bounded_trial_id: str
+  archive_and_rebind: bool

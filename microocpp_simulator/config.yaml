@@ -1,5 +1,5 @@
 name: MicroOCPP Simulator
-version: "0.1.4"
+version: "0.1.5"
 slug: microocpp_simulator
 description: Native OCPP 2.0.1 test charger. Limited feature coverage; test use only.
 url: https://github.com/purcell-lab/ha-addons/tree/main/microocpp_simulator
@@ -17,7 +17,9 @@ options:
   backend_url: ""
   charge_point_id: SIM-MICROOCPP-01
   acknowledge_test_isolation: false
+  archive_and_rebind: false
 schema:
   backend_url: str
   charge_point_id: match(^SIM-[A-Za-z0-9_-]{1,40}$)
   acknowledge_test_isolation: bool
+  archive_and_rebind: bool
