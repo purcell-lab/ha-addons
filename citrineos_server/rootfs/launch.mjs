@@ -30,9 +30,37 @@ export function validate(o) {
   if(o.command_station_id!==undefined&&!STATION_PATTERN.test(o.command_station_id))throw new Error('Command station must be a SIM-EV- identity');
   if(o.command_control_enabled&&(!(o.profile_simulator_enabled||o.open_admission_enabled)||!/^[a-f0-9]{64}$/.test(o.command_token||'')
     ||[o.api_token,o.database_password,o.broker_password,o.hasura_secret].includes(o.command_token)))throw new Error('Distinct command credential required');
+  validatePlugfest(o);
+}
+// OCPP identity used as the Basic Auth user name: no ':' or '/'.
+export const PLUGFEST_ID=/^[A-Za-z0-9._~*+-]{1,48}$/;
+// OCPP 2.0.1/2.1 BasicAuthPassword: 16 to 40 printable characters.
+export const PLUGFEST_PASSWORD=/^[\x21-\x7e]{16,40}$/;
+export function validatePlugfest(o) {
+  if(o.plugfest_enabled!==undefined&&typeof o.plugfest_enabled!=='boolean')throw new Error('Invalid Plugfest flag');
+  const stations=o.plugfest_stations??[];
+  if(!Array.isArray(stations))throw new Error('plugfest_stations must be a list');
+  if(!o.plugfest_enabled)return;
+  if(!stations.length)throw new Error('Plugfest listener needs at least one provisioned station');
+  const reserved=new Set(['SIM-CITRINE-LAB-01',commandStation(o)]);
+  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.command_token,
+    o.simulator_password,o.profile_simulator_password].filter(Boolean);
+  const ids=new Set(), passwords=new Set();
+  for(const st of stations) {
+    if(!st||typeof st!=='object'||!PLUGFEST_ID.test(st.id||''))throw new Error('Invalid Plugfest station identity');
+    // Vendor stations stay out of the simulator command namespace.
+    if(reserved.has(st.id)||st.id.startsWith('SIM-EV-'))throw new Error('Plugfest identity is reserved for a simulator');
+    if(!PLUGFEST_PASSWORD.test(st.password||''))throw new Error('Plugfest password must be 16-40 printable characters');
+    if(ids.has(st.id)||passwords.has(st.password)||secrets.includes(st.password))
+      throw new Error('Plugfest identities and passwords must be unique and distinct from other credentials');
+    ids.add(st.id);passwords.add(st.password);
+  }
 }
 // Port 8081 authenticates provisioned stations. Optional port 8082 admits
 // any identity without credentials: an explicit, lab-only decision.
+// Optional port 8083 is the Plugfest listener for external charging stations:
+// Security Profile 1 with per-station provisioned passwords, unknown stations
+// rejected. It is the only port the App can publish on the host.
 export function buildListeners(o) {
   const listeners=[];
   if(o.simulator_enabled||o.profile_simulator_enabled) listeners.push({
@@ -44,6 +72,11 @@ export function buildListeners(o) {
   if(o.open_admission_enabled) listeners.push({
     id:'citrine-lab-open',host:'0.0.0.0',port:8082,protocols:['ocpp2.1','ocpp2.0.1'],
     securityProfile:0,allowUnknownChargingStations:true,ignoreAuthenticationHeaders:true,
+    tenantId:1,dynamicTenantResolution:false,pingInterval:30,
+  });
+  if(o.plugfest_enabled) listeners.push({
+    id:'citrine-plugfest',host:'0.0.0.0',port:8083,protocols:['ocpp2.1','ocpp2.0.1'],
+    securityProfile:1,allowUnknownChargingStations:false,ignoreAuthenticationHeaders:false,
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
   return listeners;
@@ -120,7 +153,8 @@ export async function main() {
   };
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
   for(const [k,v] of Object.entries(config)) env['CITRINEOS_'+k]=JSON.stringify(v);
-  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token].filter(Boolean);
+  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token,
+    ...(o.plugfest_enabled?(o.plugfest_stations||[]).map(st=>st.password):[])].filter(Boolean);
   let child, shutting=false;
   const streams=[];
   function logPipe(stream) {
@@ -156,7 +190,7 @@ export async function main() {
   console.log('Applying pinned migrations to the dedicated laboratory database.');
   await run(['db:migrate'],`${APP}/node_modules/.bin/sequelize-cli`);
   await run([`${APP}/dist/scripts/provision-partitions.js`]);
-  if(o.simulator_enabled||o.profile_simulator_enabled||o.open_admission_enabled) {
+  if(o.simulator_enabled||o.profile_simulator_enabled||o.open_admission_enabled||o.plugfest_enabled) {
     const {seedSimulator}=await import('./seed-simulator.mjs');
     await seedSimulator(o);
   }
@@ -204,7 +238,9 @@ export async function main() {
         res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:listeners.length,
           simulator_identity:o.simulator_enabled?'SIM-CITRINE-LAB-01':null,
           profile_simulator_identity:o.profile_simulator_enabled?station:null,
-          open_admission:o.open_admission_enabled===true,read_only:!controller}));return;
+          open_admission:o.open_admission_enabled===true,
+          plugfest_stations:o.plugfest_enabled?(o.plugfest_stations||[]).map(st=>st.id):[],
+          read_only:!controller}));return;
       }
       let target,headers={},body;
       if(url.pathname==='/v1/graphql'||command) {

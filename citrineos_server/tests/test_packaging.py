@@ -14,8 +14,14 @@ class PackagingSafety(unittest.TestCase):
         for field in ("host_network", "hassio_api", "homeassistant_api",
                       "docker_api", "ingress"):
             self.assertIs(config[field], False)
-        for field in ("ports", "map", "devices", "privileged", "services", "image"):
+        for field in ("map", "devices", "privileged", "services", "image"):
             self.assertNotIn(field, config)
+        # Only the opt-in Plugfest listener may be published, and only by an
+        # operator-set host port (null by default).
+        self.assertEqual(config["ports"], {"8083/tcp": None})
+        self.assertIs(config["options"]["plugfest_enabled"], False)
+        self.assertEqual(config["options"]["plugfest_stations"], [])
+        self.assertEqual(config["schema"]["plugfest_stations"][0]["password"], "password")
         self.assertEqual(config["options"]["mode"], "disconnected")
         self.assertEqual(config["schema"]["mode"], "list(disconnected|isolated)")
 

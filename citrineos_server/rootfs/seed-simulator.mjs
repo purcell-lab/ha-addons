@@ -11,7 +11,8 @@ export async function seedSimulator(o) {
     const station=commandStation(o);
     // Open admission registers stations at BootNotification, so the
     // single-station guard applies only while every station is provisioned.
-    if(!o.open_admission_enabled) {
+    // Plugfest stations are provisioned below, so the guard is off there too.
+    if(!o.open_admission_enabled&&!o.plugfest_enabled) {
       const other=await db.query(`SELECT id FROM "ChargingStations"
         WHERE "tenantId" <> 1 OR "ocppConnectionName" NOT IN ('SIM-CITRINE-LAB-01',$1) LIMIT 1`,[station]);
       if(other.rowCount) throw new Error('Dedicated database contains a different station');
@@ -19,6 +20,9 @@ export async function seedSimulator(o) {
     const targets=[];
     if(o.simulator_enabled)targets.push(['SIM-CITRINE-LAB-01',o.simulator_password,2]);
     if(o.profile_simulator_enabled)targets.push([station,o.profile_simulator_password,1]);
+    // External Plugfest stations: identity and password only; their EVSEs
+    // and connectors are created from their own status reports.
+    if(o.plugfest_enabled)for(const st of o.plugfest_stations||[])targets.push([st.id,st.password,0]);
     for(const [name,password,connectors] of targets) {
     await db.query(`INSERT INTO "ChargingStations"
       ("ocppConnectionName","tenantId","isOnline","use16StatusNotification0","createdAt","updatedAt")
@@ -52,6 +56,14 @@ export async function seedSimulator(o) {
       ON CONFLICT ("stationId",type,"variableId","componentId") DO UPDATE SET value=EXCLUDED.value,"updatedAt"=NOW()`,
       [station.id,component.id,variable.id,password]);
     }
+    // Revoke Basic Auth for every station not provisioned by these options,
+    // so a removed Plugfest or simulator identity cannot log in again.
+    await db.query(`DELETE FROM "VariableAttributes" va
+      USING "ChargingStations" cs, "Components" c, "Variables" v
+      WHERE va."stationId"=cs.id AND va."componentId"=c.id AND va."variableId"=v.id
+        AND c.name='SecurityCtrlr' AND c.instance IS NULL
+        AND v.name='BasicAuthPassword' AND v.instance IS NULL
+        AND NOT (cs."ocppConnectionName" = ANY($1::text[]))`,[targets.map(([name])=>name)]);
     await db.query(`INSERT INTO "Authorizations"
       ("idToken","idTokenType","tenantId",status,"concurrentTransaction","isPrepaid","createdAt","updatedAt")
       VALUES ('C17E0001','ISO14443',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);

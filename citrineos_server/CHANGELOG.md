@@ -17,6 +17,13 @@
   architecture with its published checksum, and the database moves to the
   multi-arch `imresamu/postgis:16-3.5-bullseye` build of the same PostgreSQL
   16.9 / PostGIS 3.5.2 / bullseye versions, so existing data is compatible.
+- Add an opt-in Plugfest listener (`plugfest_enabled`, port 8083): OCPP
+  2.1/2.0.1 Security Profile 1 for provisioned external charging stations
+  (`plugfest_stations`, per-station passwords; unknown stations refused).
+  `8083/tcp` is the only port the App declares, unpublished until a host port
+  is set. Startup revokes the Basic Auth password of any station no longer
+  provisioned. CI connects a station: Accepted boot; wrong password, unknown
+  identity and a removed station refused.
 - Add opt-in `open_admission_enabled`: an unauthenticated internal listener on
   port 8082 accepting any station identity over OCPP 2.1/2.0.1. Off by default;
   port 8081 authentication is unchanged. See DOCS.md for the impersonation risk.

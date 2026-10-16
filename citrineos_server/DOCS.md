@@ -99,6 +99,8 @@ interpolated or exposed in an HTTP SQL endpoint.
 
 Security Profile 1 is cleartext Basic authentication, confined to the trusted
 Supervisor network. It is not TLS and must not be exposed to the LAN or internet.
+(The separate, opt-in Plugfest listener below is the only listener that can be
+published on a LAN, deliberately and temporarily.)
 The opt-in setup is for the separately installed `citrineos_simulator` App only.
 No existing charger or simulator identity is reused.
 
@@ -154,3 +156,40 @@ the existing gates still apply: observed `ocpp2.1`, online, tenant 1, exact
 active transaction and bounded profiles. Commands may now be enabled with
 either `profile_simulator_enabled` or `open_admission_enabled`; they still
 need the separate command credential.
+
+## Plugfest listener (opt-in, external charging stations)
+
+For an OCPP Plugfest where this server is the CSMS under test, external
+charging stations on the venue network need to connect. `plugfest_enabled`
+(default `false`) adds listener `citrine-plugfest` on port 8083:
+
+- OCPP 2.1 and 2.0.1, Security Profile 1 (Basic Auth over `ws://`), tenant 1;
+- only the identities in `plugfest_stations` are admitted, each with its own
+  password; unknown stations and wrong passwords are refused at the
+  WebSocket upgrade;
+- identities are OCPP station IDs (up to 48 of `A-Z a-z 0-9 . _ ~ * + -`; no
+  `:` or `/`), passwords 16 to 40 printable characters, all unique and
+  distinct from every other credential. The `SIM-EV-` namespace,
+  `SIM-CITRINE-LAB-01` and the command station are reserved for simulators,
+  so vendor stations can never be the target of the scoped HA command path;
+- stations are provisioned at startup (identity, password, Accepted boot);
+  their EVSEs and connectors are created from their own status reports.
+- at every startup, Basic Auth passwords of stations that are no longer
+  provisioned (removed from `plugfest_stations`, or a disabled simulator)
+  are revoked, so a removed station cannot log in again.
+
+Port 8083 is the only port this App declares, and it is closed until you
+set a host port for `8083/tcp` on the App's Network tab. Vendors then use
+`ws://<host-ip>:<host-port>/<station-id>` with Basic Auth user `<station-id>`.
+
+Read this before enabling it:
+
+- Security Profile 1 is cleartext: passwords and OCPP traffic can be read
+  by anyone on the same network. Use it only on the Plugfest network, only
+  during test slots, and with passwords made for the event.
+- Do not expose port 8083 to the internet (no port forward); an online
+  test partner needs a separate TLS (Security Profile 2) path.
+- Command and control of real stations is not provided by the HA path; use
+  the test partner's agreed procedure.
+
+See [the Plugfest runbook](../docs/plugfest-runbook.md).
