@@ -88,6 +88,12 @@ minimum and pauses charging. Amp-based profiles are not affected.
 Measured power is a few per cent below a watt limit because the simulated
 supply sits slightly below 230 V. The current follows the limit exactly.
 
+**Transaction samples every second.** From 0.1.2 the station sends a
+TransactionEvent with MeterValues every 1 s while charging
+(`SampledDataTxUpdatedInterval` 1, as in the V2G App), so the CSMS record
+shows each profile step within about a second. Earlier versions sent one
+every 10 s.
+
 ## Security boundaries
 
 The UI uses Home Assistant Ingress authentication. nginx on port 8099

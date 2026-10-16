@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.2
+
+- Scoped lab SetChargingProfile (#39): a period may carry `numberPhases`
+  (1 or 3) and, with `numberPhases: 1`, `phaseToUse` (1 to 3). A period is
+  either a V2G `CentralSetpoint` period (as before) or an AC charging-only
+  period: `operationMode` absent or `ChargingOnly`, with no `setpoint` or
+  `dischargeLimit`. libocpp assumes 3 phases when `numberPhases` is absent,
+  so a single-phase AC charger received a third of a watt limit.
+- A deliberate stop exits 0, so Supervisor shows the App as stopped, not in
+  error (#30).
+
 ## 0.5.1
 
 - Plugfest listener (8083) also accepts OCPP 1.6. Upstream picks the first

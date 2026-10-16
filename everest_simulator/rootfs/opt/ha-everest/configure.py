@@ -167,8 +167,9 @@ def component_config(source, target, settings, password):
     })
     # ChargingStationSupplyPhases stays at the upstream value (3): setting it to 1
     # made libocpp drop every profile from composite schedules (2025.10.0).
-    # Ten-second transaction samples so stepped schedules are visible in HA.
-    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 10})
+    # One-second transaction samples, as in the V2G App, so step response
+    # can be timed from the CSMS record (#41).
+    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 1})
     edit("OCPPCommCtrlr", {"HeartbeatInterval": 60})
 
 
