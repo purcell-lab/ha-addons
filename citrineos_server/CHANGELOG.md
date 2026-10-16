@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1
+
+- Plugfest listener (8083) also accepts OCPP 1.6. Upstream picks the first
+  protocol in the listener's list that the station offers, in the order
+  2.1, 2.0.1, 1.6.
+- New `plugfest_open_admission` (default `false`, needs `plugfest_enabled`):
+  8083 runs Security Profile 0 and admits any station identity without
+  credentials, like the internal 8082 listener but on the publishable port.
+  `plugfest_stations` may then be empty. The server logs a warning at start.
+- `/lab/status` reports `plugfest_open_admission` and `plugfest_protocols`.
+- `tests/plugfest_probe.py` checks a 1.6 boot with Basic Auth, 2.1
+  preference, and open admission on 2.1, 2.0.1 and 1.6.
+
 ## 0.5.0
 
 - Operator UI scope for the new CitrineOS Operator UI App, off by default:

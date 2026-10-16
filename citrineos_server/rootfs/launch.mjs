@@ -49,11 +49,14 @@ export const PLUGFEST_ID=/^[A-Za-z0-9._~*+-]{1,48}$/;
 // OCPP 2.0.1/2.1 BasicAuthPassword: 16 to 40 printable characters.
 export const PLUGFEST_PASSWORD=/^[\x21-\x7e]{16,40}$/;
 export function validatePlugfest(o) {
-  if(o.plugfest_enabled!==undefined&&typeof o.plugfest_enabled!=='boolean')throw new Error('Invalid Plugfest flag');
+  for(const flag of ['plugfest_enabled','plugfest_open_admission'])
+    if(o[flag]!==undefined&&typeof o[flag]!=='boolean')throw new Error('Invalid Plugfest flag');
+  if(o.plugfest_open_admission&&!o.plugfest_enabled)throw new Error('plugfest_open_admission needs plugfest_enabled');
   const stations=o.plugfest_stations??[];
   if(!Array.isArray(stations))throw new Error('plugfest_stations must be a list');
   if(!o.plugfest_enabled)return;
-  if(!stations.length)throw new Error('Plugfest listener needs at least one provisioned station');
+  // Open admission accepts any identity, so the list may be empty there.
+  if(!stations.length&&!o.plugfest_open_admission)throw new Error('Plugfest listener needs at least one provisioned station');
   // Identities a simulator option already provisions with its own password.
   const reserved=new Set([...(o.simulator_enabled?['SIM-CITRINE-LAB-01']:[]),
     ...(o.profile_simulator_enabled?[commandStation(o)]:[])]);
@@ -73,7 +76,11 @@ export function validatePlugfest(o) {
 // any identity without credentials: an explicit, lab-only decision.
 // Optional port 8083 is the Plugfest listener for external charging stations:
 // Security Profile 1 with per-station provisioned passwords, unknown stations
-// rejected. It is the only port the App can publish on the host.
+// rejected; or, with plugfest_open_admission, Security Profile 0 admitting any
+// identity without credentials. It is the only port the App can publish on
+// the host. Upstream picks the first of these protocols the station offers,
+// so 2.1 is preferred and 1.6 is the last fallback.
+export const PLUGFEST_PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
 export function buildListeners(o) {
   const listeners=[];
   if(o.simulator_enabled||o.profile_simulator_enabled) listeners.push({
@@ -87,9 +94,10 @@ export function buildListeners(o) {
     securityProfile:0,allowUnknownChargingStations:true,ignoreAuthenticationHeaders:true,
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
+  const open=o.plugfest_open_admission===true;
   if(o.plugfest_enabled) listeners.push({
-    id:'citrine-plugfest',host:'0.0.0.0',port:8083,protocols:['ocpp2.1','ocpp2.0.1'],
-    securityProfile:1,allowUnknownChargingStations:false,ignoreAuthenticationHeaders:false,
+    id:'citrine-plugfest',host:'0.0.0.0',port:8083,protocols:[...PLUGFEST_PROTOCOLS],
+    securityProfile:open?0:1,allowUnknownChargingStations:open,ignoreAuthenticationHeaders:open,
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
   return listeners;
@@ -291,6 +299,8 @@ export async function main() {
           profile_simulator_identity:o.profile_simulator_enabled?station:null,
           open_admission:o.open_admission_enabled===true,
           plugfest_stations:o.plugfest_enabled?(o.plugfest_stations||[]).map(st=>st.id):[],
+          plugfest_open_admission:o.plugfest_enabled===true&&o.plugfest_open_admission===true,
+          plugfest_protocols:o.plugfest_enabled?PLUGFEST_PROTOCOLS:[],
           read_only:!controller,operator_ui:o.operator_ui_enabled===true,
           operator_commands:o.operator_ui_enabled===true&&o.operator_commands_enabled===true}));return;
       }
@@ -339,6 +349,8 @@ export async function main() {
   gateway.requestTimeout=15000;gateway.headersTimeout=10000;
   await new Promise(r=>gateway.listen(8080,'0.0.0.0',r));streams.push(gateway);
   console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
+  if(o.plugfest_enabled&&o.plugfest_open_admission)
+    console.log('WARNING: Plugfest listener 8083 admits any station without authentication (plugfest_open_admission).');
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) main().catch(()=>{
   console.error('Laboratory startup failed; inspect dependency health. Credentials omitted.');

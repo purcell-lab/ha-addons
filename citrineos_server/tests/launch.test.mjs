@@ -69,8 +69,26 @@ test('Plugfest listener: opt-in Security Profile 1 on 8083 for provisioned stati
   assert.equal(l.securityProfile,1);
   assert.equal(l.allowUnknownChargingStations,false);
   assert.equal(l.ignoreAuthenticationHeaders,false);
-  assert.deepEqual(l.protocols,['ocpp2.1','ocpp2.0.1']);
+  // Upstream picks the first listed protocol the station offers.
+  assert.deepEqual(l.protocols,['ocpp2.1','ocpp2.0.1','ocpp1.6']);
   assert.deepEqual(buildListeners({...pf,open_admission_enabled:true}).map(x=>x.port),[8082,8083]);
+});
+test('Plugfest open admission: 8083 without credentials, explicitly opted in',()=>{
+  const st=[{id:'EVX-AU-001',password:'Vendor-Pass-0001'}];
+  const open={...good,plugfest_enabled:true,plugfest_open_admission:true};
+  assert.doesNotThrow(()=>validate(open));
+  assert.doesNotThrow(()=>validate({...open,plugfest_stations:st}));
+  const [l]=buildListeners(open);
+  assert.equal(l.port,8083);
+  assert.equal(l.securityProfile,0);
+  assert.equal(l.allowUnknownChargingStations,true);
+  assert.equal(l.ignoreAuthenticationHeaders,true);
+  assert.deepEqual(l.protocols,['ocpp2.1','ocpp2.0.1','ocpp1.6']);
+  // Off by default, needs the listener itself, and must be a real boolean.
+  assert.throws(()=>validate({...good,plugfest_enabled:true,plugfest_stations:[]}));
+  assert.throws(()=>validate({...good,plugfest_open_admission:true}));
+  assert.throws(()=>validate({...open,plugfest_open_admission:'yes'}));
+  assert.equal(buildListeners({...good,plugfest_enabled:true,plugfest_stations:st})[0].securityProfile,1);
 });
 test('Plugfest stations are validated, unique and do not clash with simulator provisioning',()=>{
   const pf=s=>({...good,plugfest_enabled:true,plugfest_stations:s});

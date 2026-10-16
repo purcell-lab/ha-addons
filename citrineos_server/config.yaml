@@ -1,5 +1,5 @@
 name: CitrineOS Isolated Lab
-version: "0.5.0"
+version: "0.5.1"
 slug: citrineos_server
 description: Pinned v2.0.1 laboratory server with private dependencies, read-only access, opt-in open station admission and scoped OCPP 2.1 simulator commands.
 url: https://github.com/purcell-lab/ha-addons
@@ -19,7 +19,7 @@ docker_api: false
 ports:
   8083/tcp: null
 ports_description:
-  8083/tcp: Plugfest OCPP 2.1/2.0.1 listener (Basic Auth, provisioned stations only; off unless plugfest_enabled and a host port is set)
+  8083/tcp: Plugfest OCPP 2.1/2.0.1/1.6 listener (Basic Auth for provisioned stations, or no auth with plugfest_open_admission; off unless plugfest_enabled and a host port is set)
 options:
   mode: disconnected
   database_host: ""
@@ -38,6 +38,7 @@ options:
   open_admission_enabled: false
   command_station_id: SIM-EV-EVEREST-V2G-01
   plugfest_enabled: false
+  plugfest_open_admission: false
   plugfest_stations: []
   operator_ui_enabled: false
   operator_token: ""
@@ -60,6 +61,7 @@ schema:
   open_admission_enabled: bool
   command_station_id: match(^SIM-EV-[A-Za-z0-9_-]{1,36}$)
   plugfest_enabled: bool
+  plugfest_open_admission: bool
   operator_ui_enabled: bool
   operator_token: password
   operator_commands_enabled: bool
