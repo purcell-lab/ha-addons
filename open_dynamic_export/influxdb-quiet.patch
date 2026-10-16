@@ -1,0 +1,21 @@
+diff --git a/src/app.ts b/src/app.ts
+index c2f07c1..c216f40 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -43,6 +43,16 @@ app.get(
+ 
+ RegisterRoutes(app);
+ 
++// Without InfluxDB the history endpoints throw on every UI poll and Express
++// prints each stack trace. Answer 503 quietly; other errors are unchanged.
++app.use(((err, _req, res, next) => {
++    if (err instanceof Error && err.message === "InfluxDB isn't available") {
++        res.status(503).json({ message: err.message });
++        return;
++    }
++    next(err);
++}) as express.ErrorRequestHandler);
++
+ // the docker image will not contain `vite.config.ts`
+ // specify the outDir inline
+ ViteExpress.config({

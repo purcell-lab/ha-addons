@@ -15,6 +15,10 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   test "$(cat /usr/share/doc/open-dynamic-export/COMMIT)" = bc807abbc4c58be3294257ee76f0348dc87c4945
   test -s /usr/share/doc/open-dynamic-export/LICENSE
   test -s /usr/share/doc/open-dynamic-export/ingress.patch
+  test -s /usr/share/doc/open-dynamic-export/ramp-tms.patch
+  test -s /usr/share/doc/open-dynamic-export/influxdb-quiet.patch
+  grep -q rampTmsToSeconds /app/dist/setpoints/csipAus/index.js
+  grep -q "status(503)" /app/dist/app.js
   test "$(readlink /app/logs)" = /tmp/ode-logs
   grep -q "src=\"./assets/" /app/dist/ui/index.html
   ! grep -q "src=\"/assets/" /app/dist/ui/index.html

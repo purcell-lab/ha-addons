@@ -56,7 +56,7 @@ automations through the Mosquitto App) use `"type": "mqtt"` with
 | `influxdb_port`, `influxdb_org`, `influxdb_bucket`, `influxdb_token` | | InfluxDB settings; the token is required with a host |
 
 Without InfluxDB the history charts on the UI show errors; control is
-unaffected.
+unaffected, and those requests are not logged (HTTP 503).
 
 ### CSIP-AUS
 

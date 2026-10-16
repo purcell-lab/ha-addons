@@ -23,5 +23,6 @@ Home Assistant installs `ghcr.io/purcell-lab/{arch}-open-dynamic-export:<version
 4. **Merge** once `published-image` is green, then install or update the App.
 
 To move to a newer ODE release, change `ARG ODE_COMMIT`, check that
-`ingress.patch` still applies (the build runs `git apply --check`), update
+each patch still applies (the build runs `git apply --check`; drop
+`ramp-tms.patch` once upstream includes #138), update
 `UPSTREAM.md`, bump `version` and release as above.
