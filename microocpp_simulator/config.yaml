@@ -1,8 +1,9 @@
 name: MicroOCPP Simulator
-version: "0.1.3"
+version: "0.1.4"
 slug: microocpp_simulator
 description: Native OCPP 2.0.1 test charger. Limited feature coverage; test use only.
 url: https://github.com/purcell-lab/ha-addons/tree/main/microocpp_simulator
+image: ghcr.io/purcell-lab/{arch}-microocpp-simulator
 arch:
   - aarch64
   - amd64
