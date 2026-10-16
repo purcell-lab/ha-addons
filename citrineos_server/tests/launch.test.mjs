@@ -57,3 +57,47 @@ test('commands may use open admission; command station stays in the SIM-EV- name
   for(const id of ['REAL-CHARGER','SIM-CITRINE-LAB-01','SIM-EV-','SIM-EV-a/b'])
     assert.throws(()=>validate({...open,command_station_id:id}));
 });
+test('Plugfest listener: opt-in Security Profile 1 on 8083 for provisioned stations only',()=>{
+  const st=[{id:'EVX-AU-001',password:'Vendor-Pass-0001'},{id:'STARCHARGE.T1',password:'Vendor-Pass-0002'}];
+  const pf={...good,plugfest_enabled:true,plugfest_stations:st};
+  assert.doesNotThrow(()=>validate(pf));
+  assert.deepEqual(buildListeners(good),[]);
+  assert.deepEqual(buildListeners({...good,plugfest_stations:st}),[]);
+  const [l]=buildListeners(pf);
+  assert.equal(l.port,8083);
+  assert.equal(l.securityProfile,1);
+  assert.equal(l.allowUnknownChargingStations,false);
+  assert.equal(l.ignoreAuthenticationHeaders,false);
+  assert.deepEqual(l.protocols,['ocpp2.1','ocpp2.0.1']);
+  assert.deepEqual(buildListeners({...pf,open_admission_enabled:true}).map(x=>x.port),[8082,8083]);
+});
+test('Plugfest stations are validated, unique and do not clash with simulator provisioning',()=>{
+  const pf=s=>({...good,plugfest_enabled:true,plugfest_stations:s});
+  const ok={id:'EVX-AU-001',password:'Vendor-Pass-0001'};
+  for(const bad of [
+    [],
+    [{id:'a:b',password:ok.password}],
+    [{id:'a/b',password:ok.password}],
+    [{id:'x'.repeat(49),password:ok.password}],
+    [{id:ok.id,password:'short'}],
+    [{id:ok.id,password:'x'.repeat(41)}],
+    [{id:ok.id,password:'has space in pass'}],
+    [ok,{id:ok.id,password:'Vendor-Pass-0002'}],
+    [ok,{id:'OTHER',password:ok.password}],
+  ]) assert.throws(()=>validate(pf(bad)),undefined,JSON.stringify(bad));
+  const sim={...good,simulator_enabled:true,simulator_password:'e'.repeat(40)};
+  assert.throws(()=>validate({...sim,plugfest_enabled:true,plugfest_stations:[{id:ok.id,password:'e'.repeat(40)}]}));
+  assert.throws(()=>validate({...good,plugfest_enabled:'yes',plugfest_stations:[ok]}));
+  assert.throws(()=>validate({...good,plugfest_enabled:true,plugfest_stations:'EVX:pass'}));
+  assert.doesNotThrow(()=>validate({...good,plugfest_stations:[{id:'a:b'}]}));
+  // A SIM-EV- simulator may rehearse the vendor path, and may be the command
+  // station, unless a simulator option already provisions that identity.
+  const v2g={id:'SIM-EV-EVEREST-V2G-03',password:'f'.repeat(32)};
+  assert.doesNotThrow(()=>validate({...pf([v2g]),open_admission_enabled:true,command_control_enabled:true,
+    command_token:'e'.repeat(64),command_station_id:v2g.id}));
+  assert.throws(()=>validate({...pf([{...v2g,id:'SIM-EV-EVEREST-V2G-01'}]),profile_simulator_enabled:true,
+    profile_simulator_password:'a1'.repeat(16)}));
+  assert.throws(()=>validate({...pf([{id:'SIM-CITRINE-LAB-01',password:ok.password}]),simulator_enabled:true,
+    simulator_password:'e'.repeat(40)}));
+  assert.doesNotThrow(()=>validate(pf([{id:'SIM-CITRINE-LAB-01',password:ok.password}])));
+});

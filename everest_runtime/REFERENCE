@@ -1,4 +1,0 @@
-# App releases built from the upstream demo image directly. The
-# identical-file check compares Apps built from the runtime image with these.
-everest_simulator 0.1.0
-everest_v2g_simulator 0.1.2

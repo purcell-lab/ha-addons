@@ -2,7 +2,8 @@ name: Publish EVerest runtime image
 # Publication is an explicit operator action: it runs only when a maintainer
 # pushes a tag everest_runtime-v<version> matching everest_runtime/VERSION.
 # Each architecture is built natively, must pass the identical-file check
-# against the published App releases, and is pushed as <version>-<arch>;
+# against App builds from the pinned runtime (with the reviewed
+# EXPECTED_DIFFERENCES), and is pushed as <version>-<arch>;
 # then a multi-arch index <version> is created. Nothing is overwritten.
 on:
   push:
@@ -20,12 +21,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        # amd64 only: the target HA host is generic-x86-64. To support
-        # aarch64 again, add runner ubuntu-24.04-arm / arch aarch64 here and
-        # in the other EVerest workflows, and to config.yaml arch.
         include:
           - runner: ubuntu-24.04
             arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -57,7 +57,7 @@ jobs:
           docker build --build-arg RUNTIME_VERSION="$VERSION" \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
             -t "$REPO:$VERSION-${{ matrix.arch }}" everest_runtime
-      - name: Release gate (identical files against the published App releases)
+      - name: Release gate (identical files against App builds from the pinned runtime)
         run: sh .github/scripts/everest_identical_files.sh "$REPO:$VERSION-${{ matrix.arch }}" ${{ matrix.arch }}
       - name: Push (architecture tag only)
         run: docker push "$REPO:$VERSION-${{ matrix.arch }}"
@@ -77,7 +77,7 @@ jobs:
       - name: Create the multi-arch index
         id: index
         run: |
-          docker buildx imagetools create -t "$REPO:$VERSION" "$REPO:$VERSION-amd64"
+          docker buildx imagetools create -t "$REPO:$VERSION" "$REPO:$VERSION-amd64" "$REPO:$VERSION-aarch64"
           digest=$(docker buildx imagetools inspect "$REPO:$VERSION" --format '{{json .Manifest}}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["digest"])')
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           {

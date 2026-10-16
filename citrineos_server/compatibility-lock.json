@@ -5,7 +5,8 @@
     "version": "2.0.1",
     "commit": "1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372",
     "image": "ghcr.io/citrineos/citrineos-server:v2.0.1@sha256:15316dff5f661714e2fddfa2f25baebea4c11d8d6aa2a9bb254a98159da58378",
-    "amd64_manifest": "sha256:356af266f90909f36f3b2bd61b64d7fd374cc416e60126d8d710010e17957e20"
+    "amd64_manifest": "sha256:356af266f90909f36f3b2bd61b64d7fd374cc416e60126d8d710010e17957e20",
+    "arm64_manifest": "sha256:95b43477247dedb562acbfbeeed03b433e9525989cfaa9588a3541cd7d9ea674"
   },
   "client": {
     "repository": "https://github.com/Stuart0411/CitrineOS-HA-Integration",

@@ -32,6 +32,27 @@ class T(unittest.TestCase):
         self.assertEqual(got, {("opt/everest", "changed", ("mode",)), ("opt/everest/bin/manager", "changed", ("sha256",)),
                                ("opt/everest/lib/libx.so", "changed", ("target",)), ("opt/everest/new", "added", ())})
         self.assertEqual([e["path"] for e in other], ["var/log/dpkg.log"])
+    def test_expected_differences_are_kind_and_prefix_specific(self):
+        a = tar(BASE + [("opt/everest/share/www/i.html", "file", b"x", 0o644, {})])
+        b = tar([e for e in BASE if e[0] != "opt/everest/lib/libx.so"]
+                + [("opt/everest/bin/manager", "file", b"ELF2", 0o755, {})])
+        strict, _ = itc.compare(a, b, ["opt/everest"])
+        rules = [("removed", "opt/everest/lib/libx.so"), ("removed", "opt/everest/share/www"),
+                 ("changed", "opt/everest/doc")]
+        unexpected, expected, unused = itc.apply_expected(strict, rules)
+        self.assertEqual({e["path"] for e in expected}, {"opt/everest/lib/libx.so", "opt/everest/share/www/i.html"})
+        self.assertEqual([e["path"] for e in unexpected], ["opt/everest/bin/manager"])
+        self.assertEqual(unused, [("changed", "opt/everest/doc")])
+    def test_expected_file_format(self):
+        import tempfile, os
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("# c\nremoved /opt/everest/x  # why\n\nchanged usr/doc/a\n")
+        try:
+            self.assertEqual(itc.load_expected(f.name), [("removed", "opt/everest/x"), ("changed", "usr/doc/a")])
+            with open(f.name, "w") as g: g.write("deleted opt/x\n")
+            with self.assertRaises(ValueError): itc.load_expected(f.name)
+        finally:
+            os.unlink(f.name)
     def test_pyc_ignores_only_the_source_mtime_field(self):
         head = b"\xa7\r\r\n" + b"\0\0\0\0"
         a = tar([("x/m.pyc", "file", head + b"\1\0\0\0" + b"\x10\0\0\0" + b"code", 0o644, {})])

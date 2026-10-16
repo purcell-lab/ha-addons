@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.5 (unreleased)
+## 0.1.6 (unreleased)
+
+- Offer and publish aarch64 images again alongside amd64, for example for a
+  Home Assistant Green test host.
+- Replace the full OpenJDK 17 JRE package (about 184 MB) with a jlink
+  runtime of only the modules Josev's EXI codec uses (about 50 MB), with a
+  fixed small heap (-Xmx128m, serial GC). The codec JVM's resident memory
+  drops from about 158 MB to about 92 MB; EXI encoding is byte-identical.
+
+## 0.1.5 (released 2026-10-11)
 
 - Send OCPP transaction meter samples every second instead of every ten
   seconds, so the CSMS record can time step response and direction changes.

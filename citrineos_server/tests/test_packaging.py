@@ -9,13 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 class PackagingSafety(unittest.TestCase):
     def test_supervisor_privileges_and_ports_are_absent(self):
         config = yaml.safe_load((ROOT / "config.yaml").read_text())
-        self.assertEqual(config["arch"], ["amd64"])
+        self.assertEqual(config["arch"], ["aarch64", "amd64"])
         self.assertEqual(config["boot"], "manual")
         for field in ("host_network", "hassio_api", "homeassistant_api",
                       "docker_api", "ingress"):
             self.assertIs(config[field], False)
-        for field in ("ports", "map", "devices", "privileged", "services", "image"):
+        for field in ("map", "devices", "privileged", "services", "image"):
             self.assertNotIn(field, config)
+        # Only the opt-in Plugfest listener may be published, and only by an
+        # operator-set host port (null by default).
+        self.assertEqual(config["ports"], {"8083/tcp": None})
+        self.assertIs(config["options"]["plugfest_enabled"], False)
+        self.assertEqual(config["options"]["plugfest_stations"], [])
+        self.assertEqual(config["schema"]["plugfest_stations"][0]["password"], "password")
         self.assertEqual(config["options"]["mode"], "disconnected")
         self.assertEqual(config["schema"]["mode"], "list(disconnected|isolated)")
 
@@ -40,7 +46,29 @@ class PackagingSafety(unittest.TestCase):
                 self.assertNotIn(field, config)
             for field in ("host_network", "hassio_api", "homeassistant_api", "docker_api"):
                 self.assertFalse(config[field])
-            self.assertRegex((root / "Dockerfile").read_text().splitlines()[0], r"@sha256:[a-f0-9]{64}$")
+            self.assertEqual(config["arch"], ["aarch64", "amd64"])
+            stages = set()
+            for line in (root / "Dockerfile").read_text().splitlines():
+                if not line.startswith("FROM "):
+                    continue
+                parts = line.split()
+                if len(parts) == 4 and parts[2] == "AS":
+                    stages.add(parts[3])
+                ref = parts[1]
+                # External bases are pinned by digest; scratch and per-arch
+                # local stages are the only exceptions.
+                if ref != "scratch" and ref.replace("${TARGETARCH}", "amd64") not in stages:
+                    self.assertRegex(ref, r"@sha256:[a-f0-9]{64}$")
+            docker = (root / "Dockerfile").read_text()
+            for line in docker.splitlines():
+                if line.startswith("COPY --from=") and "@" in line.split()[1]:
+                    self.assertRegex(line.split()[1], r"@sha256:[a-f0-9]{64}$")
+                if line.startswith("ADD ") and "https://" in line:
+                    self.assertRegex(line, r"^ADD --checksum=sha256:[a-f0-9]{64} https://")
+            if "jq" in docker:
+                self.assertIn("FROM jq-${TARGETARCH} AS jq", docker)
+                self.assertIn("jq-linux-amd64", docker)
+                self.assertIn("jq-linux-arm64", docker)
 
     def test_metadata_has_no_write_permissions_or_sensitive_columns(self):
         metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())

@@ -1,0 +1,24 @@
+# Reviewed, intended differences between each App built from this runtime
+# and the same App source built from the runtime its Dockerfile pins, under
+# the strict paths of the identical-file check
+# (.github/scripts/everest_identical_files.sh).
+# Format: removed|changed|added PATH-PREFIX. Once the new runtime is
+# published and pinned in both App Dockerfiles, empty this file.
+
+# 2025.10.0-2: keep only the EVerest libraries the shipped binaries load.
+# libeverest_api_types is linked by no shipped binary; the unversioned .so
+# names are link-time symlinks only.
+removed opt/everest/lib/libeverest_api_types.so
+removed opt/everest/lib/libeverest_api_types.so.0
+removed opt/everest/lib/libeverest_api_types.so.0.1.0
+removed opt/everest/lib/libdate-tz.so
+removed opt/everest/lib/libfmt.so
+removed opt/everest/lib/libframework.so
+removed opt/everest/lib/libwebsockets.so
+# 2025.10.0-2: the admin panel web UI contents (its controller is replaced
+# by a stub; the manager requires the empty directory) and data for modules no App runs (OCPP 1.6, YetiDriver,
+# GenericPowermeter).
+removed opt/everest/share/everest/www
+removed opt/everest/share/everest/modules/OCPP
+removed opt/everest/share/everest/modules/YetiDriver
+removed opt/everest/share/everest/modules/GenericPowermeter

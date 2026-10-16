@@ -2,7 +2,8 @@
 """Compare the file trees of two container images.
 
 Usage:
-  image_tree_compare.py REFERENCE CANDIDATE [--strict PREFIX ...] [--report FILE]
+  image_tree_compare.py REFERENCE CANDIDATE [--strict PREFIX ...]
+                        [--expected FILE] [--report FILE]
 
 Both images are exported with `docker create` and `docker export`. Every
 path is recorded with its type, permission bits, owner, and either the
@@ -19,6 +20,11 @@ Paths under a --strict prefix must be identical: any added, removed or
 changed path there fails the check (exit 1). Differences elsewhere are
 listed for information only, because the Debian packages are resolved by
 apt at build time and can move between builds.
+
+--expected names a reviewed list of intended strict differences, one per
+line: `removed|changed|added PATH-PREFIX` (# starts a comment). A strict
+difference of that kind under that prefix is reported as expected instead
+of failing. Entries never require a difference; unused ones are listed.
 """
 import argparse
 import base64
@@ -136,6 +142,34 @@ def compare(reference, candidate, strict):
     return strict_diffs, other
 
 
+def load_expected(path):
+    """Parse an expected-differences file into [(change, prefix)]."""
+    rules = []
+    with open(path) as handle:
+        for number, line in enumerate(handle, 1):
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) != 2 or parts[0] not in ("removed", "changed", "added"):
+                raise ValueError(f"{path}:{number}: expected 'removed|changed|added PATH'")
+            rules.append((parts[0], parts[1].strip("/")))
+    return rules
+
+
+def apply_expected(strict_diffs, rules):
+    """Split strict differences into (unexpected, expected, unused_rules)."""
+    unexpected, expected, used = [], [], set()
+    for entry in strict_diffs:
+        match = next((r for r in rules if r[0] == entry["change"] and under(entry["path"], [r[1]])), None)
+        if match:
+            used.add(match)
+            expected.append(entry)
+        else:
+            unexpected.append(entry)
+    return unexpected, expected, [r for r in rules if r not in used]
+
+
 def summarise(entries, limit=200):
     lines = []
     for entry in entries[:limit]:
@@ -152,9 +186,11 @@ def main(argv=None):
     parser.add_argument("candidate")
     parser.add_argument("--strict", action="append", default=[],
                         help="path prefix (no leading slash) that must be identical")
+    parser.add_argument("--expected", help="reviewed list of intended strict differences")
     parser.add_argument("--report", help="write the full comparison as JSON")
     args = parser.parse_args(argv)
     strict = [p.strip("/") for p in args.strict]
+    rules = load_expected(args.expected) if args.expected else []
 
     ref_pyc, cand_pyc = {}, {}
     reference = image_tree(args.reference, ref_pyc)
@@ -165,6 +201,7 @@ def main(argv=None):
     same = equivalent_pyc(args.candidate, pairs)
     pyc_equal = [e for e in strict_diffs if same.get(e["path"])]
     strict_diffs = [e for e in strict_diffs if not same.get(e["path"])]
+    strict_diffs, expected, unused = apply_expected(strict_diffs, rules)
     checked = [p for p in candidate if under(p, strict)]
     files = [p for p in checked if candidate[p]["type"] == "file"]
     print(f"reference {args.reference}: {len(reference)} paths")
@@ -174,6 +211,11 @@ def main(argv=None):
     if pyc_equal:
         print(f"  {len(pyc_equal)} .pyc differ only in marshal encoding; code objects are equal")
     print("\n".join(summarise(strict_diffs)))
+    if rules:
+        print(f"expected differences ({args.expected}): {len(expected)}")
+        print("\n".join(summarise(expected)))
+        for change, prefix in unused:
+            print(f"  unused expectation: {change} /{prefix}")
     print(f"outside the strict prefixes: {len(other)} differences (information only)")
     print("\n".join(summarise(other)))
     if args.report:
@@ -181,6 +223,8 @@ def main(argv=None):
             json.dump({"reference": args.reference, "candidate": args.candidate, "strict": strict,
                        "strict_paths": len(checked), "strict_files": len(files),
                        "strict_differences": strict_diffs,
+                       "expected_differences": expected,
+                       "unused_expectations": [" ".join(r) for r in unused],
                        "pyc_code_equal": [e["path"] for e in pyc_equal], "other_differences": other},
                       handle, indent=1)
     if not checked:
