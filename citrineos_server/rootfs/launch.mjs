@@ -42,14 +42,15 @@ export function validatePlugfest(o) {
   if(!Array.isArray(stations))throw new Error('plugfest_stations must be a list');
   if(!o.plugfest_enabled)return;
   if(!stations.length)throw new Error('Plugfest listener needs at least one provisioned station');
-  const reserved=new Set(['SIM-CITRINE-LAB-01',commandStation(o)]);
+  // Identities a simulator option already provisions with its own password.
+  const reserved=new Set([...(o.simulator_enabled?['SIM-CITRINE-LAB-01']:[]),
+    ...(o.profile_simulator_enabled?[commandStation(o)]:[])]);
   const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.command_token,
     o.simulator_password,o.profile_simulator_password].filter(Boolean);
   const ids=new Set(), passwords=new Set();
   for(const st of stations) {
     if(!st||typeof st!=='object'||!PLUGFEST_ID.test(st.id||''))throw new Error('Invalid Plugfest station identity');
-    // Vendor stations stay out of the simulator command namespace.
-    if(reserved.has(st.id)||st.id.startsWith('SIM-EV-'))throw new Error('Plugfest identity is reserved for a simulator');
+    if(reserved.has(st.id))throw new Error('Plugfest identity is already provisioned by a simulator option');
     if(!PLUGFEST_PASSWORD.test(st.password||''))throw new Error('Plugfest password must be 16-40 printable characters');
     if(ids.has(st.id)||passwords.has(st.password)||secrets.includes(st.password))
       throw new Error('Plugfest identities and passwords must be unique and distinct from other credentials');

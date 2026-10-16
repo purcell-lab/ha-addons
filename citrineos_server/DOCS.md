@@ -169,9 +169,12 @@ charging stations on the venue network need to connect. `plugfest_enabled`
   WebSocket upgrade;
 - identities are OCPP station IDs (up to 48 of `A-Z a-z 0-9 . _ ~ * + -`; no
   `:` or `/`), passwords 16 to 40 printable characters, all unique and
-  distinct from every other credential. The `SIM-EV-` namespace,
-  `SIM-CITRINE-LAB-01` and the command station are reserved for simulators,
-  so vendor stations can never be the target of the scoped HA command path;
+  distinct from every other credential. An identity that a simulator option
+  already provisions (`SIM-CITRINE-LAB-01` with `simulator_enabled`, the
+  command station with `profile_simulator_enabled`) is refused. The scoped HA
+  command path only ever targets `command_station_id`, a `SIM-EV-` simulator,
+  so vendor stations are never its target. A `SIM-EV-` simulator may be
+  listed to rehearse the vendor path;
 - stations are provisioned at startup (identity, password, Accepted boot);
   their EVSEs and connectors are created from their own status reports.
 - at every startup, Basic Auth passwords of stations that are no longer
