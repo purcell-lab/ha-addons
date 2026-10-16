@@ -208,9 +208,10 @@ against `everest_runtime/REFERENCE`, with documented Python-bytecode equivalence
 handling. A file-equivalence pass is not an interoperability pass.
 [Runtime build and verification](https://github.com/purcell-lab/ha-addons/pull/17)
 
-Consolidated EVerest CI targets amd64, matching the recorded HA host.
-Previously published runtime/App releases include aarch64, but that historical
-publication does not establish ongoing aarch64 support for new changes.
+Consolidated EVerest CI targeted amd64 only for a while, matching the recorded
+HA host. CI, publication and `config.yaml` cover aarch64 again (from V2G
+0.1.6) for an aarch64 Home Assistant Green test host; the runtime index
+already had arm64.
 [Architecture change](https://github.com/purcell-lab/ha-addons/pull/17)
 
 ### Build without publication

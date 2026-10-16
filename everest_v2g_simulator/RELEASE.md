@@ -7,10 +7,6 @@ The App build itself copies EVerest from the small pinned runtime image
 (`everest_runtime/README.md`), not the 4.3 GB upstream image.
 Each step below is a separate operator decision; none happens automatically.
 
-From this release on, only amd64 is built and offered (`config.yaml` arch),
-because the target HA host is generic-x86-64. aarch64 images exist up to
-AC 0.1.1 and V2G 0.1.3 only.
-
 ## Steps
 
 1. **Approve publication** of a public container image with the EVerest

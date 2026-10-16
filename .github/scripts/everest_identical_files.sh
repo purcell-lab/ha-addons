@@ -1,7 +1,7 @@
 #!/bin/sh
 # Identical-file check for the EVerest runtime image.
 #
-# Usage: everest_identical_files.sh <runtime image ref> <arch: amd64>
+# Usage: everest_identical_files.sh <runtime image ref> <arch: amd64|aarch64>
 #
 # For each EVerest App, builds the App from the given runtime image and
 # compares it with the reference release listed in everest_runtime/REFERENCE

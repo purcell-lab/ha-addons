@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.5 (unreleased)
+## 0.1.6 (unreleased)
+
+- Offer and publish aarch64 images again alongside amd64, for example for a
+  Home Assistant Green test host. No functional change from 0.1.5.
+
+## 0.1.5 (released 2026-10-11)
 
 - Send OCPP transaction meter samples every second instead of every ten
   seconds, so the CSMS record can time step response and direction changes.
