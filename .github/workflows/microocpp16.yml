@@ -4,6 +4,7 @@ on:
     paths:
       - "microocpp_simulator16/**"
       - ".github/workflows/microocpp16.yml"
+      - ".github/workflows/microocpp-publish.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,12 +33,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build native image (no publication or deployment)
         run: |
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' microocpp_simulator16/config.yaml)
           docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
-            --build-arg BUILD_VERSION=0.1.1 -t microocpp16:test microocpp_simulator16
-      - name: Native 1.6 smart-charging acceptance
-        run: |
-          docker build -t microocpp16:smoke -f microocpp_simulator16/tests/Dockerfile.smoke .
-          docker run --rm --network none microocpp16:smoke
+            --build-arg BUILD_VERSION="$version" -t microocpp16:built microocpp_simulator16
+      - name: Image checks (same as the publish gate)
+        run: sh microocpp_simulator16/tests/ci_image_checks.sh microocpp16:built
       - name: Status-page browser checks (synthetic data only)
         if: matrix.arch == 'amd64'
         run: |
@@ -47,13 +47,24 @@ jobs:
           npm install --no-save --ignore-scripts playwright@1.56.0
           npx playwright install --with-deps chromium
           node microocpp_simulator16/tests/txprofile_ui.cjs /tmp/txprofile-bundle.html
-      - name: Offline App entrypoint and shutdown
+  published-image:
+    # Merge gate: config.yaml points HA at a prebuilt image, so the exact
+    # version must already be publicly pullable (anonymous, both arches).
+    # Publish it first with the approval-gated microocpp-publish.yml.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prebuilt image for this version is public on GHCR
         run: |
-          trap 'docker logs app16-smoke; docker rm -f app16-smoke' EXIT
-          docker create --network none --name app16-smoke microocpp16:test
-          docker cp microocpp_simulator16/tests/offline-options.json app16-smoke:/data/options.json
-          docker start app16-smoke
-          sleep 3
-          docker exec app16-smoke python3 -c 'import json, urllib.request; data=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/websocket")); assert data["backendUrl"] == ""; assert data["chargeBoxId"] == "SIM-16-MICROOCPP-01"'
-          docker stop --time 12 app16-smoke
-          test "$(docker inspect -f '{{.State.ExitCode}}' app16-smoke)" = "0"
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' microocpp_simulator16/config.yaml)
+          image=$(sed -n 's/^image: //p' microocpp_simulator16/config.yaml)
+          test -n "$version" && test -n "$image"
+          for arch in amd64 aarch64; do
+            ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"
+            if docker manifest inspect "$ref" > /dev/null; then
+              echo "public: $ref"
+            else
+              echo "::error::$ref is not publicly pullable. Publish it (microocpp-publish.yml, app microocpp_simulator16, version $version) and make the package public before merging."
+              exit 1
+            fi
+          done

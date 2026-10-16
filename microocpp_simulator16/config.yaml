@@ -1,8 +1,9 @@
 name: MicroOCPP 1.6 Smart Charging
-version: "0.1.1"
+version: "0.1.2"
 slug: microocpp_simulator16
 description: Isolated OCPP 1.6J test charger with watt-based smart charging.
 url: https://github.com/purcell-lab/ha-addons
+image: ghcr.io/purcell-lab/{arch}-microocpp-simulator16
 arch:
   - aarch64
   - amd64
