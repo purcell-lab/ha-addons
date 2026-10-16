@@ -2,11 +2,12 @@
 # No build argument can select another upstream image.
 FROM ghcr.io/citrineos/citrineos-server:v2.0.1@sha256:15316dff5f661714e2fddfa2f25baebea4c11d8d6aa2a9bb254a98159da58378
 
+ARG BUILD_ARCH
 LABEL io.hass.name="CitrineOS Isolated Lab" \
       io.hass.description="Private laboratory server with opt-in scoped simulator controls" \
       io.hass.type="addon" \
       io.hass.version="0.4.0" \
-      io.hass.arch="amd64" \
+      io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons"
 
 COPY rootfs/ /opt/citrine-ha/
