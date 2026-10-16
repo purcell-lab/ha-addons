@@ -22,6 +22,7 @@ Decisions: Green on the venue LAN, **Security Profile 1 (Basic Auth over
 | Path | What |
 |---|---|
 | `README.md` | Configuration notes, test records, findings |
+| [`SETUP.md`](SETUP.md) | Full system setup (host, stores, integrations, Apps) and the build and publish process |
 | `data/*.json` | Raw records for each run: the profile sent, station samples, CSMS samples |
 | `charts/*.svg` | TxProfile sent versus power measured by the station (CS) and recorded by the CSMS |
 | `make_charts.py` | Regenerates the charts from `data/` (standard library only): `python3 make_charts.py` |
