@@ -51,14 +51,27 @@ export function validateCommand(url,p,station=STATION) {
   if(c.chargingProfileKind==='Relative'&&s.startSchedule!==undefined)return false;
   let last=-1;
   return s.chargingSchedulePeriod.every((x,i)=>{
-    const ok=keys(x,['startPeriod','limit','dischargeLimit','setpoint','operationMode'])
-      &&int(x.startPeriod,0,s.duration-1)&&(i!==0||x.startPeriod===0)&&x.startPeriod>last
-      &&Number.isFinite(x.limit)&&x.limit>=0&&x.limit<=MAX_POWER_W
-      &&Number.isFinite(x.dischargeLimit)&&x.dischargeLimit>=-MAX_POWER_W&&x.dischargeLimit<=0
-      &&Number.isFinite(x.setpoint)&&x.setpoint>=x.dischargeLimit&&x.setpoint<=x.limit
-      &&x.operationMode==='CentralSetpoint';
+    const ok=validPeriod(x,s.duration,i,last);
     last=x.startPeriod;return ok;
   });
+}
+// A period is either a V2G CentralSetpoint period (setpoint and discharge
+// limit required), or an AC charging-only period (operationMode absent or
+// ChargingOnly, no setpoint or discharge). libocpp assumes 3 phases when
+// numberPhases is absent, so a single-phase AC station would get a third of a
+// watt limit (#39): numberPhases may be 1 or 3, and phaseToUse (1-3) only
+// with numberPhases 1.
+function validPeriod(x,duration,i,last) {
+  if(!keys(x,['startPeriod','limit','dischargeLimit','setpoint','operationMode','numberPhases','phaseToUse'])
+    ||!int(x.startPeriod,0,duration-1)||(i===0&&x.startPeriod!==0)||x.startPeriod<=last
+    ||!Number.isFinite(x.limit)||x.limit<0||x.limit>MAX_POWER_W)return false;
+  if(x.numberPhases!==undefined&&x.numberPhases!==1&&x.numberPhases!==3)return false;
+  if(x.phaseToUse!==undefined&&(x.numberPhases!==1||!int(x.phaseToUse,1,3)))return false;
+  if(x.operationMode==='CentralSetpoint')
+    return Number.isFinite(x.dischargeLimit)&&x.dischargeLimit>=-MAX_POWER_W&&x.dischargeLimit<=0
+      &&Number.isFinite(x.setpoint)&&x.setpoint>=x.dischargeLimit&&x.setpoint<=x.limit;
+  return (x.operationMode===undefined||x.operationMode==='ChargingOnly')
+    &&x.setpoint===undefined&&x.dischargeLimit===undefined;
 }
 
 // Read the observed protocol and active transaction before any dispatch.

@@ -62,6 +62,12 @@ CI step means (A) for the same schedule:
 - The demo build is coverage-instrumented and logs composite schedules
   every interval; both are handled in `app.py`.
 
+## 0.1.2: one-second transaction samples (2026-10-17)
+
+`SampledDataTxUpdatedInterval` is 1 s (was 10 s), so CSMS-side MeterValues
+show each profile step within about a second (#41). No other change; same
+runtime image as 0.1.1.
+
 ## 0.1.1: rebuilt from the shared runtime image (2026-10-11)
 
 0.1.1 is 0.1.0 rebuilt from `ghcr.io/purcell-lab/everest-runtime:2025.10.0-1`

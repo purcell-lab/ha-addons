@@ -26,12 +26,32 @@ test('multi-step import/discharge/zero profile is constrained in W',()=>{
   assert.equal(validateCommand(url(2),profile()),true);
   for(const change of [{setpoint:-11001},{setpoint:11001},{dischargeLimit:1},
     {dischargeLimit:-11001},{limit:11001},{limit:-1},{limit:NaN},{setpoint:Infinity},
-    {setpoint:null},{operationMode:'LocalFrequency'},{numberPhases:3}]) {
+    {setpoint:null},{operationMode:'LocalFrequency'},{numberPhases:2},{numberPhases:'1'},
+    {phaseToUse:1},{numberPhases:3,phaseToUse:1},{numberPhases:1,phaseToUse:4},{operationMode:'ChargingOnly'}]) {
     const bad=profile();Object.assign(bad.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0],change);
     assert.equal(validateCommand(url(2),bad),false,JSON.stringify(change));
   }
   const outside=profile();outside.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].limit=2000;
   assert.equal(validateCommand(url(2),outside),false);
+});
+test('single-phase AC watt profile: numberPhases and charging-only periods (#39)',()=>{
+  const ac=(periods)=>{const p=profile();p.chargingProfile.chargingSchedule[0].chargingSchedulePeriod=periods;return p;};
+  const steps=[6000,3000,7000,0].map((limit,i)=>({startPeriod:i*60,limit,numberPhases:1}));
+  assert.equal(validateCommand(url(2),ac(steps)),true);
+  assert.equal(validateCommand(url(2),ac(steps.map(x=>({...x,operationMode:'ChargingOnly'})))),true);
+  assert.equal(validateCommand(url(2),ac(steps.map(x=>({...x,phaseToUse:2})))),true);
+  assert.equal(validateCommand(url(2),ac(steps.map(x=>({...x,numberPhases:3})))),true);
+  assert.equal(validateCommand(url(2),ac([{startPeriod:0,limit:7000}])),true);
+  // V2G periods may carry numberPhases too.
+  const v2g=profile();v2g.chargingProfile.chargingSchedule[0].chargingSchedulePeriod.forEach(x=>x.numberPhases=3);
+  assert.equal(validateCommand(url(2),v2g),true);
+  for(const bad of [
+    {startPeriod:0,limit:6000,numberPhases:2},
+    {startPeriod:0,limit:6000,numberPhases:1,setpoint:3000},
+    {startPeriod:0,limit:6000,dischargeLimit:-1000},
+    {startPeriod:0,limit:11001,numberPhases:1},
+    {startPeriod:0,limit:6000,operationMode:'ExternalSetpoint'},
+  ]) assert.equal(validateCommand(url(2),ac([bad])),false,JSON.stringify(bad));
 });
 test('duration, timestamp, purpose, sequence and transaction are not silently repaired',()=>{
   for(const mutate of [

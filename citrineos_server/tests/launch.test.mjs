@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validate,permitted,equalToken,buildListeners} from '../rootfs/launch.mjs';
+import {validate,permitted,equalToken,buildListeners,upstreamExitCode} from '../rootfs/launch.mjs';
 import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS} from '../rootfs/control-policy.mjs';
 const good={mode:'isolated',database_host:'citrine-db',broker_host:'citrine-broker',hasura_host:'citrine-hasura',
   database_password:'a'.repeat(64),broker_password:'b'.repeat(64),hasura_secret:'c'.repeat(64),api_token:'d'.repeat(64)};
@@ -162,4 +162,8 @@ test('operator commands need the station online on the same OCPP version',()=>{
   assert.equal(operatorTargetAllows(cmd,st({tenantId:2})),false);
   assert.equal(operatorTargetAllows(cmd,{data:{ChargingStations:[]}}),false);
   assert.equal(operatorTargetAllows(null,st({})),false);
+});
+test('a deliberate stop exits 0; an unrequested upstream exit fails (#30)',()=>{
+  assert.equal(upstreamExitCode(true),0);
+  assert.equal(upstreamExitCode(false),1);
 });

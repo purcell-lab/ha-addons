@@ -102,6 +102,10 @@ export function buildListeners(o) {
   });
   return listeners;
 }
+// A deliberate stop exits 0 whatever code upstream ends with on SIGTERM;
+// otherwise Supervisor reports the stopped App as "error" (#30). An upstream
+// exit the gateway did not ask for is always a failure.
+export function upstreamExitCode(shutting) { return shutting ? 0 : 1; }
 export function permitted(method, path) {
   return (method === 'GET' && ['/health/ready','/commands/tariff','/lab/status','/lab/control-policy'].includes(path))
     || (method === 'POST' && path === '/v1/graphql');
@@ -223,7 +227,8 @@ export async function main() {
   });
   await new Promise(r=>jwks.listen(8091,'127.0.0.1',r)); streams.push(jwks);
   const upstream=run([`${APP}/dist/index.js`]);
-  upstream.then(()=>{if(!shutting)process.exit(1);else process.exit(0);}).catch(()=>{
+  upstream.then(()=>process.exit(upstreamExitCode(shutting))).catch(()=>{
+    if(shutting){process.exit(upstreamExitCode(shutting));return;}
     console.error('Upstream server exited; gateway closing.');stop();process.exitCode=1;
   });
   await waitFor('CitrineOS',async()=> {

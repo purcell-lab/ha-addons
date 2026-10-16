@@ -1,5 +1,5 @@
 name: CitrineOS Isolated Lab
-version: "0.5.1"
+version: "0.5.2"
 slug: citrineos_server
 description: Pinned v2.0.1 laboratory server with private dependencies, read-only access, opt-in open station admission and scoped OCPP 2.1 simulator commands.
 url: https://github.com/purcell-lab/ha-addons
