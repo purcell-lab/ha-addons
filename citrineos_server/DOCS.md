@@ -157,6 +157,25 @@ active transaction and bounded profiles. Commands may now be enabled with
 either `profile_simulator_enabled` or `open_admission_enabled`; they still
 need the separate command credential.
 
+## Operator UI scope (opt-in)
+
+For the **CitrineOS Operator UI** App. Off unless `operator_ui_enabled: true`.
+
+| Option | Meaning |
+|---|---|
+| `operator_ui_enabled` | Accept `operator_token` at the gateway (8080) for GraphQL as the read-only Hasura role `operator_ro`, and apply `metadata-operator.json` (upstream's full schema) on start |
+| `operator_token` | 64 hex characters, distinct from every other secret; the same value goes in the Operator UI App |
+| `operator_commands_enabled` | Also allow the fixed operator command set (see the Operator UI App's DOCS) to any online tenant-1 station on the matching OCPP version |
+
+The operator role can read everything the UI needs but cannot insert,
+update or delete. BasicAuthPassword and other password or key variables,
+OCPI credential profiles and webhook subscriptions are not readable. The
+`ha_reader` role used by CitrineOS-HA is unchanged. Every operator command
+is logged as `Operator command <action> to <station> (<protocol>)`.
+
+`tools/build_operator_metadata.py` regenerates `metadata-operator.json`
+from the pinned upstream release.
+
 ## Plugfest listener (opt-in, external charging stations)
 
 For an OCPP Plugfest where this server is the CSMS under test, external

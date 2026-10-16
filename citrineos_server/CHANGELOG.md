@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+- Operator UI scope for the new CitrineOS Operator UI App, off by default:
+  - `operator_ui_enabled` with a separate `operator_token`: GraphQL through the
+    gateway as Hasura role `operator_ro`, using `metadata-operator.json`
+    (upstream's full v2.0.1 schema, select-only, tenant-filtered; password and
+    key variables, OCPI credential profiles and webhook subscriptions hidden).
+    The `ha_reader` permissions used by CitrineOS-HA are unchanged.
+  - `operator_commands_enabled`: a fixed set of OCPP 2.0.1/2.1 operational
+    commands to any online tenant-1 station on the matching version, through a
+    separate upstream RBAC role `lab-operator`. Credential, certificate,
+    firmware, network-profile, SetVariables, data-transfer and file-upload
+    commands are never allowed.
+- `tests/operator_probe.py` (`TEST_OPERATOR=1`, in CI) checks the scope end to
+  end, including a Reset delivered to an online OCPP 2.0.1 station.
+
 ## 0.4.0 (staged, not accepted for deployment)
 
 - Add opt-in enrolment for the existing `SIM-EV-EVEREST-V2G-01` simulator.
