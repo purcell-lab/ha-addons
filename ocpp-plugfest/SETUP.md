@@ -35,9 +35,10 @@ Home Assistant Green (HA OS, aarch64), LAN 192.168.86.90
 │       └─ store 31ac84d3 = purcell-lab/ha-addons#claude/green-e2e
 │
 ├─ CitrineOS lab stack (store 31ac84d3, built locally on the Green)
-│   database 0.1.1 ─ broker 0.1.1 ─ hasura 0.1.1 ─ server 0.5.0
+│   database 0.1.1 ─ broker 0.1.1 ─ hasura 0.1.1 ─ server 0.5.1
 │       8080 gateway · 8081 SP1 simulators · 8082 SP0 open admission
-│       8083 SP1 Plugfest (host port published only during a slot)
+│       8083 Plugfest: OCPP 2.1 > 2.0.1 > 1.6; SP1, or SP0 open admission
+│            (host port published only during a slot)
 │   Operator UI 0.1.0 (prebuilt GHCR) → gateway 8080, HA Ingress only
 │
 ├─ Charging-station simulators
@@ -50,12 +51,13 @@ Home Assistant Green (HA OS, aarch64), LAN 192.168.86.90
     offline test configuration, inverter control disabled
 ```
 
-**Why a branch store.** The aarch64 builds of the CitrineOS Apps (PR #34)
-and the Plugfest listener (`claude/plugfest-sp1`) aren't on main yet. On
-main the CitrineOS Apps are amd64-only, so the Green's main store shows them
-as unavailable. `claude/green-e2e` is main + PR #34 + `claude/plugfest-sp1`.
-Once those merge, install everything from the main store and remove the
-branch store.
+**Why a branch store.** The CitrineOS stack Apps were first installed from
+`claude/green-e2e`, before their aarch64 builds and the Plugfest listener
+reached main. Everything is on main now, and `claude/green-e2e` is kept
+fast-forwarded to main, so store 31ac84d3 serves the same versions. A new
+release for those Apps reaches the Green after its PR merges and
+`claude/green-e2e` is fast-forwarded. Moving them to the main store means a
+reinstall, which resets their data.
 
 ## 2. Host: Home Assistant Green
 
@@ -153,7 +155,7 @@ no spaces. `secrets.token_urlsafe(24)` gives 32 characters.
 | `citrineos_server` | see below |
 | `citrineos_operator_ui` | see [Operator UI](#operator-ui) |
 
-`citrineos_server` 0.5.0:
+`citrineos_server` 0.5.1:
 
 ```yaml
 mode: isolated                      # 'disconnected' until all secrets are set
@@ -170,7 +172,8 @@ command_control_enabled: true       # scoped lab commands
 command_token: <64 hex>
 command_station_id: SIM-EV-EVEREST-V2G-03   # one station at a time (#40)
 open_admission_enabled: true        # 8082, internal only, for the AC simulator
-plugfest_enabled: true              # 8083 SP1 listener
+plugfest_enabled: true              # 8083 listener: OCPP 2.1, 2.0.1, 1.6
+plugfest_open_admission: true       # SP0, any station ID, no password (see below); false = SP1 only
 plugfest_stations:
   - id: SIM-EV-EVEREST-V2G-03
     password: <32 hex>              # also set in the V2G App
@@ -184,7 +187,7 @@ operator_commands_enabled: true     # fixed operator command set, any online sta
 | 8080 | Gateway (Bearer `api_token`; commands also need `command_token`; Operator UI uses `operator_token`) | Internal |
 | 8081 | SP1, provisioned simulators | Internal |
 | 8082 | SP0 open admission | **Internal only, never published** |
-| 8083 | SP1 Plugfest: provisioned `plugfest_stations` only, unknown IDs rejected | Host port `8083` **only during a slot** |
+| 8083 | Plugfest, OCPP 2.1 > 2.0.1 > 1.6. SP1: provisioned `plugfest_stations` only, unknown IDs rejected. With `plugfest_open_admission`: SP0, any ID, no password | Host port `8083` **only during a slot** |
 | 8091 | JWKS | Internal |
 
 Start-up and checks:
@@ -198,6 +201,29 @@ Start-up and checks:
 4. On each start the seed provisions every Plugfest station (station row,
    Boots `Accepted`, `SecurityCtrlr.BasicAuthPassword`). It also revokes the
    password of any station removed from the list.
+
+**Protocols on 8083.** The server picks the first of `ocpp2.1`,
+`ocpp2.0.1`, `ocpp1.6` that the station offers in its WebSocket
+subprotocol list. 1.6 stations authenticate with the same Basic Auth
+password as 2.x stations. 1.6 stations are monitor-only here: the
+CitrineOS-HA integration, scoped commands and Operator UI commands cover
+2.0.1 and 2.1 only. A station that reconnects within a second or so of
+dropping can be refused once while the server still holds its identity;
+its next retry succeeds.
+
+**Open admission on 8083.** `plugfest_open_admission: true` (needs
+`plugfest_enabled`) switches 8083 to Security Profile 0. Any station ID
+connects with no password and registers at BootNotification;
+`plugfest_stations` may be empty. Vendors then only need
+`ws://<green-ip>:8083/<station-id>`. The server logs a warning at start.
+- Anyone who can reach the port can register a station or take over an ID
+  that is already connected, and all traffic is cleartext. Use it only on
+  the test network, while the host port is published, then set it back to
+  `false`.
+- On the Green (17 October) it was tested with MicroOCPP 1.6 as
+  `SIM-16-MICROOCPP-PF` (no password): it registered as `ocpp1.6`, online,
+  with connector 0/1/2 status notifications. The V2G, AC and MicroOCPP
+  2.0.1 chargers stayed connected on 2.1 and 2.0.1.
 5. Stop in this order: Operator UI, server, Hasura, broker, database.
 
 ### Operator UI
@@ -492,7 +518,7 @@ container names, so run only one at a time.
 |---|---|
 | `TEST_NATIVE_SIMULATOR=1 python3 citrineos_server/tests/stack_smoke.py` | MicroOCPP baseline |
 | `TEST_V2G_SIMULATOR=1 python3 citrineos_server/tests/stack_smoke.py` | HA client → CitrineOS → EVerest V2G |
-| `TEST_PLUGFEST=1 python3 citrineos_server/tests/stack_smoke.py` | 8083: accepted boot, wrong password, unknown ID, revocation (plugfest-sp1) |
+| `TEST_PLUGFEST=1 python3 citrineos_server/tests/stack_smoke.py` | 8083: accepted boot, wrong password, unknown ID, revocation, 1.6 boot, 2.1 preferred, open admission on 2.1/2.0.1/1.6 |
 | `TEST_OPERATOR=1 python3 citrineos_server/tests/stack_smoke.py` | Operator scope: read-only GraphQL, refused mutation, operator command delivered (`operator_probe.py`) |
 
 Charts for new test runs: add `data/<run>.json`, then
@@ -518,5 +544,7 @@ Charts for new test runs: add `data/<run>.json`, then
    coordinator status.
 8. Run the three tests in [README.md](README.md). If you published the 8083
    host port, remove it afterwards. Stop the simulators.
-9. At the event, replace the simulator entries in `plugfest_stations` with
-   the vendors' IDs and passwords, and follow `docs/plugfest-runbook.md`.
+9. At the event, either replace the simulator entries in
+   `plugfest_stations` with the vendors' IDs and passwords (SP1), or set
+   `plugfest_open_admission: true` for password-free registration. Then
+   follow `docs/plugfest-runbook.md`.
