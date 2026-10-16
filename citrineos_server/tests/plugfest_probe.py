@@ -46,6 +46,9 @@ function attempt(id,password,protocols=['ocpp2.0.1']){
   });
 }
 const all=['ocpp1.6','ocpp2.0.1','ocpp2.1'];
+// Upstream refuses an identity still marked connected; the mark clears
+// shortly after the previous socket closes.
+const settle=()=>new Promise(r=>setTimeout(r,3000));
 console.log(JSON.stringify(x.open?{
   v21:await attempt('PF-OPEN-21',null,['ocpp2.1']),
   v201:await attempt('PF-OPEN-201',null,['ocpp2.0.1']),
@@ -55,8 +58,8 @@ console.log(JSON.stringify(x.open?{
   good:await attempt(x.id,x.password),
   wrong:await attempt(x.id,x.password.slice(0,-1)+(x.password.endsWith('A')?'B':'A')),
   unknown:await attempt('PF-UNKNOWN-99',x.password),
-  v16:await attempt(x.id,x.password,['ocpp1.6']),
-  preferred:await attempt(x.id,x.password,all),
+  v16:await settle()||await attempt(x.id,x.password,['ocpp1.6']),
+  preferred:await settle()||await attempt(x.id,x.password,all),
 }));
 """
 
@@ -94,7 +97,7 @@ def plugfest_trial(docker, request, server_options, values, tmp):
     assert not result["wrong"]["connected"], "wrong password was admitted"
     assert not result["unknown"]["connected"], "unknown station was admitted"
     assert result["v16"] == {"connected": True, "protocol": "ocpp1.6", "boot": "Accepted"}, result["v16"]
-    assert result["preferred"]["protocol"] == "ocpp2.1", result["preferred"]
+    assert result["preferred"] == {"connected": True, "protocol": "ocpp2.1", "boot": "Accepted"}, result["preferred"]
     # Removing the station from the options revokes its password on restart.
     other = "Pf-" + secrets.token_urlsafe(24)[:29]
     values.append(other)
