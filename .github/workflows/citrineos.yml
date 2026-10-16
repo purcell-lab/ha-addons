@@ -46,4 +46,5 @@ jobs:
       - name: Authentication, discovery, persistence and logical restore
         env:
           TEST_NATIVE_SIMULATOR: "1"
+          TEST_PLUGFEST: "1"
         run: python3 citrineos_server/tests/stack_smoke.py
