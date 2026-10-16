@@ -88,3 +88,44 @@ export function targetAllows(url,p,result,station=STATION) {
   const id=url.pathname===ROUTES[1]?p.transactionId:p.chargingProfile.transactionId;
   return active.length===1&&active[0].transactionId===id;
 }
+
+// Operator UI scope (operator_ui_enabled). Reads go to Hasura as the
+// read-only "operator_ro" role. With operator_commands_enabled, a fixed set
+// of OCPP 2.0.1/2.1 operational commands may target any tenant-1 station;
+// upstream AJV still validates each payload. Commands that change station
+// credentials, certificates, firmware, network profiles or variables, or
+// that make the station upload files, are never allowed.
+export const OPERATOR_COMMANDS=[
+  'evdriver/requestStartTransaction','evdriver/requestStopTransaction',
+  'evdriver/unlockConnector','evdriver/clearCache',
+  'configuration/reset','configuration/changeAvailability','configuration/triggerMessage',
+  'monitoring/getVariables','reporting/getBaseReport','transactions/getTransactionStatus',
+  'smartcharging/setChargingProfile','smartcharging/clearChargingProfile',
+  'smartcharging/getChargingProfiles','smartcharging/getCompositeSchedule',
+];
+const OPERATOR_ROUTE=/^\/ocpp\/(2\.0\.1|2\.1)\/([a-z]+\/[A-Za-z]+)$/;
+export const OPERATOR_IDENTITY=/^[A-Za-z0-9._~*+-]{1,48}$/;
+export function operatorCommand(url) {
+  const m=OPERATOR_ROUTE.exec(url.pathname);
+  if(!m||!OPERATOR_COMMANDS.includes(m[2]))return null;
+  if([...url.searchParams.keys()].length!==2||url.searchParams.getAll('identifier').length!==1
+    ||url.searchParams.getAll('tenantId').length!==1||url.searchParams.get('tenantId')!=='1')return null;
+  const identifier=url.searchParams.get('identifier');
+  if(!OPERATOR_IDENTITY.test(identifier))return null;
+  return {protocol:'ocpp'+m[1],action:m[2],identifier};
+}
+export const OPERATOR_TARGET_QUERY=`query OperatorTarget($name: String!) {
+  ChargingStations(where: {tenantId: {_eq: 1}, ocppConnectionName: {_eq: $name}}, limit: 2) {
+    id tenantId ocppConnectionName protocol isOnline
+  }
+}`;
+// The route's OCPP version must match the station's negotiated protocol,
+// and the station must be online, so a command is never sent in the wrong
+// dialect or queued for a disconnected station.
+export function operatorTargetAllows(cmd,result) {
+  const stations=result?.data?.ChargingStations;
+  if(!cmd||!Array.isArray(stations)||stations.length!==1)return false;
+  const s=stations[0];
+  return !!s&&s.tenantId===1&&s.ocppConnectionName===cmd.identifier
+    &&s.protocol===cmd.protocol&&s.isOnline===true;
+}

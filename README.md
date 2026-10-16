@@ -22,6 +22,15 @@ charger connection or deployment is enabled.
 
 See [compatibility findings and activation gates](citrineos_server/DOCS.md).
 
+### citrineos_operator_ui
+
+The CitrineOS v2.0.1 Operator UI (CSMS web app) for the isolated lab, in the
+sidebar through Ingress. Read-only data through the lab gateway, plus an
+optional, bounded set of OCPP commands. Needs CitrineOS Isolated Lab 0.5.0
+with its operator scope enabled.
+
+See [setup and limitations](citrineos_operator_ui/DOCS.md).
+
 ### microocpp_simulator
 
 Native OCPP 2.0.1 test charger packaged as a Home Assistant App, with a

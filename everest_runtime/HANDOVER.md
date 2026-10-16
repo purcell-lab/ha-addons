@@ -18,8 +18,9 @@ those runs and the 0.1.3 entry.
 - **CI image jobs are 2 to 3 times faster.** AC went from 6.5 to 8 min to
   2.4 to 2.5 min, and V2G from 7 to 12 min to 4.1 to 4.2 min. Pull
   requests now run minimum viable checks; releases keep the full gate.
-- **amd64 only.** The HA host is generic-x86-64 (Home Assistant OS 18.3).
-  CI, publication and `config.yaml` now cover amd64 only.
+- **amd64 and aarch64.** CI, publication and `config.yaml` cover both
+  again from V2G 0.1.6 (a Home Assistant Green test host is aarch64).
+  Between `1509f8b` and its revert they covered amd64 only.
 - **Live on HA,** V2G 0.1.3 passed the start-up self-test, OCPP 2.1 and a
   three-step TxProfile run. AC 0.1.1 booted and connected.
 - **Probable cause found for the 5-minute first-transaction delay.** HA's
@@ -63,8 +64,12 @@ is built in three stages:
 3. `FROM scratch` with only `/opt/everest` and `/usr/share/doc/everest`,
    labelled with the upstream digest.
 
-`VERSION` holds the runtime version (`2025.10.0-1`). `REFERENCE` names the
-App releases that the identical-file check compares against.
+`VERSION` holds the runtime version (`2025.10.0-2`, unpublished; Apps pin
+`2025.10.0-1`). 2025.10.0-2 also keeps only the EVerest libraries the
+shipped binaries load (dropping the unused 20 MB `libeverest_api_types`)
+and empties the admin panel web UI. The identical-file check compares
+each App built from a candidate runtime with the same App built from the
+pinned runtime; `EXPECTED_DIFFERENCES` lists the reviewed exceptions.
 
 ### 2. App images
 
@@ -148,8 +153,9 @@ Publish runs:
 - [AC 0.1.1 publish](https://github.com/purcell-lab/ha-addons/actions/runs/38101003191)
 - [V2G 0.1.3 publish](https://github.com/purcell-lab/ha-addons/actions/runs/38101003167)
 
-These are the last releases built for aarch64. amd64-only applies from
-`1509f8b`.
+These were the last aarch64 releases before `1509f8b` made the build
+amd64 only. Its revert restores aarch64; V2G 0.1.6 is the first release
+published for both architectures again.
 
 ## Evidence
 
@@ -253,14 +259,13 @@ answered, Unplugged and idle. No charging session was run on HA for AC.
 - **Move to a new EVerest release** (for example 2025.12.1):
   1. Change the upstream image and digest in `everest_runtime/Dockerfile`
      and bump `VERSION` (for example `2025.12.1-1`).
-  2. Expect differences against `REFERENCE`. Review them, then update
-     `REFERENCE` or make the check informational for that change.
+  2. Expect differences against the pinned runtime. Review them and list
+     the intended ones in `EXPECTED_DIFFERENCES`.
   3. Publish the runtime with approval, then pin it and release new App
      versions.
-- **Restore aarch64:** add `ubuntu-24.04-arm` / `aarch64` to the matrices in
-  the five EVerest workflows, add it back to the runtime index command and
-  both `config.yaml` arch lists, and restore `aarch64` in the
-  `published-image` loops.
+- **Drop an architecture:** remove its runner from the matrices in the five
+  EVerest workflows, the runtime index command, both `config.yaml` arch
+  lists and the `published-image` loops (see `1509f8b`).
 - **Rebuild only the runtime:** bump `VERSION`. Tags never overwrite.
 
 ## Rules that still apply

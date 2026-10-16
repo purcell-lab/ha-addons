@@ -1,0 +1,148 @@
+diff --git a/apps/operator-ui/next.config.mjs b/apps/operator-ui/next.config.mjs
+index 60bdb43..67b2743 100644
+--- a/apps/operator-ui/next.config.mjs
++++ b/apps/operator-ui/next.config.mjs
+@@ -14,6 +14,7 @@ const withNextIntl = createNextIntlPlugin(resolve(__dirname, 'src/lib/i18n/reque
+ /** @type {import('next').NextConfig} */
+ const nextConfig = {
+   output: 'standalone',
++  ...(process.env.NEXT_PUBLIC_BASE_PATH ? { basePath: process.env.NEXT_PUBLIC_BASE_PATH } : {}),
+   // Trace from the monorepo root so the standalone output bundles workspace
+   // dependencies (@citrineos/types) correctly.
+   outputFileTracingRoot: resolve(__dirname, '../..'),
+diff --git a/apps/operator-ui/src/lib/providers/auth-provider/generic-auth-provider/index.tsx b/apps/operator-ui/src/lib/providers/auth-provider/generic-auth-provider/index.tsx
+index cd6e840..9d9cbc6 100644
+--- a/apps/operator-ui/src/lib/providers/auth-provider/generic-auth-provider/index.tsx
++++ b/apps/operator-ui/src/lib/providers/auth-provider/generic-auth-provider/index.tsx
+@@ -33,6 +33,8 @@ export interface GenericAuthProviderConfig {
+  * Default auth provider implementation
+  */
+ const ADMIN_EMAIL = config.adminEmail;
++// Set when an authenticating reverse proxy (Home Assistant Ingress) fronts the UI.
++const TRUSTED_PROXY_AUTH = process.env.NEXT_PUBLIC_TRUSTED_PROXY_AUTH === 'true';
+ const TENANT_ID = config.tenantId;
+ 
+ export const genericAdminUser: User = {
+@@ -142,6 +144,7 @@ export const createGenericAuthProvider = (
+    * Get token from storage
+    */
+   const getToken = async (): Promise<string | undefined> => {
++    if (TRUSTED_PROXY_AUTH) return 'trusted-proxy';
+     return localStorage.getItem(tokenKey) || undefined;
+   };
+ 
+@@ -156,6 +159,7 @@ export const createGenericAuthProvider = (
+    * Get user from storage
+    */
+   const getUser = (): User | null => {
++    if (TRUSTED_PROXY_AUTH) return genericAdminUser;
+     const userStr = localStorage.getItem(userKey);
+     if (!userStr) return null;
+     try {
+diff --git a/apps/operator-ui/src/lib/providers/data-provider/index.ts b/apps/operator-ui/src/lib/providers/data-provider/index.ts
+index 23a2628..c6c3cb2 100644
+--- a/apps/operator-ui/src/lib/providers/data-provider/index.ts
++++ b/apps/operator-ui/src/lib/providers/data-provider/index.ts
+@@ -18,9 +18,11 @@ const requestMiddleware = async (request: any) => {
+     ...request.headers,
+   };
+ 
+-  const hasuraAdminSecret = await getHasuraAdminSecretAction().then((result) =>
+-    result.success ? result.data : '',
+-  );
++  // Behind a trusted reverse proxy the proxy adds credentials; never ask for the admin secret.
++  const hasuraAdminSecret =
++    process.env.NEXT_PUBLIC_TRUSTED_PROXY_AUTH === 'true'
++      ? ''
++      : await getHasuraAdminSecretAction().then((result) => (result.success ? result.data : ''));
+ 
+   if (hasuraAdminSecret) {
+     console.debug('Authorizing to Hasura via Hasura Admin Secret');
+diff --git a/apps/operator-ui/src/lib/providers/index.tsx b/apps/operator-ui/src/lib/providers/index.tsx
+index 895e288..7895f91 100644
+--- a/apps/operator-ui/src/lib/providers/index.tsx
++++ b/apps/operator-ui/src/lib/providers/index.tsx
+@@ -70,7 +70,7 @@ export function Providers({
+   if (!mounted) return null;
+ 
+   return (
+-    <SessionProvider>
++    <SessionProvider basePath={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/auth`}>
+       <ReduxProvider>
+         <QueryClientProvider client={queryClient}>
+           <ThemeProvider
+@@ -95,7 +95,7 @@ export function Providers({
+               options={{
+                 warnWhenUnsavedChanges: true,
+                 projectId: '6ZV3T4-Lyy7B3-Dr5Uhd',
+-                liveMode: 'auto',
++                liveMode: liveProvider ? 'auto' : 'off',
+                 reactQuery: {
+                   clientConfig: queryClient,
+                 },
+diff --git a/apps/operator-ui/src/lib/providers/live-provider/index.ts b/apps/operator-ui/src/lib/providers/live-provider/index.ts
+index 043d177..38c95d5 100644
+--- a/apps/operator-ui/src/lib/providers/live-provider/index.ts
++++ b/apps/operator-ui/src/lib/providers/live-provider/index.ts
+@@ -14,7 +14,9 @@ import {
+ 
+ const WS_URL = config.wsUrl;
+ 
+-const webSocketClient = graphqlWS.createClient({
++// No WebSocket URL: no GraphQL subscriptions; pages refresh on navigation.
++const webSocketClient = WS_URL
++  ? graphqlWS.createClient({
+   url: WS_URL,
+   connectionParams: async () => {
+     const token = await authProvider.getToken();
+@@ -38,16 +40,16 @@ const webSocketClient = graphqlWS.createClient({
+       };
+     }
+   },
+-});
++})
++  : undefined;
+ 
+ const hasuraProviderOptions = {
+   idType: 'Int',
+   namingConvention: 'hasura-default',
+ };
+ 
+-const liveProvider = liveProviderHasura(
+-  webSocketClient,
+-  hasuraProviderOptions as HasuraLiveProviderOptions,
+-);
++const liveProvider = webSocketClient
++  ? liveProviderHasura(webSocketClient, hasuraProviderOptions as HasuraLiveProviderOptions)
++  : undefined;
+ 
+ export default liveProvider;
+diff --git a/apps/operator-ui/src/lib/utils/config.ts b/apps/operator-ui/src/lib/utils/config.ts
+index 6ec342d..03f8913 100644
+--- a/apps/operator-ui/src/lib/utils/config.ts
++++ b/apps/operator-ui/src/lib/utils/config.ts
+@@ -4,6 +4,11 @@
+ 
+ import { type AuthProviderType, AuthProviderTypeEnum } from '@lib/providers/auth-provider/types';
+ 
++// A relative API URL (same-origin proxy) is made absolute in the browser,
++// where the GraphQL and REST clients need a full URL.
++const absolute = (url?: string): string | undefined =>
++  url && url.startsWith('/') && typeof window !== 'undefined' ? window.location.origin + url : url;
++
+ const getConfig: () => {
+   appName: string;
+   googleMapsApiKey: string;
+@@ -63,9 +68,9 @@ const getConfig: () => {
+     hasuraAdminSecret: process.env.HASURA_ADMIN_SECRET,
+     hasuraClaim: process.env.NEXT_PUBLIC_HASURA_CLAIM || 'https://hasura.io/jwt/claims',
+     tenantId: process.env.NEXT_PUBLIC_TENANT_ID || '1',
+-    apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/v1/graphql',
+-    wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8090/v1/graphql',
+-    citrineCoreUrl: process.env.NEXT_PUBLIC_CITRINE_CORE_URL,
++    apiUrl: absolute(process.env.NEXT_PUBLIC_API_URL) || 'http://localhost:8090/v1/graphql',
++    wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8090/v1/graphql',
++    citrineCoreUrl: absolute(process.env.NEXT_PUBLIC_CITRINE_CORE_URL),
+     fileServer: process.env.NEXT_PUBLIC_FILE_SERVER_URL,
+     logoUrl: process.env.NEXT_PUBLIC_LOGO_URL,
+     adminEmail: process.env.NEXT_PUBLIC_ADMIN_EMAIL,

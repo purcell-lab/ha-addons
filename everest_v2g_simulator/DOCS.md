@@ -338,8 +338,9 @@ model is rebuilt from the options on every start.
 ## Install size
 
 Home Assistant pulls a prebuilt image for its architecture
-(`ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, about 560 MB on amd64
-and 585 MB on aarch64, of which the Java runtime for the EV simulator is
-about 184 MB) rather than building locally from EVerest's 4.3 GB build
-image. The image is published only through the approval-gated tag process
+(`ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`) rather than building
+locally from EVerest's 4.3 GB build image. From 0.1.6 the Java runtime for
+the EV simulator's EXI codec is a 50 MB jlink image instead of the 184 MB
+OpenJDK package, so the image is about 135 MB smaller than 0.1.5 (about
+560 MB on amd64 and 585 MB on aarch64). The image is published only through the approval-gated tag process
 in `RELEASE.md`.

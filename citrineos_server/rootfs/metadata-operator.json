@@ -1,0 +1,3690 @@
+{
+ "version": 3,
+ "sources": [
+  {
+   "name": "default",
+   "kind": "postgres",
+   "configuration": {
+    "connection_info": {
+     "database_url": {
+      "from_env": "HASURA_GRAPHQL_DATABASE_URL"
+     },
+     "isolation_level": "read-committed",
+     "pool_settings": {
+      "max_connections": 10,
+      "idle_timeout": 180
+     },
+     "use_prepared_statements": true
+    }
+   },
+   "tables": [
+    {
+     "table": {
+      "name": "AsyncJobStatuses",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "TenantPartner",
+       "using": {
+        "foreign_key_constraint_on": "tenantPartnerId"
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Authorizations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "GroupAuthorization",
+       "using": {
+        "foreign_key_constraint_on": "groupAuthorizationId"
+       }
+      },
+      {
+       "name": "Tariff",
+       "using": {
+        "foreign_key_constraint_on": "tariffId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "TenantPartner",
+       "using": {
+        "foreign_key_constraint_on": "tenantPartnerId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "Authorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "groupAuthorizationId",
+         "table": {
+          "name": "Authorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "LocalListAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "authorizationId",
+         "table": {
+          "name": "LocalListAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "authorizationId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "localListAuthorizationsByGroupauthorizationid",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "groupAuthorizationId",
+         "table": {
+          "name": "LocalListAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Boots",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "VariableAttributes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "bootConfigId",
+         "table": {
+          "name": "VariableAttributes",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "tenantId",
+         "status",
+         "lastBootTime",
+         "heartbeatInterval"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Certificates",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Certificate",
+       "using": {
+        "foreign_key_constraint_on": "signedBy"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "Certificates",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "signedBy",
+         "table": {
+          "name": "Certificates",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "InstallCertificateAttempts",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "certificateId",
+         "table": {
+          "name": "InstallCertificateAttempts",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "InstalledCertificates",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "certificateId",
+         "table": {
+          "name": "InstalledCertificates",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChangeConfigurations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingNeeds",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Evse",
+       "using": {
+        "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Transaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "Transactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionDatabaseId": "id",
+          "transactionCreatedAt": "createdAt"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingProfiles",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Transaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "Transactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionDatabaseId": "id"
+         }
+        }
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingSchedules",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "chargingProfileDatabaseId",
+         "table": {
+          "name": "ChargingSchedules",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingSchedules",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingProfile",
+       "using": {
+        "foreign_key_constraint_on": "chargingProfileDatabaseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "SalesTariffs",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "chargingScheduleDatabaseId",
+         "table": {
+          "name": "SalesTariffs",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingStationNetworkProfiles",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "ServerNetworkProfile",
+       "using": {
+        "foreign_key_constraint_on": "websocketServerConfigId"
+       }
+      },
+      {
+       "name": "SetNetworkProfile",
+       "using": {
+        "foreign_key_constraint_on": "setNetworkProfileId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingStationSecurityInfos",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingStationSequences",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ChargingStations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Location",
+       "using": {
+        "foreign_key_constraint_on": "locationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "ConnectedServerNetworkProfile",
+       "using": {
+        "foreign_key_constraint_on": "connectedWebsocketServerConfigId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingStationNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "ChargingStationNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingStationSecurityInfos",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "ChargingStationSecurityInfos",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingStationSequences",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "ChargingStationSequences",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Connectors",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "Connectors",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "DeleteCertificateAttempts",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "DeleteCertificateAttempts",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "EventData",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "EventData",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Evses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "Evses",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "InstallCertificateAttempts",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "InstallCertificateAttempts",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "InstalledCertificates",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "InstalledCertificates",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "LatestStatusNotifications",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "LatestStatusNotifications",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "OCPPMessages",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "OCPPMessages",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SetNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "SetNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "StatusNotifications",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "StatusNotifications",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableAttributes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "VariableAttributes",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableMonitorings",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "VariableMonitorings",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "ocppConnectionName",
+         "tenantId",
+         "protocol",
+         "isOnline",
+         "chargePointVendor",
+         "chargePointModel",
+         "firmwareVersion",
+         "updatedAt"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501,
+        "allow_aggregations": false
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "ComponentVariables",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Component",
+       "using": {
+        "foreign_key_constraint_on": "componentId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Variable",
+       "using": {
+        "foreign_key_constraint_on": "variableId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Components",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "EvseType",
+       "using": {
+        "foreign_key_constraint_on": "evseDatabaseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ComponentVariables",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "componentId",
+         "table": {
+          "name": "ComponentVariables",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "EventData",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "componentId",
+         "table": {
+          "name": "EventData",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "MessageInfos",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "displayComponentId",
+         "table": {
+          "name": "MessageInfos",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableAttributes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "componentId",
+         "table": {
+          "name": "VariableAttributes",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableMonitorings",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "componentId",
+         "table": {
+          "name": "VariableMonitorings",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "CompositeSchedules",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Connectors",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Evse",
+       "using": {
+        "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "Tariff",
+       "using": {
+        "foreign_key_constraint_on": "tariffId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "StartTransactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "connectorDatabaseId",
+         "table": {
+          "name": "StartTransactions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "connectorId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "tenantId",
+         "connectorId",
+         "evseId",
+         "evseTypeConnectorId",
+         "status",
+         "errorCode",
+         "updatedAt"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501,
+        "allow_aggregations": false
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "DeleteCertificateAttempts",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "EventData",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Component",
+       "using": {
+        "foreign_key_constraint_on": "componentId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Variable",
+       "using": {
+        "foreign_key_constraint_on": "variableId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "EvseTypes",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "Components",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseDatabaseId",
+         "table": {
+          "name": "Components",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Reservations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseId",
+         "table": {
+          "name": "Reservations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "TransactionEvents",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseId",
+         "table": {
+          "name": "TransactionEvents",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableAttributes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseDatabaseId",
+         "table": {
+          "name": "VariableAttributes",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Evses",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingNeeds",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseId",
+         "table": {
+          "name": "ChargingNeeds",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Connectors",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseId",
+         "table": {
+          "name": "Connectors",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "evseId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "tenantId",
+         "evseTypeId"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501,
+        "allow_aggregations": false
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "InstallCertificateAttempts",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Certificate",
+       "using": {
+        "foreign_key_constraint_on": "certificateId"
+       }
+      },
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "InstalledCertificates",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Certificate",
+       "using": {
+        "foreign_key_constraint_on": "certificateId"
+       }
+      },
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "LatestStatusNotifications",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "StatusNotification",
+       "using": {
+        "foreign_key_constraint_on": "statusNotificationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "LocalListAuthorizations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Authorization",
+       "using": {
+        "foreign_key_constraint_on": "authorizationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "authorizationByGroupauthorizationid",
+       "using": {
+        "foreign_key_constraint_on": "groupAuthorizationId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "LocalListVersionAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "authorizationId",
+         "table": {
+          "name": "LocalListVersionAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SendLocalListAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "authorizationId",
+         "table": {
+          "name": "SendLocalListAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "LocalListVersionAuthorizations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "LocalListAuthorization",
+       "using": {
+        "foreign_key_constraint_on": "authorizationId"
+       }
+      },
+      {
+       "name": "LocalListVersion",
+       "using": {
+        "foreign_key_constraint_on": "localListVersionId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "LocalListVersions",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "LocalListVersionAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "localListVersionId",
+         "table": {
+          "name": "LocalListVersionAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Locations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingStations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "locationId",
+         "table": {
+          "name": "ChargingStations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "locationId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "MessageInfos",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Component",
+       "using": {
+        "foreign_key_constraint_on": "displayComponentId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "MeterValues",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "StopTransaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "StopTransactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "stopTransactionDatabaseId": "id",
+          "transactionCreatedAt": "transactionCreatedAt"
+         }
+        }
+       }
+      },
+      {
+       "name": "Tariff",
+       "using": {
+        "foreign_key_constraint_on": "tariffId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Transaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "Transactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionDatabaseId": "id",
+          "transactionCreatedAt": "createdAt"
+         }
+        }
+       }
+      },
+      {
+       "name": "TransactionEvent",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "TransactionEvents",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionEventId": "id",
+          "transactionCreatedAt": "transactionCreatedAt"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "tenantId",
+         "transactionDatabaseId",
+         "transactionId",
+         "timestamp",
+         "sampledValue"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "OCPPMessages",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "OCPPMessage",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "OCPPMessages",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "requestMessageId": "id"
+         }
+        }
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "OCPPMessages",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "OCPPMessages",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "requestMessageId"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Reservations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "EvseType",
+       "using": {
+        "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "SalesTariffs",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingSchedule",
+       "using": {
+        "foreign_key_constraint_on": "chargingScheduleDatabaseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "SecurityEvents",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "SendLocalListAuthorizations",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "LocalListAuthorization",
+       "using": {
+        "foreign_key_constraint_on": "authorizationId"
+       }
+      },
+      {
+       "name": "SendLocalList",
+       "using": {
+        "foreign_key_constraint_on": "sendLocalListId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "SendLocalLists",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "SendLocalListAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "sendLocalListId",
+         "table": {
+          "name": "SendLocalListAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "SequelizeMeta",
+      "schema": "public"
+     }
+    },
+    {
+     "table": {
+      "name": "ServerNetworkProfiles",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingStationNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "websocketServerConfigId",
+         "table": {
+          "name": "ChargingStationNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SetNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "websocketServerConfigId",
+         "table": {
+          "name": "SetNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "SetNetworkProfiles",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "ServerNetworkProfile",
+       "using": {
+        "foreign_key_constraint_on": "websocketServerConfigId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingStationNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "setNetworkProfileId",
+         "table": {
+          "name": "ChargingStationNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "StartTransactions",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Connector",
+       "using": {
+        "foreign_key_constraint_on": "connectorDatabaseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Transaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "Transactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionDatabaseId": "id",
+          "transactionCreatedAt": "createdAt"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "StatusNotifications",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "LatestStatusNotifications",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "statusNotificationId",
+         "table": {
+          "name": "LatestStatusNotifications",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "StopTransactions",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Transaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "Transactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionDatabaseId": "id",
+          "transactionCreatedAt": "createdAt"
+         }
+        }
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "MeterValues",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "MeterValues",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "stopTransactionDatabaseId",
+          "transactionCreatedAt": "transactionCreatedAt"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Subscriptions",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Tariffs",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "Authorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tariffId",
+         "table": {
+          "name": "Authorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Connectors",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tariffId",
+         "table": {
+          "name": "Connectors",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "MeterValues",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tariffId",
+         "table": {
+          "name": "MeterValues",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tariffId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "TenantPartners",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "AsyncJobStatuses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantPartnerId",
+         "table": {
+          "name": "AsyncJobStatuses",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Authorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantPartnerId",
+         "table": {
+          "name": "Authorizations",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": [
+         "id",
+         "partyId",
+         "countryCode",
+         "tenantId",
+         "createdAt",
+         "updatedAt"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Tenants",
+      "schema": "public"
+     },
+     "array_relationships": [
+      {
+       "name": "Authorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Authorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Boots",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Boots",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Certificates",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Certificates",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChangeConfigurations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChangeConfigurations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingNeeds",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingNeeds",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingSchedules",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingSchedules",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingStationNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingStationNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingStationSecurityInfos",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingStationSecurityInfos",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingStationSequences",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingStationSequences",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingStations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingStations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ComponentVariables",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ComponentVariables",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Components",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Components",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "CompositeSchedules",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "CompositeSchedules",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Connectors",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Connectors",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "DeleteCertificateAttempts",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "DeleteCertificateAttempts",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "EventData",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "EventData",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "EvseTypes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "EvseTypes",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Evses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Evses",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "InstallCertificateAttempts",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "InstallCertificateAttempts",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "InstalledCertificates",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "InstalledCertificates",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "LatestStatusNotifications",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "LatestStatusNotifications",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "LocalListAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "LocalListAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "LocalListVersionAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "LocalListVersionAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "LocalListVersions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "LocalListVersions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Locations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Locations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "MessageInfos",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "MessageInfos",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "MeterValues",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "MeterValues",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "OCPPMessages",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "OCPPMessages",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Reservations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Reservations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SalesTariffs",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "SalesTariffs",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SecurityEvents",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "SecurityEvents",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SendLocalListAuthorizations",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "SendLocalListAuthorizations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SendLocalLists",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "SendLocalLists",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ServerNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ServerNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "SetNetworkProfiles",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "SetNetworkProfiles",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "StartTransactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "StartTransactions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "StatusNotifications",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "StatusNotifications",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "StopTransactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "StopTransactions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Subscriptions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Subscriptions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Tariffs",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Tariffs",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "TenantPartners",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "TenantPartners",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "TransactionEvents",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "TransactionEvents",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Transactions",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Transactions",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableAttributes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "VariableAttributes",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableCharacteristics",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "VariableCharacteristics",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableMonitoringStatuses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "VariableMonitoringStatuses",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableMonitorings",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "VariableMonitorings",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableStatuses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "VariableStatuses",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "Variables",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "Variables",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": [
+         "id",
+         "name",
+         "url",
+         "partyId",
+         "countryCode",
+         "isUserTenant",
+         "maxChargingStations",
+         "tenantWebsocketServerPath",
+         "createdAt",
+         "updatedAt"
+        ],
+        "filter": {
+         "id": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "TransactionEvents",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "EvseType",
+       "using": {
+        "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Transaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "Transactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "transactionDatabaseId": "id",
+          "transactionCreatedAt": "createdAt"
+         }
+        }
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "MeterValues",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "MeterValues",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionEventId",
+          "transactionCreatedAt": "transactionCreatedAt"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "tenantId",
+         "ocppConnectionName",
+         "transactionDatabaseId",
+         "eventType",
+         "timestamp",
+         "seqNo",
+         "transactionInfo",
+         "triggerReason"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Transactions",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Authorization",
+       "using": {
+        "foreign_key_constraint_on": "authorizationId"
+       }
+      },
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Connector",
+       "using": {
+        "foreign_key_constraint_on": "connectorId"
+       }
+      },
+      {
+       "name": "Evse",
+       "using": {
+        "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "Location",
+       "using": {
+        "foreign_key_constraint_on": "locationId"
+       }
+      },
+      {
+       "name": "StartTransaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "StartTransactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionDatabaseId",
+          "createdAt": "transactionCreatedAt"
+         }
+        }
+       }
+      },
+      {
+       "name": "StopTransaction",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "StopTransactions",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionDatabaseId",
+          "createdAt": "transactionCreatedAt"
+         }
+        }
+       }
+      },
+      {
+       "name": "Tariff",
+       "using": {
+        "foreign_key_constraint_on": "tariffId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ChargingNeeds",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "ChargingNeeds",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionDatabaseId",
+          "createdAt": "transactionCreatedAt"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingProfiles",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "ChargingProfiles",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionDatabaseId"
+         }
+        }
+       }
+      },
+      {
+       "name": "MeterValues",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "MeterValues",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionDatabaseId",
+          "createdAt": "transactionCreatedAt"
+         }
+        }
+       }
+      },
+      {
+       "name": "TransactionEvents",
+       "using": {
+        "manual_configuration": {
+         "remote_table": {
+          "name": "TransactionEvents",
+          "schema": "public"
+         },
+         "column_mapping": {
+          "id": "transactionDatabaseId",
+          "createdAt": "transactionCreatedAt"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "tenantId",
+         "transactionId",
+         "isActive",
+         "startTime",
+         "endTime",
+         "updatedAt",
+         "createdAt",
+         "chargingState",
+         "meterStart",
+         "totalKwh",
+         "stoppedReason"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501,
+        "allow_aggregations": false
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "VariableAttributes",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Boot",
+       "using": {
+        "foreign_key_constraint_on": "bootConfigId"
+       }
+      },
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Component",
+       "using": {
+        "foreign_key_constraint_on": "componentId"
+       }
+      },
+      {
+       "name": "EvseType",
+       "using": {
+        "foreign_key_constraint_on": "evseDatabaseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Variable",
+       "using": {
+        "foreign_key_constraint_on": "variableId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "VariableStatuses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableAttributeId",
+         "table": {
+          "name": "VariableStatuses",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "_and": [
+          {
+           "tenantId": {
+            "_eq": "x-hasura-tenant-id"
+           }
+          },
+          {
+           "_not": {
+            "Variable": {
+             "_or": [
+              {
+               "name": {
+                "_ilike": "%password%"
+               }
+              },
+              {
+               "name": {
+                "_ilike": "%secret%"
+               }
+              },
+              {
+               "name": {
+                "_ilike": "%key%"
+               }
+              }
+             ]
+            }
+           }
+          }
+         ]
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "VariableCharacteristics",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Variable",
+       "using": {
+        "foreign_key_constraint_on": "variableId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "VariableMonitoringStatuses",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "VariableMonitoring",
+       "using": {
+        "foreign_key_constraint_on": "variableMonitoringId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "VariableMonitorings",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Component",
+       "using": {
+        "foreign_key_constraint_on": "componentId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "Variable",
+       "using": {
+        "foreign_key_constraint_on": "variableId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "VariableMonitoringStatuses",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableMonitoringId",
+         "table": {
+          "name": "VariableMonitoringStatuses",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "VariableStatuses",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "VariableAttribute",
+       "using": {
+        "foreign_key_constraint_on": "variableAttributeId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "Variables",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      },
+      {
+       "name": "VariableCharacteristic",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableId",
+         "table": {
+          "name": "VariableCharacteristics",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "ComponentVariables",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableId",
+         "table": {
+          "name": "ComponentVariables",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "EventData",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableId",
+         "table": {
+          "name": "EventData",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableAttributes",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableId",
+         "table": {
+          "name": "VariableAttributes",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "VariableMonitorings",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "variableId",
+         "table": {
+          "name": "VariableMonitorings",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "geography_columns",
+      "schema": "public"
+     }
+    },
+    {
+     "table": {
+      "name": "geometry_columns",
+      "schema": "public"
+     }
+    },
+    {
+     "table": {
+      "name": "spatial_ref_sys",
+      "schema": "public"
+     }
+    }
+   ]
+  }
+ ]
+}

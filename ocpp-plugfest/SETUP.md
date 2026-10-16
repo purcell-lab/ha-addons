@@ -39,11 +39,14 @@ Home Assistant Green (HA OS, aarch64), LAN 192.168.86.90
 │       8080 gateway · 8081 SP1 simulators · 8082 SP0 open admission
 │       8083 SP1 Plugfest (host port published only during a slot)
 │
-└─ Charging-station simulators
-    EVerest V2G 0.1.6 (31ac84d3, prebuilt GHCR)  → CitrineOS 8083 via LAN IP
-    EVerest AC  0.1.1 (31ac84d3, prebuilt GHCR)  → CitrineOS 8082
-    MicroOCPP 1.6 0.1.1 (7fbee41d, local build)  → HA OCPP 19002
-    MicroOCPP 2.0.1 0.1.3 (7fbee41d, local build) — stopped (#38)
+├─ Charging-station simulators
+│   EVerest V2G 0.1.6 (31ac84d3, prebuilt GHCR)  → CitrineOS 8083 via LAN IP
+│   EVerest AC  0.1.1 (31ac84d3, prebuilt GHCR)  → CitrineOS 8082
+│   MicroOCPP 1.6 0.1.1 (7fbee41d, local build)  → HA OCPP 19002
+│   MicroOCPP 2.0.1 0.1.3 (7fbee41d, local build) — stopped (#38)
+│
+└─ Open Dynamic Export 0.1.0 (7fbee41d, prebuilt GHCR; ODE v0.20.0)
+    offline test configuration, inverter control disabled
 ```
 
 **Why a branch store.** The aarch64 builds of the CitrineOS Apps (PR #34)
@@ -60,7 +63,7 @@ branch store.
 | Hardware | Home Assistant Green (aarch64, 4 GB RAM) |
 | OS | Home Assistant OS, Core 2026.10.1, time zone Australia/Brisbane |
 | Network | Ethernet, LAN address 192.168.86.90. At the venue, use Ethernet on the venue LAN. |
-| Memory in use | CitrineOS stack about 0.5 GB, V2G up to 370 MB, AC 120 MB, MicroOCPP about 10 MB each |
+| Memory in use | CitrineOS stack about 0.5 GB, ODE about 295 MB, V2G up to 370 MB, AC 120 MB, MicroOCPP about 10 MB each |
 
 Setup steps:
 1. Onboard HA OS and create the admin user.
@@ -76,7 +79,7 @@ Settings → Apps → App store → ⋮ → Repositories:
 
 | Store slug | URL | Use |
 |---|---|---|
-| `7fbee41d` | `https://github.com/purcell-lab/ha-addons` | main: MicroOCPP Apps |
+| `7fbee41d` | `https://github.com/purcell-lab/ha-addons` | main: MicroOCPP Apps, Open Dynamic Export |
 | `31ac84d3` | `https://github.com/purcell-lab/ha-addons#claude/green-e2e` | CitrineOS stack, EVerest AC and V2G |
 
 - The `#branch` suffix tracks a branch. Supervisor names the store by a hash
@@ -220,6 +223,48 @@ Notes:
 | AC | `POST /api/ev/{plugin,pause,resume,unplug}` with header `X-HA-EVerest: 1` | — |
 | MicroOCPP | `POST /api/connector/1/evse` `{"evPlugged","evsePlugged","evReady","evseReady"}` | — |
 
+### Open Dynamic Export (`open_dynamic_export` 0.1.0, store 7fbee41d)
+
+Released from main on 16 October (PR #36, publish run 38887442611, tag
+`open_dynamic_export-v0.1.0`). It packages upstream ODE v0.20.0 (commit
+`bc807abb`), which is the latest upstream release and main as of 16 October.
+Image: `ghcr.io/purcell-lab/aarch64-open-dynamic-export:0.1.0`, pulled, not
+built on the device.
+
+On the Green it runs the **offline test configuration** used by CI:
+
+```json
+{
+  "setpoints": { "fixed": { "exportLimitWatts": 5000 } },
+  "inverters": [
+    { "type": "sunspec", "connection": { "type": "tcp", "ip": "127.0.0.1", "port": 1502 }, "unitId": 1 }
+  ],
+  "inverterControl": { "enabled": false },
+  "meter": {
+    "type": "sunspec", "connection": { "type": "tcp", "ip": "127.0.0.1", "port": 1502 },
+    "unitId": 240, "location": "feedin"
+  }
+}
+```
+
+- Pass it as the `config` option (a JSON string), or put it in
+  `/addon_configs/7fbee41d_open_dynamic_export/config.json`.
+- Nothing listens on `127.0.0.1:1502`, so no device is contacted. The log
+  shows `ECONNREFUSED` on every poll, which is expected.
+- **Check:** `GET /api/coordinator/status` (Ingress) reports
+  `"running": true`, active limit `opModExpLimW` 5000 from `fixed`, and
+  `inverterConfiguration: null` (no commands sent).
+- Without a configuration the App refuses to start. The log says "No
+  configuration", and Supervisor shows the App in error. This is by
+  design.
+- The UI is behind Ingress: *Open Web UI*, or enable "Show in sidebar"
+  (Dynamic Export). LAN port `3000/tcp` stays unset, because the upstream UI
+  and API have no authentication.
+- For real use, replace the inverter and meter with real devices. Keep
+  `inverterControl.enabled: false` until readings are confirmed. For
+  CSIP-AUS, add `sep2-cert.pem` and `sep2-key.pem` to the App's folder.
+- It is separate from the community ODE App (Stuart0411) on the main box.
+
 ## 7. Build process
 
 ### How Supervisor gets an image
@@ -229,7 +274,7 @@ Notes:
 | everest_simulator, everest_v2g_simulator | `image: ghcr.io/purcell-lab/{arch}-…`: Supervisor **pulls** the published image | V2G 0.1.6: aarch64 + amd64. AC 0.1.1: aarch64 + amd64 |
 | citrineos_database, broker, hasura, server, simulator | No `image:`: Supervisor **builds** the Dockerfile on the device | aarch64 + amd64 on PR #34 / green-e2e; amd64 only on main |
 | microocpp_simulator, microocpp_simulator16 | Built locally on main. PR #35 adds `image:` (`{arch}-microocpp-simulator[16]`) to skip the on-device compile. | aarch64 + amd64 |
-| open_dynamic_export (PR #36) | `image: ghcr.io/purcell-lab/{arch}-open-dynamic-export` | aarch64 + amd64 |
+| open_dynamic_export | `image: ghcr.io/purcell-lab/{arch}-open-dynamic-export`: Supervisor **pulls** (0.1.0 published) | aarch64 + amd64 |
 
 ### EVerest images
 
@@ -297,6 +342,31 @@ CHECKS=full sh everest_v2g_simulator/tests/ci_image_checks.sh v2g:test
 - On-device builds on the Green take several minutes, which is why PR #35
   moves them to GitHub.
 
+### Open Dynamic Export image
+
+- `node:24-alpine3.22`, pinned by index digest, for both stages.
+- Build stage:
+  - fetches upstream commit `bc807abbc4c58be3294257ee76f0348dc87c4945`
+    (v0.20.0) and checks it after the fetch;
+  - applies our `ingress.patch`, so the UI works under
+    `/api/hassio_ingress/<token>/` with relative assets;
+  - then runs `pnpm install --frozen-lockfile`, the build, and a prune.
+- Runtime stage: our launcher `rootfs/opt/ode-ha/run.mjs`.
+  - It validates the options and writes `config.json` (mode 600).
+  - It copies the CSIP-AUS certificate and key privately.
+  - It runs the upstream server and forwards signals.
+  - ODE's rotating debug logs go to `/tmp`.
+- `open_dynamic_export/tests/ci_image_checks.sh` is shared by PR CI and the
+  publish gate. It checks:
+  - the packaged commit, licence and patch;
+  - that assets are relative;
+  - that the App fails closed without a configuration;
+  - that an offline start reaches `running`;
+  - that `config.json` is mode 600;
+  - that SIGTERM shuts it down cleanly.
+- To move to a newer upstream release, change `ODE_COMMIT` and the App
+  version, check that the patch still applies, and republish.
+
 ## 8. Publish process
 
 Every published image comes from a GitHub Actions workflow on `ubuntu-24.04`
@@ -312,7 +382,7 @@ Every published image comes from a GitHub Actions workflow on `ubuntu-24.04`
 | `{arch}-everest-simulator` | `everest-publish.yml` | Push tag `everest_simulator-v<version>` |
 | `{arch}-everest-v2g-simulator` | `everest-v2g-publish.yml` | **Run workflow** with `version` + `target` (commit SHA), or a tag |
 | `{arch}-microocpp-simulator[16]` | `microocpp-publish.yml` (PR #35) | Run workflow with `app`, `version` and `target`, or a tag |
-| `{arch}-open-dynamic-export` | `ode-publish.yml` (PR #36) | Run workflow with `version` and `target`, or a tag |
+| `{arch}-open-dynamic-export` | `ode-publish.yml` | **Run workflow** with `version` + `target`, or a tag (0.1.0: run 38887442611) |
 
 **Release sequence.** Each step is a separate approval.
 1. Bump `version` in the App's `config.yaml` (and CHANGELOG), and open the PR.
@@ -323,8 +393,11 @@ Every published image comes from a GitHub Actions workflow on `ubuntu-24.04`
    publish-then-tag, because a tag pushed with the workflow token wouldn't
    trigger the workflow. If only the tag job fails, use *Re-run failed
    jobs*.
-3. A **new** GHCR package starts private. Make it public (Package settings →
-   Change visibility).
+3. Check that a **new** GHCR package can be pulled anonymously. If not,
+   make it public (Package settings → Change visibility). The ODE packages
+   were public from the first push.
+   - A publish workflow must be on main before it can be run manually. For
+     a new App, merge its publish workflow first (as #43 did for ODE).
 4. Re-run the PR checks until the `published-image` gate is green. It runs
    `docker manifest inspect` anonymously for both architectures.
 5. Merge. Then in HA: Check for updates, update, and restart the App.
@@ -387,7 +460,10 @@ Charts for new test runs: add `data/<run>.json`, then
    URL and identity.
 6. For V2G on 8083: add its ID and password to `plugfest_stations`, publish
    host port 8083, and restart the server.
-7. Run the three tests in [README.md](README.md). Then remove the 8083 host
+7. Optional: install Open Dynamic Export from the main store with the
+   offline test configuration (section 6), then start it and check the
+   coordinator status.
+8. Run the three tests in [README.md](README.md). Then remove the 8083 host
    port and stop the simulators.
-8. At the event, replace the simulator entries in `plugfest_stations` with
+9. At the event, replace the simulator entries in `plugfest_stations` with
    the vendors' IDs and passwords, and follow `docs/plugfest-runbook.md`.

@@ -86,6 +86,13 @@ class ManifestTest(unittest.TestCase):
                                            if l.startswith(("COPY", "ADD"))))
         self.assertIn("--require-hashes", DOCKERFILE)
 
+    def test_slim_java_runtime(self):
+        final = DOCKERFILE.split("FROM ${DEBIAN_IMAGE}\n")[-1]
+        self.assertNotIn("openjdk", final)
+        self.assertIn("COPY --from=jre /stage/ /", final)
+        self.assertIn("jlink --add-modules", DOCKERFILE)
+        self.assertIn("-Xmx128m", DOCKERFILE)
+
 
 class ValidateTest(unittest.TestCase):
     def test_provisioned_credential_is_validated_but_not_returned(self):

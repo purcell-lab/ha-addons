@@ -1,10 +1,11 @@
 # EVerest runtime image (build input)
 
-`ghcr.io/purcell-lab/everest-runtime:<VERSION>` is an image index (amd64;
-2025.10.0-1 also has arm64) that holds only the stripped EVerest 2025.10.0 runtime the
-EVerest Apps copy: `manager`, shared libraries, `share/everest`, the
-upstream demo certificates (AC App only), Josev (V2G App only), the union
-of both Apps' modules, and the licence files. It is `FROM scratch` and is
+`ghcr.io/purcell-lab/everest-runtime:<VERSION>` is a multi-arch (amd64,
+arm64) image that holds only the stripped EVerest 2025.10.0 runtime the
+EVerest Apps copy: `manager`, the shared libraries those binaries load,
+`share/everest` (without the admin panel web UI or data for unused
+modules), the upstream demo certificates (AC App only), Josev (V2G App
+only), the union of both Apps' modules, and the licence files. It is `FROM scratch` and is
 never run. It is not a Home Assistant App (there is no `config.yaml`).
 
 ## Why
@@ -18,19 +19,24 @@ does, once per runtime version. The images HA installs are unchanged.
 
 ## What proves it changes nothing
 
-`.github/scripts/everest_identical_files.sh` builds each App from the
-runtime image and compares it with the reference releases in
-`REFERENCE` (AC 0.1.0, V2G 0.1.2), built from the upstream image
-directly. Version labels may differ; files may not. Type, mode, owner and SHA-256 content (or link target) must match
+`.github/scripts/everest_identical_files.sh` builds each App twice from
+the same source: once from the runtime its Dockerfile pins and once from
+the candidate runtime, and compares the two. (Runtime 2025.10.0-1 was
+instead compared with App releases built from the upstream image
+directly: AC 0.1.0 and V2G 0.1.2.) Version labels may differ; files may
+not. Type, mode, owner and SHA-256 content (or link target) must match
 for every path under `/opt/everest`, `/usr/share/doc/everest`,
-`/opt/ha-everest` and `/usr/local/lib/python3.11`. Timestamps are not
-compared, including the source-mtime field inside `.pyc` bytecode (the
-build checkout time); the rest of each `.pyc` must match.
+`/opt/ha-everest` and `/usr/local/lib/python3.11`, except the reviewed,
+intended differences listed in `EXPECTED_DIFFERENCES` (for 2025.10.0-2,
+the pruned libraries and data). Timestamps are not compared, including
+the source-mtime field inside `.pyc` bytecode (the build checkout time);
+the rest of each `.pyc` must match.
 Python's marshal encoding is not byte-reproducible between builds, so a
 `.pyc` pair that still differs passes only if the image's own Python 3.11
-loads both and the code objects compare equal. Differences elsewhere (Debian packages resolved by apt at build
-time) are listed for information. It runs in `everest-runtime.yml` on pull
-requests and again as the release gate in `everest-runtime-publish.yml`.
+loads both and the code objects compare equal. Differences elsewhere
+(Debian packages resolved by apt at build time) are listed for
+information. It runs in `everest-runtime.yml` on pull requests and again
+as the release gate in `everest-runtime-publish.yml`.
 
 This proves file identity with the released images. It does not test
 behaviour; the App workflows still run their full image checks.
@@ -55,15 +61,17 @@ until the runtime is pinned and public.
    git push origin everest_runtime-v$(cat everest_runtime/VERSION)
    ```
 
-   Builds amd64 only (the target HA host is generic-x86-64). Steps: tag check, no overwrite, build, identical-file gate,
-   push `<VERSION>-amd64`. Then one index `<VERSION>` with a
+   Per architecture: tag check, no overwrite, build, identical-file gate,
+   push `<VERSION>-<arch>`. Then one multi-arch index `<VERSION>` with a
    provenance attestation. The run summary prints the line to pin.
 3. Make the `everest-runtime` package public (new GHCR packages start
    private), so anonymous CI and release pulls work.
 4. Pin `ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:<VERSION>@sha256:<index digest>`
-   in both App Dockerfiles and re-run the checks.
+   in both App Dockerfiles, empty `EXPECTED_DIFFERENCES` and re-run the
+   checks.
 
 To move to a new EVerest release, change the upstream image and digest
 here, bump `VERSION` (for example `2025.12.1-1`), and expect the
-identical-file check to report differences against the old App releases.
-Review those differences, then release new App versions.
+identical-file check to report differences against the pinned runtime.
+Review them, list the intended ones in `EXPECTED_DIFFERENCES`, then
+release new App versions.

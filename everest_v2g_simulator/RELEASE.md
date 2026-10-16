@@ -7,16 +7,12 @@ The App build itself copies EVerest from the small pinned runtime image
 (`everest_runtime/README.md`), not the 4.3 GB upstream image.
 Each step below is a separate operator decision; none happens automatically.
 
-From this release on, only amd64 is built and offered (`config.yaml` arch),
-because the target HA host is generic-x86-64. aarch64 images exist up to
-AC 0.1.1 and V2G 0.1.3 only.
-
 ## Steps
 
 1. **Approve publication** of a public container image with the EVerest
-   runtime and Josev (Apache-2.0), Debian's OpenJDK 17 (GPLv2 with the
-   Classpath Exception, copyright files under `/usr/share/doc/`) and this
-   App's packaging.
+   runtime and Josev (Apache-2.0), a jlink runtime of Debian's OpenJDK 17
+   (GPLv2 with the Classpath Exception; notices in `/opt/java/legal/` and
+   `/usr/share/doc/openjdk-17/`) and this App's packaging.
 2. **Start publication** on the reviewed commit (the PR head), one of two ways:
 
    - **Manual run (preferred).** Actions, *Publish EVerest V2G App image*,
