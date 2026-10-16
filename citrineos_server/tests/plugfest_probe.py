@@ -90,7 +90,7 @@ def plugfest_trial(docker, request, server_options, values, tmp):
     else:
         raise AssertionError("Plugfest listener activation failed")
     result = probe(STATION, password)
-    assert result["good"] == {"connected": True, "boot": "Accepted"}, result["good"]
+    assert result["good"] == {"connected": True, "protocol": "ocpp2.0.1", "boot": "Accepted"}, result["good"]
     assert not result["wrong"]["connected"], "wrong password was admitted"
     assert not result["unknown"]["connected"], "unknown station was admitted"
     assert result["v16"] == {"connected": True, "protocol": "ocpp1.6", "boot": "Accepted"}, result["v16"]
