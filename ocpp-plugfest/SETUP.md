@@ -40,10 +40,10 @@ Home Assistant Green (HA OS, aarch64), LAN 192.168.86.90
 │       8083 SP1 Plugfest (host port published only during a slot)
 │
 ├─ Charging-station simulators
-│   EVerest V2G 0.1.6 (31ac84d3, prebuilt GHCR)  → CitrineOS 8083 via LAN IP
+│   EVerest V2G 0.1.6 (31ac84d3, prebuilt GHCR)  → CitrineOS 8083 (internal hostname)
 │   EVerest AC  0.1.1 (31ac84d3, prebuilt GHCR)  → CitrineOS 8082
-│   MicroOCPP 1.6 0.1.1 (7fbee41d, local build)  → HA OCPP 19002
-│   MicroOCPP 2.0.1 0.1.3 (7fbee41d, local build) — stopped (#38)
+│   MicroOCPP 1.6 0.1.2 (7fbee41d, prebuilt GHCR) → HA OCPP 19002
+│   MicroOCPP 2.0.1 0.1.5 (7fbee41d, prebuilt GHCR) → CitrineOS 8082
 │
 └─ Open Dynamic Export 0.1.0 (7fbee41d, prebuilt GHCR; ODE v0.20.0)
     offline test configuration, inverter control disabled
@@ -198,23 +198,31 @@ Start-up and checks:
 
 Each simulator starts disconnected. The first connected start binds its URL
 and identity to the App's data. EVerest Apps change that only with
-`archive_and_rebind: true` for one start; MicroOCPP Apps can't change it
-without a data reset (#29).
+`archive_and_rebind: true` for one start. The old state is moved to a
+timestamped `archive-…` folder in the App data, never deleted. All Apps
+have this option (MicroOCPP from 0.1.5 / 0.1.3, #29). Set it back to
+`false` after that start; every start with it `true` archives again.
 
 | App (store) | Image | Options used |
 |---|---|---|
-| `everest_v2g_simulator` 0.1.6 (31ac84d3) | `ghcr.io/purcell-lab/aarch64-everest-v2g-simulator:0.1.6` | `csms_url: ws://192.168.86.90:8083`, `charge_point_id: SIM-EV-EVEREST-V2G-03`, `ocpp_version: "2.1"`, `max_power_kw: 11`, `ha_control: true`, `csms_basic_auth_password: <32 hex>`, `acknowledge_test_isolation: true` |
+| `everest_v2g_simulator` 0.1.6 (31ac84d3) | `ghcr.io/purcell-lab/aarch64-everest-v2g-simulator:0.1.6` | `csms_url: ws://31ac84d3-citrineos-server:8083`, `charge_point_id: SIM-EV-EVEREST-V2G-03`, `ocpp_version: "2.1"`, `max_power_kw: 11`, `ha_control: true`, `csms_basic_auth_password: <32 hex>`, `acknowledge_test_isolation: true` |
 | `everest_simulator` 0.1.1 (31ac84d3) | `ghcr.io/purcell-lab/aarch64-everest-simulator:0.1.1` | `csms_url: ws://31ac84d3-citrineos-server:8082`, `charge_point_id: SIM-EV-EVEREST-G1`, `ocpp_version: "2.1"`, `phases: "1"`, `max_current_a: 32`, `acknowledge_test_isolation: true` |
-| `microocpp_simulator16` 0.1.1 (7fbee41d) | local build | `backend_url: ws://172.30.32.1:19002`, `charge_point_id: SIM-16-MICROOCPP-01`, `acknowledge_test_isolation: true` |
-| `microocpp_simulator` 0.1.3 (7fbee41d) | local build | `backend_url: ws://31ac84d3-citrineos-server:8082`, `charge_point_id: SIM-MICROOCPP-G1`. **Doesn't connect** (hostname DNS, #38) |
+| `microocpp_simulator16` 0.1.2 (7fbee41d) | `ghcr.io/purcell-lab/aarch64-microocpp-simulator16:0.1.2` | `backend_url: ws://172.30.32.1:19002`, `charge_point_id: SIM-16-MICROOCPP-01`, `acknowledge_test_isolation: true` |
+| `microocpp_simulator` 0.1.5 (7fbee41d) | `ghcr.io/purcell-lab/aarch64-microocpp-simulator:0.1.5` | `backend_url: ws://31ac84d3-citrineos-server:8082`, `charge_point_id: SIM-MICROOCPP-G1`, `acknowledge_test_isolation: true` |
 
 Notes:
-- **V2G uses the LAN address**, not the internal hostname, so the test goes
-  through the published 8083 port exactly as a vendor charger would. It
+- **V2G uses the internal hostname** on 8083, so it stays online between
+  slots while host port 8083 is closed. It still uses the same SP1
+  listener, `plugfest_stations` entry and Basic auth as a vendor charger.
+  To repeat the vendor-path test through the published port, publish 8083
+  and rebind to `ws://192.168.86.90:8083` (with `archive_and_rebind: true`
+  for one start), then rebind back afterwards. The App
   needs `privileged: NET_ADMIN` for its isolated v2g0/v2g1 link, and its
   start-up discovery self-test must report PASSED.
-- **MicroOCPP needs an IP address**, not a hostname (#38). The HA Core IP
-  `172.30.32.1` is stable; other App IPs change on restart.
+- **MicroOCPP resolves Supervisor hostnames** from 0.1.5 / 0.1.3 (#38):
+  the launcher passes the resolv.conf nameserver to Mongoose. The 1.6 App
+  uses the HA Core IP `172.30.32.1`, which is stable; other App IPs change
+  on restart, so use hostnames for them.
 - **Driving the simulators** (all through Ingress or HA):
 
 | Simulator | Plug in / unplug | Start |
@@ -273,7 +281,7 @@ On the Green it runs the **offline test configuration** used by CI:
 |---|---|---|
 | everest_simulator, everest_v2g_simulator | `image: ghcr.io/purcell-lab/{arch}-…`: Supervisor **pulls** the published image | V2G 0.1.6: aarch64 + amd64. AC 0.1.1: aarch64 + amd64 |
 | citrineos_database, broker, hasura, server, simulator | No `image:`: Supervisor **builds** the Dockerfile on the device | aarch64 + amd64 on PR #34 / green-e2e; amd64 only on main |
-| microocpp_simulator, microocpp_simulator16 | Built locally on main. PR #35 adds `image:` (`{arch}-microocpp-simulator[16]`) to skip the on-device compile. | aarch64 + amd64 |
+| microocpp_simulator, microocpp_simulator16 | `image: ghcr.io/purcell-lab/{arch}-microocpp-simulator[16]`: Supervisor **pulls** (2.0.1 0.1.5, 1.6 0.1.3 published) | aarch64 + amd64 |
 | open_dynamic_export | `image: ghcr.io/purcell-lab/{arch}-open-dynamic-export`: Supervisor **pulls** (0.1.0 published) | aarch64 + amd64 |
 
 ### EVerest images
@@ -458,12 +466,13 @@ Charts for new test runs: add `data/<run>.json`, then
    on 19002 with a short `meter_interval`.
 5. Install the simulators (section 6). Start each disconnected, then set the
    URL and identity.
-6. For V2G on 8083: add its ID and password to `plugfest_stations`, publish
-   host port 8083, and restart the server.
+6. For V2G on 8083: add its ID and password to `plugfest_stations` and
+   restart the server. V2G connects by the internal hostname, so host port
+   8083 stays closed unless a test needs the LAN path.
 7. Optional: install Open Dynamic Export from the main store with the
    offline test configuration (section 6), then start it and check the
    coordinator status.
-8. Run the three tests in [README.md](README.md). Then remove the 8083 host
-   port and stop the simulators.
+8. Run the three tests in [README.md](README.md). If you published the 8083
+   host port, remove it afterwards. Stop the simulators.
 9. At the event, replace the simulator entries in `plugfest_stations` with
    the vendors' IDs and passwords, and follow `docs/plugfest-runbook.md`.
