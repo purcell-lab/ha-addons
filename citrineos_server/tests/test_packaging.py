@@ -20,6 +20,7 @@ class PackagingSafety(unittest.TestCase):
         # operator-set host port (null by default).
         self.assertEqual(config["ports"], {"8083/tcp": None})
         self.assertIs(config["options"]["plugfest_enabled"], False)
+        self.assertIs(config["options"]["plugfest_open_admission"], False)
         self.assertEqual(config["options"]["plugfest_stations"], [])
         self.assertEqual(config["schema"]["plugfest_stations"][0]["password"], "password")
         self.assertEqual(config["options"]["mode"], "disconnected")

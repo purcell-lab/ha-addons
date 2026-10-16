@@ -182,7 +182,11 @@ For an OCPP Plugfest where this server is the CSMS under test, external
 charging stations on the venue network need to connect. `plugfest_enabled`
 (default `false`) adds listener `citrine-plugfest` on port 8083:
 
-- OCPP 2.1 and 2.0.1, Security Profile 1 (Basic Auth over `ws://`), tenant 1;
+- OCPP 2.1, 2.0.1 and 1.6, Security Profile 1 (Basic Auth over `ws://`),
+  tenant 1. The server chooses the first of 2.1, 2.0.1, 1.6 that the station
+  offers. 1.6 stations use the same Basic Auth password. The HA integration,
+  scoped commands and Operator UI commands cover 2.0.1 and 2.1 only, so a
+  1.6 station is monitor-only here;
 - only the identities in `plugfest_stations` are admitted, each with its own
   password; unknown stations and wrong passwords are refused at the
   WebSocket upgrade;
@@ -213,5 +217,16 @@ Read this before enabling it:
   test partner needs a separate TLS (Security Profile 2) path.
 - Command and control of real stations is not provided by the HA path; use
   the test partner's agreed procedure.
+
+### Open admission on 8083 (opt-in, unauthenticated)
+
+`plugfest_open_admission: true` (default `false`, needs `plugfest_enabled`)
+switches 8083 to Security Profile 0: any station identity connects, with no
+password, on 2.1, 2.0.1 or 1.6, and registers at BootNotification. Any
+Authorization header is ignored. `plugfest_stations` may then be empty.
+Anyone who can reach the port can register a station or take over an
+identity that is already connected, so use it only on an isolated test
+network, only while a host port is published, and switch it off again
+afterwards. The server logs a warning at start while it is on.
 
 See [the Plugfest runbook](../docs/plugfest-runbook.md).
