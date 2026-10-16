@@ -11,6 +11,12 @@
   automatic load controller.
 - Add the full Plugfest demonstration acceptance plan. HA controls, integration
   testing, fail-safe enforcement and the complete envelope path remain gates.
+- Offer aarch64 (for example a Home Assistant Green) alongside amd64 for the
+  server and its private dependencies (broker, database and Hasura 0.1.1).
+  The pinned upstream server index already includes arm64. jq is taken per
+  architecture with its published checksum, and the database moves to the
+  multi-arch `imresamu/postgis:16-3.5-bullseye` build of the same PostgreSQL
+  16.9 / PostGIS 3.5.2 / bullseye versions, so existing data is compatible.
 - Add opt-in `open_admission_enabled`: an unauthenticated internal listener on
   port 8082 accepting any station identity over OCPP 2.1/2.0.1. Off by default;
   port 8081 authentication is unchanged. See DOCS.md for the impersonation risk.
