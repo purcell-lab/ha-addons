@@ -1,0 +1,13 @@
+{
+  "config": "{\"setpoints\": {\"fixed\": {\"exportLimitWatts\": 5000}}, \"inverters\": [{\"type\": \"sunspec\", \"connection\": {\"type\": \"tcp\", \"ip\": \"127.0.0.1\", \"port\": 1502}, \"unitId\": 1}], \"inverterControl\": {\"enabled\": false}, \"meter\": {\"type\": \"sunspec\", \"connection\": {\"type\": \"tcp\", \"ip\": \"127.0.0.1\", \"port\": 1502}, \"unitId\": 240, \"location\": \"feedin\"}}",
+  "sep2_cert_file": "sep2-cert.pem",
+  "sep2_key_file": "sep2-key.pem",
+  "sep2_pen": "62223",
+  "timezone": "Australia/Brisbane",
+  "log_level": "info",
+  "influxdb_host": "",
+  "influxdb_port": 8086,
+  "influxdb_org": "open-dynamic-export",
+  "influxdb_bucket": "data",
+  "influxdb_token": ""
+}

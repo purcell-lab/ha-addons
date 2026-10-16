@@ -1,0 +1,55 @@
+name: Open Dynamic Export
+version: "0.1.0"
+slug: open_dynamic_export
+description: Dynamic export control and solar curtailment (CSIP-AUS, fixed and zero export), Open Dynamic Export v0.20.0 pinned.
+url: https://github.com/purcell-lab/ha-addons/tree/main/open_dynamic_export
+image: ghcr.io/purcell-lab/{arch}-open-dynamic-export
+arch:
+  - aarch64
+  - amd64
+startup: application
+# Manual: this App can curtail real inverters once inverterControl is enabled.
+boot: manual
+init: false
+ingress: true
+ingress_port: 3000
+panel_icon: mdi:solar-power-variant
+panel_title: Dynamic Export
+hassio_api: false
+homeassistant_api: false
+docker_api: false
+host_network: false
+# The upstream UI and API have no authentication. Ingress puts them behind
+# Home Assistant login; the LAN port is off unless you set a host port.
+ports:
+  3000/tcp: null
+ports_description:
+  3000/tcp: Unauthenticated web UI and API on the LAN (off by default; Ingress needs no port)
+# /config inside the App is this App's own folder under /addon_configs, for
+# config.json and the CSIP-AUS certificates. No access to the HA config.
+map:
+  - addon_config:rw
+options:
+  config: ""
+  sep2_cert_file: sep2-cert.pem
+  sep2_key_file: sep2-key.pem
+  sep2_pen: "62223"
+  timezone: Australia/Brisbane
+  log_level: info
+  influxdb_host: ""
+  influxdb_port: 8086
+  influxdb_org: open-dynamic-export
+  influxdb_bucket: data
+  influxdb_token: ""
+schema:
+  config: str?
+  sep2_cert_file: str
+  sep2_key_file: str
+  sep2_pen: match(^[0-9]{1,10}$)
+  timezone: str
+  log_level: list(trace|debug|info|warn|error)
+  influxdb_host: str?
+  influxdb_port: port
+  influxdb_org: str
+  influxdb_bucket: str
+  influxdb_token: password?
