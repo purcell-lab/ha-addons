@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validate,permitted,equalToken,buildListeners} from '../rootfs/launch.mjs';
+import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS} from '../rootfs/control-policy.mjs';
 const good={mode:'isolated',database_host:'citrine-db',broker_host:'citrine-broker',hasura_host:'citrine-hasura',
   database_password:'a'.repeat(64),broker_password:'b'.repeat(64),hasura_secret:'c'.repeat(64),api_token:'d'.repeat(64)};
 test('explicit mode and unique credentials required',()=>{
@@ -100,4 +101,47 @@ test('Plugfest stations are validated, unique and do not clash with simulator pr
   assert.throws(()=>validate({...pf([{id:'SIM-CITRINE-LAB-01',password:ok.password}]),simulator_enabled:true,
     simulator_password:'e'.repeat(40)}));
   assert.doesNotThrow(()=>validate(pf([{id:'SIM-CITRINE-LAB-01',password:ok.password}])));
+});
+
+test('Operator UI scope needs its own distinct token; commands need the UI flag',()=>{
+  const op={...good,operator_ui_enabled:true,operator_token:'9'.repeat(64)};
+  assert.doesNotThrow(()=>validate(op));
+  assert.doesNotThrow(()=>validate({...op,operator_commands_enabled:true}));
+  assert.throws(()=>validate({...good,operator_ui_enabled:true}));
+  assert.throws(()=>validate({...op,operator_token:good.api_token}));
+  assert.throws(()=>validate({...op,operator_token:'XYZ'}));
+  assert.throws(()=>validate({...good,operator_commands_enabled:true}));
+  assert.throws(()=>validate({...op,operator_ui_enabled:'yes'}));
+});
+test('operator commands: fixed actions, both 2.x versions, one tenant-1 identity',()=>{
+  const u=s=>new URL(s,'http://lab');
+  assert.deepEqual(operatorCommand(u('/ocpp/2.0.1/configuration/reset?identifier=PF-EVX-01&tenantId=1')),
+    {protocol:'ocpp2.0.1',action:'configuration/reset',identifier:'PF-EVX-01'});
+  assert.equal(operatorCommand(u('/ocpp/2.1/evdriver/requestStartTransaction?identifier=SIM-EV-G1&tenantId=1')).protocol,'ocpp2.1');
+  for(const bad of [
+    '/ocpp/2.0.1/monitoring/setVariables?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/certificates/installCertificate?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/configuration/updateFirmware?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/configuration/setNetworkProfile?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/configuration/dataTransfer?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/reporting/getLog?identifier=A1&tenantId=1',
+    '/ocpp/1.6/configuration/reset?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/configuration/reset?identifier=A1&tenantId=2',
+    '/ocpp/2.0.1/configuration/reset?identifier=A1',
+    '/ocpp/2.0.1/configuration/reset?identifier=A1&identifier=B2&tenantId=1',
+    '/ocpp/2.0.1/configuration/reset?identifier=A1&tenantId=1&extra=1',
+    '/ocpp/2.0.1/configuration/reset?identifier=a%2Fb&tenantId=1',
+    '/v1/metadata'])
+    assert.equal(operatorCommand(u(bad)),null,bad);
+  for(const c of OPERATOR_COMMANDS) assert.doesNotMatch(c,/setVariables|certificate|firmware|NetworkProfile|dataTransfer|getLog|customer/i);
+});
+test('operator commands need the station online on the same OCPP version',()=>{
+  const cmd={protocol:'ocpp2.0.1',action:'configuration/reset',identifier:'PF-EVX-01'};
+  const st=x=>({data:{ChargingStations:[{id:7,tenantId:1,ocppConnectionName:'PF-EVX-01',protocol:'ocpp2.0.1',isOnline:true,...x}]}});
+  assert.equal(operatorTargetAllows(cmd,st({})),true);
+  assert.equal(operatorTargetAllows(cmd,st({isOnline:false})),false);
+  assert.equal(operatorTargetAllows(cmd,st({protocol:'ocpp2.1'})),false);
+  assert.equal(operatorTargetAllows(cmd,st({tenantId:2})),false);
+  assert.equal(operatorTargetAllows(cmd,{data:{ChargingStations:[]}}),false);
+  assert.equal(operatorTargetAllows(null,st({})),false);
 });

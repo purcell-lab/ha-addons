@@ -4,7 +4,8 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION_PATTERN,PROTOCOL,MAX_POWER_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows,commandStation} from './control-policy.mjs';
+import {STATION_PATTERN,PROTOCOL,MAX_POWER_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows,commandStation,
+  OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -30,7 +31,18 @@ export function validate(o) {
   if(o.command_station_id!==undefined&&!STATION_PATTERN.test(o.command_station_id))throw new Error('Command station must be a SIM-EV- identity');
   if(o.command_control_enabled&&(!(o.profile_simulator_enabled||o.open_admission_enabled)||!/^[a-f0-9]{64}$/.test(o.command_token||'')
     ||[o.api_token,o.database_password,o.broker_password,o.hasura_secret].includes(o.command_token)))throw new Error('Distinct command credential required');
+  validateOperator(o);
   validatePlugfest(o);
+}
+// Operator UI App: a separate token for read-only Hasura access as
+// "operator_ro" and, optionally, the fixed operator command set.
+export function validateOperator(o) {
+  for(const flag of ['operator_ui_enabled','operator_commands_enabled'])
+    if(o[flag]!==undefined&&typeof o[flag]!=='boolean')throw new Error('Invalid operator flag');
+  if(o.operator_commands_enabled&&!o.operator_ui_enabled)throw new Error('Operator commands need operator_ui_enabled');
+  if(!o.operator_ui_enabled)return;
+  if(!/^[a-f0-9]{64}$/.test(o.operator_token||'')||[o.api_token,o.command_token,o.database_password,
+    o.broker_password,o.hasura_secret].includes(o.operator_token))throw new Error('Distinct operator credential required');
 }
 // OCPP identity used as the Basic Auth user name: no ':' or '/'.
 export const PLUGFEST_ID=/^[A-Za-z0-9._~*+-]{1,48}$/;
@@ -114,11 +126,12 @@ function makeSigner() {
   const {privateKey,publicKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
   const jwk={...publicKey.export({format:'jwk'}),kid:'lab',use:'sig',alg:'RS256'};
   const b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+  // role: false = lab-reader, true = lab-controller, or an explicit role name.
   return {jwk,token(control=false) {
     const now=Math.floor(Date.now()/1000);
     const unsigned=b64({alg:'RS256',kid:'lab',typ:'JWT'})+'.'+b64({
       iss:'citrine-ha-lab',aud:'citrine-api',sub:'ha-lab-reader',tenant_id:'1',
-      roles:[control?'lab-controller':'lab-reader'],iat:now,exp:now+60,
+      roles:[typeof control==='string'?control:control?'lab-controller':'lab-reader'],iat:now,exp:now+60,
     });
     return unsigned+'.'+crypto.sign('RSA-SHA256',Buffer.from(unsigned),privateKey).toString('base64url');
   }};
@@ -154,7 +167,7 @@ export async function main() {
   };
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
   for(const [k,v] of Object.entries(config)) env['CITRINEOS_'+k]=JSON.stringify(v);
-  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token,
+  const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token,o.operator_token,
     ...(o.plugfest_enabled?(o.plugfest_stations||[]).map(st=>st.password):[])].filter(Boolean);
   let child, shutting=false;
   const streams=[];
@@ -211,15 +224,52 @@ export async function main() {
   await waitFor('Hasura',async()=> {
     try {const r=await fetch(`http://${o.hasura_host}:8080/healthz`,{signal:AbortSignal.timeout(1500)});return r.ok;}catch{return false;}
   });
-  const metadata=JSON.parse(fs.readFileSync(`${here}/metadata.json`));
+  // The Operator UI needs upstream's full schema; metadata-operator.json adds it
+  // read-only (role operator_ro) and keeps ha_reader exactly as metadata.json.
+  const metadata=JSON.parse(fs.readFileSync(`${here}/${o.operator_ui_enabled?'metadata-operator.json':'metadata.json'}`));
   await jsonFetch(`http://${o.hasura_host}:8080/v1/metadata`,{
     method:'POST',headers:{'Content-Type':'application/json','x-hasura-admin-secret':o.hasura_secret},
     body:JSON.stringify({type:'replace_metadata',args:{allow_inconsistent_metadata:false,metadata}}),
   });
+  // Operator UI requests: GraphQL as operator_ro (Hasura refuses any
+  // mutation: the role has no insert, update or delete permission), and the
+  // fixed operator command set when enabled. Nothing else is reachable.
+  async function operatorRequest(req,res,url) {
+    let size=0;const chunks=[];
+    if(req.method!=='POST'){res.writeHead(405);res.end('{"error":"Operator route denied"}');return;}
+    for await(const c of req) {size+=c.length;if(size>262144){res.writeHead(413);res.end('{}');return;}chunks.push(c);}
+    const body=Buffer.concat(chunks).toString();
+    let parsed;
+    try{parsed=JSON.parse(body);}catch{res.writeHead(400);res.end('{"error":"Invalid JSON"}');return;}
+    if(url.pathname==='/v1/graphql') {
+      if(!parsed||Array.isArray(parsed)||typeof parsed.query!=='string'){res.writeHead(400);res.end('{}');return;}
+      const r=await fetch(`http://${o.hasura_host}:8080/v1/graphql`,{method:'POST',body,redirect:'error',
+        signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',
+          'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'operator_ro','x-hasura-tenant-id':'1'}});
+      res.writeHead(r.status);res.end(await r.text());return;
+    }
+    const cmd=o.operator_commands_enabled===true?operatorCommand(url):null;
+    if(!cmd||!parsed||typeof parsed!=='object'||Array.isArray(parsed)){res.writeHead(403);res.end('{"error":"Operator route denied"}');return;}
+    const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+      method:'POST',headers:{'Content-Type':'application/json',
+        'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'operator_ro','x-hasura-tenant-id':'1'},
+      body:JSON.stringify({query:OPERATOR_TARGET_QUERY,variables:{name:cmd.identifier}}),
+    });
+    if(!operatorTargetAllows(cmd,state)){
+      res.writeHead(409);res.end('{"error":"Station is unknown, offline or uses another OCPP version"}');return;
+    }
+    console.log(`Operator command ${cmd.action} to ${cmd.identifier} (${cmd.protocol}).`);
+    const r=await fetch('http://127.0.0.1:8088'+url.pathname+url.search,{method:'POST',body,redirect:'error',
+      signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token('lab-operator')}`}});
+    res.writeHead(r.status);res.end(await r.text());
+  }
   const gateway=http.createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
     try {
       const url=new URL(req.url,'http://lab');
+      if(o.operator_ui_enabled===true&&equalToken(req.headers.authorization,`Bearer ${o.operator_token}`)) {
+        await operatorRequest(req,res,url);return;
+      }
       const publicHealth=req.method==='GET' && url.pathname==='/health/ready';
       const controller=o.command_control_enabled===true&&equalToken(req.headers.authorization,`Bearer ${o.command_token}`);
       if(!publicHealth && !controller && !equalToken(req.headers.authorization,`Bearer ${o.api_token}`)) {
@@ -241,7 +291,8 @@ export async function main() {
           profile_simulator_identity:o.profile_simulator_enabled?station:null,
           open_admission:o.open_admission_enabled===true,
           plugfest_stations:o.plugfest_enabled?(o.plugfest_stations||[]).map(st=>st.id):[],
-          read_only:!controller}));return;
+          read_only:!controller,operator_ui:o.operator_ui_enabled===true,
+          operator_commands:o.operator_ui_enabled===true&&o.operator_commands_enabled===true}));return;
       }
       let target,headers={},body;
       if(url.pathname==='/v1/graphql'||command) {

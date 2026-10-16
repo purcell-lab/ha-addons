@@ -127,6 +127,9 @@ try:
     if os.environ.get("TEST_PLUGFEST")=="1":
         from plugfest_probe import plugfest_trial
         plugfest_trial(docker, request, options[-1], values, TMP)
+    if os.environ.get("TEST_OPERATOR")=="1":
+        from operator_probe import operator_trial
+        operator_trial(docker, request, options[-1], values, TMP)
     if os.environ.get("TEST_V2G_SIMULATOR")=="1":
         from v2g_trial import trial as v2g_trial
         v2g_trial(docker, request, options[-1], names, values, TMP)
@@ -134,7 +137,8 @@ try:
                       "authenticated_tariff":True,"empty_discovery":True,
                       "mutation_denied":True,"restart_persistence":True,"logical_restore":True,
                       "native_simulator_test":os.environ.get("TEST_NATIVE_SIMULATOR")=="1",
-                      "plugfest_test":os.environ.get("TEST_PLUGFEST")=="1"}))
+                      "plugfest_test":os.environ.get("TEST_PLUGFEST")=="1",
+                      "operator_test":os.environ.get("TEST_OPERATOR")=="1"}))
 finally:
     for name in names:
         try:

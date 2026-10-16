@@ -70,6 +70,35 @@ class PackagingSafety(unittest.TestCase):
                 self.assertIn("jq-linux-amd64", docker)
                 self.assertIn("jq-linux-arm64", docker)
 
+    def test_operator_metadata_is_read_only_and_keeps_ha_reader(self):
+        operator = json.loads((ROOT / "rootfs/metadata-operator.json").read_text())
+        base = json.loads((ROOT / "rootfs/metadata.json").read_text())
+        self.assertEqual(set(operator) - {"version", "sources"}, set())
+        tables = {t["table"]["name"]: t for t in operator["sources"][0]["tables"]}
+        self.assertEqual({k: v for k, v in operator["sources"][0].items() if k != "tables"},
+                         {k: v for k, v in base["sources"][0].items() if k != "tables"})
+        for name, table in tables.items():
+            for key in ("insert_permissions", "update_permissions", "delete_permissions", "event_triggers"):
+                self.assertNotIn(key, table, name)
+            for p in table.get("select_permissions", []):
+                self.assertIn(p["role"], {"operator_ro", "ha_reader"})
+                # Every row is scoped to the caller's tenant.
+                self.assertIn("x-hasura-tenant-id", json.dumps(p["permission"]["filter"]).lower(), name)
+        self.assertNotIn("select_permissions", tables["Subscriptions"])
+        for name in ("Tenants", "TenantPartners"):
+            cols = tables[name]["select_permissions"][0]["permission"]["columns"]
+            self.assertIsInstance(cols, list)
+            self.assertFalse({"serverProfileOCPI", "partnerProfileOCPI"} & set(cols))
+        self.assertIn("password", json.dumps(tables["VariableAttributes"]["select_permissions"][0]["permission"]["filter"]))
+        for mine in base["sources"][0]["tables"]:
+            theirs = tables[mine["table"]["name"]]
+            reader = [p for p in theirs["select_permissions"] if p["role"] == "ha_reader"]
+            self.assertEqual(reader, mine["select_permissions"])
+        rbac = json.loads((ROOT / "rootfs/rbac-rules.json").read_text())["1"]
+        for route, methods in rbac.items():
+            for roles in methods.values():
+                self.assertTrue(set(roles) <= {"lab-reader", "lab-controller", "lab-operator"}, route)
+
     def test_metadata_has_no_write_permissions_or_sensitive_columns(self):
         metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())
         tables = metadata["sources"][0]["tables"]
