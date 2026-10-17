@@ -22,22 +22,33 @@ def samples_for(means, step=30):
 class StepEvaluationTest(unittest.TestCase):
     targets = [6000, -5000, 3000, 0]
 
-    def test_zero_watt_hold_is_a_known_defect_not_a_failure(self):
-        steps, failures, known = evaluate_steps(self.targets, samples_for([6000, -5000, 3000, 3000]), 30)
-        self.assertEqual(failures, [])
-        self.assertEqual(len(known), 1)
-        self.assertIn("3000", known[0])
-        self.assertEqual([s["passed"] for s in steps], [True, True, True, False])
+    def test_zero_watt_step_is_tracked_like_any_other(self):
+        steps, failures, known = evaluate_steps(self.targets, samples_for([6000, -5000, 3000, 0]), 30)
+        self.assertEqual((failures, known), ([], []))
+        self.assertEqual([s["passed"] for s in steps], [True, True, True, True])
 
-    def test_other_steps_still_fail(self):
-        _, failures, _ = evaluate_steps(self.targets, samples_for([11000, -5000, 3000, 3000]), 30)
-        self.assertEqual(len(failures), 1)
-        self.assertIn("6000 W", failures[0])
-        _, failures, _ = evaluate_steps(self.targets, samples_for([6000, -1111.11, 3000, 3000]), 30)
-        self.assertIn("-5000 W", failures[0])
-
-    def test_fixed_zero_step_fails_until_allowance_removed(self):
-        _, failures, known = evaluate_steps(self.targets, samples_for([6000, -5000, 3000, 0]), 30)
+    def test_zero_watt_hold_fails(self):
+        _, failures, known = evaluate_steps(self.targets, samples_for([6000, -5000, 3000, 3000]), 30)
         self.assertEqual(known, [])
         self.assertEqual(len(failures), 1)
-        self.assertIn("remove its known-defect allowance", failures[0])
+        self.assertIn("at 0 W", failures[0])
+
+    def test_other_steps_still_fail(self):
+        _, failures, _ = evaluate_steps(self.targets, samples_for([11000, -5000, 3000, 0]), 30)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("6000 W", failures[0])
+        _, failures, _ = evaluate_steps(self.targets, samples_for([6000, -1111.11, 3000, 0]), 30)
+        self.assertIn("-5000 W", failures[0])
+
+    def test_a_known_defect_allowance_fails_once_the_step_passes(self):
+        import v2g_trial
+        v2g_trial.KNOWN_DEFECT_SETPOINTS[0] = "held"
+        try:
+            _, failures, known = evaluate_steps(self.targets, samples_for([6000, -5000, 3000, 0]), 30)
+            self.assertEqual(known, [])
+            self.assertIn("remove its known-defect allowance", failures[0])
+            _, failures, known = evaluate_steps(self.targets, samples_for([6000, -5000, 3000, 3000]), 30)
+            self.assertEqual(failures, [])
+            self.assertEqual(len(known), 1)
+        finally:
+            v2g_trial.KNOWN_DEFECT_SETPOINTS.clear()
