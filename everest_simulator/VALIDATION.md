@@ -62,6 +62,17 @@ CI step means (A) for the same schedule:
 - The demo build is coverage-instrumented and logs composite schedules
   every interval; both are handled in `app.py`.
 
+## 0.1.4: sample interval option, any-purpose profile panel (2026-10-17)
+
+- `tx_sample_interval_s` (default 5, 1 to 60) sets
+  `SampledDataTxUpdatedInterval`. With 1 s samples, CitrineOS on the Green
+  stored about one TransactionEvent every 2 s, so a 25-minute session
+  queued several minutes of samples and the Ended event arrived 5 minutes
+  after unplugging.
+- The profile panel shows the newest SetChargingProfile of any purpose,
+  with purpose, id and stack level (`latest_profile` in `/api/profiles`;
+  `latest_tx_profile` is kept).
+
 ## 0.1.3: 3-phase watt limits applied in full (2026-10-17)
 
 On a 3-phase 32 A station, a watt TxProfile reached the EVSE as a third of

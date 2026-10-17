@@ -128,13 +128,15 @@ async function refreshProfiles() {
   } catch (e) {
     $("txmeta").textContent = "Profile log unavailable; retrying."; $("txjson").textContent = ""; $("copy").disabled = true; return;
   }
-  const tx = d.latest_tx_profile;
+  const tx = d.latest_profile || d.latest_tx_profile;
   if (tx) {
     const reply = tx.status ? "Station reply: " + tx.status : "Station reply: not yet recorded";
-    $("txmeta").textContent = "Received " + tx.received + " (UTC), message " + tx.message_id + ". " + reply + ".";
+    const cp = (tx.payload && tx.payload.chargingProfile) || {};
+    const what = cp.chargingProfilePurpose ? cp.chargingProfilePurpose + " #" + cp.id + ", stack level " + cp.stackLevel + ". " : "";
+    $("txmeta").textContent = what + "Received " + tx.received + " (UTC), message " + tx.message_id + ". " + reply + ".";
     if (tx.payload) { lastJson = JSON.stringify(tx.payload, null, 2); $("txjson").textContent = lastJson; $("copy").disabled = false; }
     else { lastJson = ""; $("txjson").textContent = "Payload larger than 8 KiB (" + tx.payload_bytes + " bytes); see the App's OCPP message log."; $("copy").disabled = true; }
-  } else { $("txmeta").textContent = "No TxProfile received yet."; $("txjson").textContent = ""; $("copy").disabled = true; }
+  } else { $("txmeta").textContent = "No charging profile received yet."; $("txjson").textContent = ""; $("copy").disabled = true; }
   const body = $("recent").tBodies[0]; body.replaceChildren();
   for (const ev of d.recent || []) {
     const row = body.insertRow();

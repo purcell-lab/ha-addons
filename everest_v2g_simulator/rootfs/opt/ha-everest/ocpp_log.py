@@ -86,6 +86,12 @@ def profile_events(text, limit=10):
     return [requests[uid] for uid in order[-limit:]][::-1]
 
 
+def latest_profile(events):
+    """The newest SetChargingProfile of any purpose (TxProfile, TxDefaultProfile,
+    ChargingStationMaxProfile, ChargingStationExternalConstraints, ...)."""
+    return next((e for e in events if e["action"] == "SetChargingProfile"), None)
+
+
 def latest_tx_profile(events):
     for event in events:
         payload = event.get("payload") or {}

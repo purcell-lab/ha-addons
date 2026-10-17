@@ -29,6 +29,9 @@ def validate(options):
     phases = options.get("phases", 1)
     current = options.get("max_current_a", 32)
     acknowledged = options.get("acknowledge_test_isolation", False)
+    interval = options.get("tx_sample_interval_s", 5)
+    if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 60:
+        raise ValueError("tx_sample_interval_s must be 1-60")
     if not isinstance(cpid, str) or not re.fullmatch(r"SIM-EV-[A-Za-z0-9_-]{1,36}", cpid):
         raise ValueError("charge_point_id must be a SIM-EV- test identity")
     if version not in VERSIONS:
@@ -69,6 +72,7 @@ def validate(options):
         "ocpp_version": version,
         "phases": phases,
         "max_current_a": current,
+        "tx_sample_interval_s": interval,
     }
 
 
@@ -167,9 +171,11 @@ def component_config(source, target, settings, password):
     })
     # ChargingStationSupplyPhases stays at the upstream value (3): setting it to 1
     # made libocpp drop every profile from composite schedules (2025.10.0).
-    # One-second transaction samples, as in the V2G App, so step response
-    # can be timed from the CSMS record (#41).
-    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 1})
+    # Transaction sample interval (option tx_sample_interval_s, default 5 s).
+    # One-second samples (#41) outran CitrineOS on the Green (about one
+    # TransactionEvent every 2 s), so a long session queued minutes of samples
+    # and delayed the Ended event.
+    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": settings["tx_sample_interval_s"]})
     edit("OCPPCommCtrlr", {"HeartbeatInterval": 60})
 
 

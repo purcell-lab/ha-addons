@@ -118,7 +118,8 @@ def status(bus):
 
 def profiles():
     events = ocpp_log.profile_events(ocpp_log.read_logs(LOGS))
-    return {"latest_tx_profile": ocpp_log.latest_tx_profile(events), "recent": events}
+    return {"latest_profile": ocpp_log.latest_profile(events),
+            "latest_tx_profile": ocpp_log.latest_tx_profile(events), "recent": events}
 
 
 def make_handler(bus):

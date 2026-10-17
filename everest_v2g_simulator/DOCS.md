@@ -94,6 +94,7 @@ still needs `archive_and_rebind` once.
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty `csms_url`. |
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 | `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |
+| `tx_sample_interval_s` | `5` | Seconds between transaction MeterValues samples sent to the CSMS (`SampledDataTxUpdatedInterval`), 1 to 60. Change it in the App configuration and restart; no rebuild. |
 
 **Basic Auth.** Security Profile 1 sends a random 32-character password,
 generated once in `/data/basic-auth-password`. The App never logs or shows
@@ -119,9 +120,10 @@ and a text label, so colour is never the only cue. A bidirectional bar and a
 two-minute trend show power against the rated limit. The discovery self-test
 panel is at the bottom of the page.
 
-The charger sends OCPP transaction meter samples to the CSMS every second
-(`SampledDataTxUpdatedInterval` 1), so step response and direction changes
-can be timed from the CSMS record.
+The charger sends OCPP transaction meter samples to the CSMS every
+`tx_sample_interval_s` seconds (`SampledDataTxUpdatedInterval`, default 5
+from 0.1.7; earlier versions sent one every second, which outran CitrineOS
+on the Green over long sessions).
 
 Each plug-in starts a fresh EV ISO 15118 stack. In upstream PyEvJosev, a
 failed discovery leaves the EV stack idle without returning, so every
@@ -254,7 +256,8 @@ The transaction id is in the charger's Transaction Id sensor. HA raises an
 error if the station does not reply `Accepted`. During export, HA's import
 power sensor shows a negative value; use the export energy register for
 exported energy. The
-**Last received TxProfile** panel shows the profile and the station's
+**Last received charging profile** panel shows the newest
+SetChargingProfile of any purpose, with its purpose, id and stack level, and the station's
 reply, and **Effective limit** shows EVerest's composite schedule for EVSE
 1, including limit, discharge limit and setpoint. A ChargingStationMaxProfile
 on EVSE 0 is merged into that composite by libocpp.
