@@ -77,10 +77,12 @@ export async function seedSimulator(o) {
       VALUES ($1,1,'EUR',0,NOW(),NOW()) ON CONFLICT ("tariffId","tenantId") DO NOTHING`,[LAB_TARIFF]);
     const {rows:[tariff]}=await db.query(`SELECT id FROM "Tariffs" WHERE "tariffId"=$1 AND "tenantId"=1`,[LAB_TARIFF]);
     await db.query(`UPDATE "Connectors" SET "tariffId"=$1 WHERE "tenantId"=1 AND "tariffId" IS NULL`,[tariff.id]);
+    // $1 is cast: without it PostgreSQL deduces text in the select list and
+    // varchar in the comparison and rejects the statement.
     await db.query(`INSERT INTO "Locations"
       (name,address,city,"tenantId","publishUpstream","timeZone",coordinates,"createdAt","updatedAt")
-      SELECT $1,'Laboratory','Laboratory',1,false,'UTC',ST_GeomFromText('POINT(0 0)'),NOW(),NOW()
-      WHERE NOT EXISTS (SELECT 1 FROM "Locations" WHERE "tenantId"=1 AND name=$1)`,[LAB_LOCATION]);
+      SELECT $1::varchar,'Laboratory','Laboratory',1,false,'UTC',ST_GeomFromText('POINT(0 0)'),NOW(),NOW()
+      WHERE NOT EXISTS (SELECT 1 FROM "Locations" WHERE "tenantId"=1 AND name=$1::varchar)`,[LAB_LOCATION]);
     const {rows:[location]}=await db.query(`SELECT id FROM "Locations"
       WHERE "tenantId"=1 AND name=$1 ORDER BY id LIMIT 1`,[LAB_LOCATION]);
     await db.query(`UPDATE "ChargingStations" SET "locationId"=$1 WHERE "tenantId"=1 AND "locationId" IS NULL`,[location.id]);
