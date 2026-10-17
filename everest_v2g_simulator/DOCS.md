@@ -267,11 +267,17 @@ on EVSE 0 is merged into that composite by libocpp.
 These are upstream behaviours, found in testing and recorded in
 VALIDATION.md. The App does not hide them.
 
-- **0 W and small charging setpoints are not honoured.** A 0 W setpoint,
-  or a charging setpoint below about 1.4 kW (the simulated board's 6 A
-  minimum on one phase), leaves the EV at its previous power. After a
-  discharge, that previous power reappears as charging. To stop power flow,
-  end the transaction (RequestStopTransaction).
+- **Charging-only periods do not limit discharge.** OCPP201 in EVerest
+  2025.10.0 turns `limit` into an import limit and `setpoint` into a
+  setpoint, but sends no export limit, so a period without a setpoint
+  leaves discharge unbounded: a charging-only 0 W limit after a discharge
+  setpoint kept exporting. To hold the EV at 0 W, send a CentralSetpoint
+  period with `setpoint: 0` (honoured since 0.1.8), for example
+  `{"limit": 11000, "dischargeLimit": -11000, "setpoint": 0, "operationMode": "CentralSetpoint"}`.
+- **Small charging setpoints are rounded down to 0 W.** A charging
+  setpoint below about 1.4 kW (the simulated board's 6 A minimum on one
+  phase) gives 0 W. Before 0.1.8 it, and a 0 W setpoint, left the EV at its
+  previous power.
 - **Give every period a setpoint.** EVerest applies the first setpoint
   before its period starts and keeps the last one after it ends, so a
   period without a setpoint inherits a neighbour's.

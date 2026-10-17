@@ -308,6 +308,8 @@ class GeneratedConfigTest(unittest.TestCase):
         supply = next(m for m in active.values() if m["module"] == "DCSupplySimulator")
         self.assertTrue(supply["config_implementation"]["main"]["bidirectional"])
         self.assertEqual(supply["config_implementation"]["main"]["max_power"], 7000)
+        # A 0 W target needs a 0 W supply minimum (VALIDATION.md).
+        self.assertEqual(supply["config_implementation"]["main"]["min_current"], 0.0)
         d20 = next(m for m in active.values() if m["module"] == "Evse15118D20")
         self.assertEqual(d20["config_module"]["device"], netguard.SECC_LINK)
         josev = next(m for m in active.values() if m["module"] == "PyEvJosev")["config_module"]

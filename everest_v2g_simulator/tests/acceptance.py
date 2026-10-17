@@ -37,10 +37,11 @@ DATA = Path(os.environ.get("HA_EVEREST_DATA", "/data"))
 UI = "http://127.0.0.1:8000"
 STEP = int(os.environ.get("STEP_S", "20"))
 CPID = "SIM-EV-EVEREST-V2G-01"
-# Charge, then discharge (V2G export). Signed W: negative is discharge.
-# Charging again after a discharge in the same session is a known EVerest
-# 2025.10.0 limitation (VALIDATION.md), so the transaction stops after export.
-SETPOINTS_W = [6000, -5000, 3000]
+# Charge, stop, discharge (V2G export), stop, charge. Signed W: negative is
+# discharge. The 0 W steps failed before 0.1.8: the EV stayed at 6,000 W, and
+# after a discharge the previous magnitude reappeared as charging
+# (VALIDATION.md).
+SETPOINTS_W = [6000, 0, -5000, 0, 3000]
 # 2.0.1 has no setpoints: one plain import limit below the 11 kW rating.
 FALLBACK_LIMIT_W = 4000
 POWER_TOLERANCE = 0.03

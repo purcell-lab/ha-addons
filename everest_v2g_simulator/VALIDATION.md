@@ -89,8 +89,16 @@ any purpose (`latest_profile` in `/api/profiles`; `latest_tx_profile` kept).
   appeared in EVSE 1's composite (`limit: 9000`).
 - A 0 W setpoint left the EV at 6,000 W, and a 1,000 W setpoint after a
   -5,000 W discharge gave +5,000 W (previous magnitude, now charging).
-  Upstream EvseManager returns early when the minimum exceeds the maximum.
-  Documented, not worked around.
+  Upstream EvseManager returns early when the minimum exceeds the maximum,
+  and the simulated DC supply's default 1 A at 200 V made the minimum
+  200 W. Fixed in 0.1.8 with a 0 A supply minimum; the acceptance run now
+  includes 0 W steps after charging and after discharging.
+- A charging-only period after a discharge setpoint did not bound export:
+  OCPP201 (2025.10.0) `set_external_limits` builds `schedule_import` and
+  `schedule_setpoints` but never `schedule_export`. Seen in a CSIP-AUS lab
+  run, where a 0 W charging-only limit left the EV exporting about 5 kW.
+  Not fixed (needs an OCPP201 source patch); DOCS.md gives the
+  CentralSetpoint workaround.
 - A one-second 13.5 kW sample appeared at a direction change.
 - Re-plugging within about 4 s of unplug, while the previous TLS session
   was still closing, prevented a new discovery; the test waits 15 s.
