@@ -4,9 +4,9 @@ Runs the real entrypoint (firewall, private veth link, test PKI, mosquitto,
 EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
 
   v2g21      CSMS prefers 2.1 -> ocpp2.1; ISO 15118-20 DC_BPT session; a
-             CentralSetpoint TxProfile charges then discharges (V2G export),
-             at about 380 V both ways, including direct reversals between
-             charge and discharge; after stop and unplug a fresh session,
+             CentralSetpoint TxProfile charges then discharges (V2G export)
+             at 380 V, including direct reversals between charge and
+             discharge; after stop and unplug a fresh session,
              started 75 s after plug-in, charges again
   fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit
   pinned201  App option ocpp_version 2.0.1; CSMS prefers 2.1 -> ocpp2.0.1
@@ -48,15 +48,15 @@ CPID = "SIM-EV-EVEREST-V2G-01"
 # before 0.1.8: the EV stayed at 6,000 W, and after a discharge the previous
 # magnitude reappeared as charging (VALIDATION.md). The 20 kW steps exceed
 # the limits before 0.1.9: 5 kW discharge (EV 25 A at 200 V) and 11.04 /
-# 22.08 kW from the simulated board. With equal charge and discharge
-# voltages a direct reversal kept the previous current (configure.py).
+# 22.08 kW from the simulated board. The direct reversals (-5000, +3000)
+# guard against EvseManager's stale-target race (UPSTREAM.md, issue #70).
 SETPOINTS_W = [6000, 0, -20000, 0, 20000, -5000, 3000]
 RATING_KW = 25
 # 2.0.1 has no setpoints: one plain import limit below the rating.
 FALLBACK_LIMIT_W = 4000
 POWER_TOLERANCE = 0.03
-# Simulated battery voltage (configure.DC_VOLTAGE; charging is 2 V above).
-# Before 0.1.10 charging ran at the EV's 900 V maximum (issue #70).
+# Discharge voltage: the DC supply minimum (configure.DC_VOLTAGE). Charging
+# runs at the EV's 900 V maximum (issue #70, UPSTREAM.md).
 DC_VOLTAGE = 380
 VOLTAGE_TOLERANCE = 0.05
 # Issue #33: before 0.1.10 the EV gave up about 60 s after plug-in.
@@ -136,9 +136,8 @@ def iso_start(seconds=3):
     return start, start.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def check_voltage(r):
-    """DC voltage at the battery voltage while power flows, either direction."""
-    assert abs(r["voltage"] - DC_VOLTAGE) <= VOLTAGE_TOLERANCE * DC_VOLTAGE, r
+def check_meter(r):
+    """DC current times voltage gives the metered power."""
     assert abs(r["current"] * r["voltage"] - r["power"]) <= max(100, 0.05 * abs(r["power"])), r
     return {"W": round(r["power"]), "V": round(r["voltage"], 1), "A": round(r["current"], 2)}
 
@@ -182,8 +181,8 @@ def check_steps(samples, targets):
         ok = abs(mean_w - target) <= max(50, POWER_TOLERANCE * abs(target))
         step = {"target_W": target, "mean_W": round(mean_w)}
         volts = [s[5] for s in window if s[5] is not None]
-        if target:
-            # Same operating point both ways, so the current scales with power.
+        if target < 0:
+            # Discharge runs at the supply minimum, not its 200 V default.
             mean_v = sum(volts) / len(volts) if volts else None
             step["mean_V"] = round(mean_v, 1) if volts else None
             ok = ok and volts and abs(mean_v - DC_VOLTAGE) <= VOLTAGE_TOLERANCE * DC_VOLTAGE
@@ -268,7 +267,7 @@ async def v2g_scenario():
         # A new session after unplug charges normally (default limit), also
         # when the start comes more than 60 s after plug-in (issue #33).
         txid = await start_session(csms, first=False, start_delay_s=LATE_START_S)
-        report["second_session"] = check_voltage(reading())
+        report["second_session"] = check_meter(reading())
         assert "maximum number of SDP retry cycles" not in log_text(app), "EV gave up waiting"
         assert http("/api/status")["ev_watchdog"]["recoveries"] == 0
         await finish(csms, txid)
@@ -442,7 +441,7 @@ async def watchdog_scenario():
         await wait_for(lambda: reading()["state"] == "Charging" and (reading()["power"] or 0) > 1000,
                        90, what="DC charging after the re-plug")
         await asyncio.sleep(10)
-        report["charging"] = check_voltage(reading())
+        report["charging"] = check_meter(reading())
         started = [e for e in csms.calls("TransactionEvent") if e["eventType"] == "Started"]
         await finish(csms, started[-1]["transactionInfo"]["transactionId"])
         report["result"] = "pass"

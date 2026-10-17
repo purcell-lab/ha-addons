@@ -318,14 +318,10 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(supply["config_implementation"]["main"]["min_voltage"], 380.0)
         ev = next(m for m in active.values() if m["module"] == "EvManager")["config_module"]
         self.assertEqual(ev["dc_target_voltage"], 380)
-        # Issue #70: the dynamic charge loop charges at the EV's maximum
-        # voltage (EvManager default 900 V) and discharges at the supply
-        # minimum. Close to each other, but not equal: equal voltages left a
-        # direct reversal at the previous current (configure.CHARGE_VOLTAGE).
-        discharge_v = supply["config_implementation"]["main"]["min_voltage"]
-        self.assertEqual(ev["dc_max_voltage_limit"], 382)
-        self.assertGreater(ev["dc_max_voltage_limit"] - discharge_v, 1)  # EvseManager: 1 V is noise
-        self.assertLessEqual(ev["dc_max_voltage_limit"] - discharge_v, 5)
+        # Issue #70: charging stays at the EV's 900 V maximum (EvManager
+        # default). Equal charge and discharge voltages left power targets
+        # unapplied (UPSTREAM.md, upstream behaviour 12).
+        self.assertNotIn("dc_max_voltage_limit", ev)
         d20 = next(m for m in active.values() if m["module"] == "Evse15118D20")
         self.assertEqual(d20["config_module"]["device"], netguard.SECC_LINK)
         josev = next(m for m in active.values() if m["module"] == "PyEvJosev")["config_module"]

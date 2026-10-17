@@ -2,18 +2,12 @@
 
 ## 0.1.10
 
-- Charging now runs at 382 V, not 900 V (#70), so 20 kW is about 52 A in
-  both directions (discharge stays at 380 V). In the ISO 15118-20 dynamic
-  charge loop EvseManager sets the DC supply to the EV's maximum voltage
-  when charging, and the simulated EV's maximum was EvManager's 900 V
-  default. It is now 382 V. Not 380 V: with equal charge and discharge
-  voltages, a direct reversal without a 0 W step (+6 kW to -5 kW) stayed at
-  the previous current (-6 kW), because EvseManager re-applies the old
-  target in the new direction and only re-applies the new one when the
-  voltage changes (UPSTREAM.md). The acceptance run adds direct reversals
-  (+20 kW to -5 kW to +3 kW) and checks the DC voltage of every non-zero
-  step and of the second session, and that current times voltage gives
-  the power.
+- The acceptance run adds direct reversals between charge and discharge
+  (+20 kW to -5 kW to +3 kW), checks 380 V on every discharge step, and
+  checks that current times voltage gives the power. Charging still runs at
+  the simulated EV's 900 V maximum (#70): with charging at or near 380 V,
+  EvseManager left some power steps at the previous target (UPSTREAM.md,
+  upstream behaviour 12).
 - A start more than 60 s after plug-in now charges (#33). The simulated EV
   gave up 60 s after asking for authorisation, started no new session in
   that plug-in, and the transaction then ran at 0 W while a new plug-in was
