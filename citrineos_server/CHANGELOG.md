@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3
+
+- Scoped lab SetChargingProfile: the limit per period is now 25 kW for
+  charging and for V2G discharge (`max_import_w` and `max_export_w` 25000,
+  were 11000), so a 3-phase 32 A AC simulator (about 22 kW) can be limited
+  across its whole range (purcell-lab/ha-addons#55).
+
 ## 0.5.2
 
 - Scoped lab SetChargingProfile (#39): a period may carry `numberPhases`

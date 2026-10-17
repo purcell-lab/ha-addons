@@ -4,7 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION_PATTERN,PROTOCOL,MAX_POWER_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows,commandStation,
+import {STATION_PATTERN,PROTOCOL,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows,commandStation,
   OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
@@ -293,7 +293,7 @@ export async function main() {
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
       if(url.pathname==='/lab/control-policy') {
         res.end(JSON.stringify({station_id:station,can_control:controller,protocol:PROTOCOL,
-          commands:ROUTES,max_import_w:MAX_POWER_W,max_export_w:MAX_POWER_W,
+          commands:ROUTES,max_import_w:MAX_IMPORT_W,max_export_w:MAX_EXPORT_W,
           max_profile_seconds:600,max_periods:10,automatic_control:false,
           clear_requires_closed_transaction:true,real_devices_enabled:false,
           open_admission:o.open_admission_enabled===true}));return;

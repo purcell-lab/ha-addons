@@ -6,7 +6,10 @@ export const STATION='SIM-EV-EVEREST-V2G-01';
 export const STATION_PATTERN=/^SIM-EV-[A-Za-z0-9_-]{1,36}$/;
 export const commandStation=o=>o.command_station_id||STATION;
 export const PROTOCOL='ocpp2.1';
-export const MAX_POWER_W=11000;
+// Lab bounds per period: 25 kW charging (import) and V2G discharge (export),
+// above a 3-phase 32 A AC simulator (3 x 32 A x 240 V = 23 kW).
+export const MAX_IMPORT_W=25000;
+export const MAX_EXPORT_W=25000;
 export const ROUTES=[
   '/ocpp/2.1/evdriver/requestStartTransaction',
   '/ocpp/2.1/evdriver/requestStopTransaction',
@@ -64,11 +67,11 @@ export function validateCommand(url,p,station=STATION) {
 function validPeriod(x,duration,i,last) {
   if(!keys(x,['startPeriod','limit','dischargeLimit','setpoint','operationMode','numberPhases','phaseToUse'])
     ||!int(x.startPeriod,0,duration-1)||(i===0&&x.startPeriod!==0)||x.startPeriod<=last
-    ||!Number.isFinite(x.limit)||x.limit<0||x.limit>MAX_POWER_W)return false;
+    ||!Number.isFinite(x.limit)||x.limit<0||x.limit>MAX_IMPORT_W)return false;
   if(x.numberPhases!==undefined&&x.numberPhases!==1&&x.numberPhases!==3)return false;
   if(x.phaseToUse!==undefined&&(x.numberPhases!==1||!int(x.phaseToUse,1,3)))return false;
   if(x.operationMode==='CentralSetpoint')
-    return Number.isFinite(x.dischargeLimit)&&x.dischargeLimit>=-MAX_POWER_W&&x.dischargeLimit<=0
+    return Number.isFinite(x.dischargeLimit)&&x.dischargeLimit>=-MAX_EXPORT_W&&x.dischargeLimit<=0
       &&Number.isFinite(x.setpoint)&&x.setpoint>=x.dischargeLimit&&x.setpoint<=x.limit;
   return (x.operationMode===undefined||x.operationMode==='ChargingOnly')
     &&x.setpoint===undefined&&x.dischargeLimit===undefined;

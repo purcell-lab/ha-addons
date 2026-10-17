@@ -25,7 +25,7 @@ test('only exact station, protocol route and tenant; no callbacks or duplicate r
 test('multi-step import/discharge/zero profile is constrained in W',()=>{
   assert.equal(validateCommand(url(2),profile()),true);
   for(const change of [{setpoint:-11001},{setpoint:11001},{dischargeLimit:1},
-    {dischargeLimit:-11001},{limit:11001},{limit:-1},{limit:NaN},{setpoint:Infinity},
+    {dischargeLimit:-25001},{limit:25001},{limit:-1},{limit:NaN},{setpoint:Infinity},
     {setpoint:null},{operationMode:'LocalFrequency'},{numberPhases:2},{numberPhases:'1'},
     {phaseToUse:1},{numberPhases:3,phaseToUse:1},{numberPhases:1,phaseToUse:4},{operationMode:'ChargingOnly'}]) {
     const bad=profile();Object.assign(bad.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0],change);
@@ -42,6 +42,12 @@ test('single-phase AC watt profile: numberPhases and charging-only periods (#39)
   assert.equal(validateCommand(url(2),ac(steps.map(x=>({...x,phaseToUse:2})))),true);
   assert.equal(validateCommand(url(2),ac(steps.map(x=>({...x,numberPhases:3})))),true);
   assert.equal(validateCommand(url(2),ac([{startPeriod:0,limit:7000}])),true);
+  // 3-phase 32 A AC (about 22 kW) fits the 25 kW import bound.
+  assert.equal(validateCommand(url(2),ac([{startPeriod:0,limit:22080,numberPhases:3}])),true);
+  assert.equal(validateCommand(url(2),ac([{startPeriod:0,limit:25000,numberPhases:3}])),true);
+  // V2G discharge up to 25 kW.
+  const dis=profile();Object.assign(dis.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[1],{limit:25000,dischargeLimit:-25000,setpoint:-25000});
+  assert.equal(validateCommand(url(2),dis),true);
   // V2G periods may carry numberPhases too.
   const v2g=profile();v2g.chargingProfile.chargingSchedule[0].chargingSchedulePeriod.forEach(x=>x.numberPhases=3);
   assert.equal(validateCommand(url(2),v2g),true);
@@ -49,7 +55,7 @@ test('single-phase AC watt profile: numberPhases and charging-only periods (#39)
     {startPeriod:0,limit:6000,numberPhases:2},
     {startPeriod:0,limit:6000,numberPhases:1,setpoint:3000},
     {startPeriod:0,limit:6000,dischargeLimit:-1000},
-    {startPeriod:0,limit:11001,numberPhases:1},
+    {startPeriod:0,limit:25001,numberPhases:3},
     {startPeriod:0,limit:6000,operationMode:'ExternalSetpoint'},
   ]) assert.equal(validateCommand(url(2),ac([bad])),false,JSON.stringify(bad));
 });
