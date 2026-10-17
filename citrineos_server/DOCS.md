@@ -204,6 +204,16 @@ clear only after the transaction has closed.
   physical stations.
 - The station may use OCPP 2.1, 2.0.1 or 1.6. On 2.0.1 and 1.6 profiles are
   charging-only.
+- On OCPP 1.6, `POST /lab/station-configuration` with the command token and
+  `{"key": ["ChargingScheduleAllowedChargingRateUnit"]}` reads the station's
+  configuration (GetConfiguration) and returns its reply, for example whether
+  it accepts watt (`Power`) or amp (`Current`) schedules. Only these standard,
+  non-secret keys can be read: `SupportedFeatureProfiles`,
+  `NumberOfConnectors`, `GetConfigurationMaxKeys`, `MeterValuesSampledData`,
+  `MeterValueSampleInterval`, `StopTransactionOnEVSideDisconnect`,
+  `ChargingScheduleAllowedChargingRateUnit`, `ChargingScheduleMaxPeriods`,
+  `ChargeProfileMaxStackLevel`, `MaxChargingProfilesInstalled` and
+  `ConnectorSwitch3to1PhaseSupported`. Nothing is written to the station.
 
 Before you command a real charger:
 

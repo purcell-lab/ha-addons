@@ -194,7 +194,7 @@ test('OCPP 1.6 routes: 1.6 payload shapes, integer transaction IDs, charging-onl
   assert.equal(targetAllows(at(3),{id:9001},idle),true);
 });
 test('RBAC rules are generated from the gateway route list',async()=>{
-  const {rbacRules,ALL_ROUTES,COMMAND_ROLE}=await import('../rootfs/control-policy.mjs');
+  const {rbacRules,ALL_ROUTES,COMMAND_ROLE,CONFIG_UPSTREAM}=await import('../rootfs/control-policy.mjs');
   const {readFileSync}=await import('node:fs');
   const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
   const on=rbacRules(base,true)['1'];
@@ -204,16 +204,47 @@ test('RBAC rules are generated from the gateway route list',async()=>{
   // Nothing else gains the command role, and other roles keep their rules.
   for(const [route,methods] of Object.entries(on))
     for(const [method,roles] of Object.entries(methods))
-      if(roles.includes(COMMAND_ROLE)&&!ALL_ROUTES.includes(route))
+      if(roles.includes(COMMAND_ROLE)&&!ALL_ROUTES.includes(route)&&route!==CONFIG_UPSTREAM)
         assert.deepEqual(roles,base['1'][route][method],route);
+  // Read-only station configuration (OCPP 1.6 GetConfiguration) for the command role only.
+  assert.deepEqual(on[CONFIG_UPSTREAM],{POST:['lab-controller']});
   assert.deepEqual(on['/ocpp/2.0.1/evdriver/requestStartTransaction'].POST,['lab-controller','lab-operator']);
   assert.deepEqual(on['/ocpp/1.6/evdriver/remoteStartTransaction'].POST,['lab-controller']);
   // Off: the command role holds no scoped route; operator rules remain.
   const off=rbacRules(base,false)['1'];
   for(const route of ALL_ROUTES) assert.ok(!(off[route]?.POST||[]).includes(COMMAND_ROLE),route);
   assert.equal(off['/ocpp/1.6/evdriver/remoteStartTransaction'],undefined);
+  assert.equal(off[CONFIG_UPSTREAM],undefined);
   assert.deepEqual(off['/ocpp/2.1/smartcharging/setChargingProfile'].POST,['lab-operator']);
   // Idempotent when re-applied to its own output, and the base is not mutated.
   assert.deepEqual(rbacRules(rbacRules(base,true),true),rbacRules(base,true));
   assert.ok(!('/ocpp/1.6/evdriver/remoteStartTransaction' in base['1']));
+});
+
+test('station configuration reads only listed keys from an online 1.6 command station',async()=>{
+  const {validateConfigRequest,configTargetAllows,configResult,CONFIG_KEYS}=await import('../rootfs/control-policy.mjs');
+  assert.ok(validateConfigRequest({key:['ChargingScheduleAllowedChargingRateUnit']}));
+  assert.ok(validateConfigRequest({key:CONFIG_KEYS}));
+  for(const p of [{},{key:[]},{key:'ChargingScheduleMaxPeriods'},{key:['AuthorizationKey']},
+    {key:['ChargingScheduleMaxPeriods','ChargingScheduleMaxPeriods']},
+    {key:['ChargingScheduleMaxPeriods'],extra:1},null,[]])
+    assert.equal(validateConfigRequest(p),false,JSON.stringify(p));
+  const st=(over={})=>({data:{ChargingStations:[{id:3,tenantId:1,ocppConnectionName:'110A432M0039',protocol:'ocpp1.6',isOnline:true,...over}]}});
+  assert.ok(configTargetAllows(st(),'110A432M0039'));
+  assert.equal(configTargetAllows(st({protocol:'ocpp2.0.1'}),'110A432M0039'),false);
+  assert.equal(configTargetAllows(st({isOnline:false}),'110A432M0039'),false);
+  assert.equal(configTargetAllows(st(),'OTHER'),false);
+  assert.equal(configTargetAllows({data:{ChargingStations:[]}},'110A432M0039'),false);
+  // Unrequested keys the station volunteers are dropped; values are bounded.
+  const r=configResult({configurationKey:[
+    {key:'ChargingScheduleAllowedChargingRateUnit',readonly:true,value:'Current'},
+    {key:'AuthorizationKey',readonly:false,value:'secret'},
+    {key:'ChargingScheduleMaxPeriods',value:'x'.repeat(900)}],unknownKey:['MaxChargingProfilesInstalled','Other']},
+    ['ChargingScheduleAllowedChargingRateUnit','ChargingScheduleMaxPeriods','MaxChargingProfilesInstalled']);
+  assert.deepEqual(r.configurationKey[0],{key:'ChargingScheduleAllowedChargingRateUnit',readonly:true,value:'Current'});
+  assert.equal(r.configurationKey.length,2);
+  assert.equal(r.configurationKey[1].value.length,500);
+  assert.deepEqual(r.unknownKey,['MaxChargingProfilesInstalled']);
+  assert.ok(!JSON.stringify(r).includes('secret'));
+  assert.ok(configResult({errorCode:'NotImplemented'},['ChargingScheduleMaxPeriods']).error);
 });

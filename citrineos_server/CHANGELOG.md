@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2
+
+- Read-only station configuration for the OCPP 1.6 command station:
+  `POST /lab/station-configuration` (command token) sends GetConfiguration
+  for a fixed set of standard metering and smart-charging keys, waits up to
+  8 s for the station's reply (CitrineOS posts it to a one-time loopback
+  callback) and returns only the requested keys. It shows whether a physical
+  charger accepts watt or amp schedules; a DC charger on the Green kept
+  advertising 25 kW under 0 W profiles. CitrineOS's role rules grant the
+  command role this one route when scoped commands are on.
+
 ## 0.6.1
 
 - Startup no longer fails when Hasura takes longer than 10 s to apply the

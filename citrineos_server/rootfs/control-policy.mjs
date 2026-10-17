@@ -32,12 +32,12 @@ export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
 // accepted 2.0.1 and 1.6 routes at the gateway but CitrineOS refused them).
 // Starts from the shipped rules (reader and Operator UI roles unchanged),
 // removes the command role from every scoped route, then grants it exactly
-// ALL_ROUTES when scoped commands are enabled.
+// ALL_ROUTES and the read-only configuration route when scoped commands are enabled.
 export const COMMAND_ROLE='lab-controller';
 export function rbacRules(base,commandsEnabled) {
   const rules=JSON.parse(JSON.stringify(base));
   const tenant=rules['1'];
-  for(const route of ALL_ROUTES) {
+  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM]) {
     const roles=(tenant[route]?.POST||[]).filter(r=>r!==COMMAND_ROLE);
     if(commandsEnabled===true) roles.unshift(COMMAND_ROLE);
     if(roles.length) tenant[route]={...tenant[route],POST:roles};
@@ -180,6 +180,39 @@ export function targetAllows(url,p,result,station=STATION) {
   const id=a===1?p.transactionId:(p.chargingProfile||p.csChargingProfiles).transactionId;
   // CitrineOS stores 1.6 integer transaction IDs as strings.
   return active.length===1&&active[0].transactionId===String(id);
+}
+
+// Read-only station configuration for the command station (OCPP 1.6
+// GetConfiguration). Only standard, non-secret keys that describe metering
+// and smart charging can be read, so a charger's credentials or network
+// settings are never requested or returned. The gateway answers this route
+// itself and waits for the station's reply on a loopback callback.
+export const CONFIG_ROUTE='/lab/station-configuration';
+export const CONFIG_UPSTREAM='/ocpp/1.6/configuration/getConfiguration';
+export const CONFIG_KEYS=[
+  'SupportedFeatureProfiles','NumberOfConnectors','GetConfigurationMaxKeys',
+  'MeterValuesSampledData','MeterValueSampleInterval','StopTransactionOnEVSideDisconnect',
+  'ChargingScheduleAllowedChargingRateUnit','ChargingScheduleMaxPeriods',
+  'ChargeProfileMaxStackLevel','MaxChargingProfilesInstalled','ConnectorSwitch3to1PhaseSupported',
+];
+export const validateConfigRequest=p=>keys(p,['key'])&&Array.isArray(p.key)
+  &&p.key.length>=1&&new Set(p.key).size===p.key.length&&p.key.every(k=>CONFIG_KEYS.includes(k));
+export function configTargetAllows(result,station=STATION) {
+  const stations=result?.data?.ChargingStations;
+  if(!Array.isArray(stations)||stations.length!==1)return false;
+  const s=stations[0];
+  return !!s&&s.tenantId===1&&s.ocppConnectionName===station&&s.protocol==='ocpp1.6'&&s.isOnline===true;
+}
+// Returns only the requested keys, whatever else the station sends.
+export function configResult(payload,requested) {
+  const known=Array.isArray(payload?.configurationKey)?payload.configurationKey:null;
+  const unknown=Array.isArray(payload?.unknownKey)?payload.unknownKey:[];
+  if(!known&&!Array.isArray(payload?.unknownKey))return {error:'Station did not return a configuration'};
+  return {
+    configurationKey:(known||[]).filter(k=>k&&requested.includes(k.key)).map(k=>({key:k.key,readonly:k.readonly===true,
+      ...(typeof k.value==='string'?{value:k.value.slice(0,500)}:{})})),
+    unknownKey:unknown.filter(k=>requested.includes(k)),
+  };
 }
 
 // Operator UI scope (operator_ui_enabled). Reads go to Hasura as the
