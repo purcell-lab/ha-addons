@@ -1,10 +1,12 @@
 """Validated HA options, persistent state, and bounded two-process supervision."""
+import errno
 import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -130,6 +132,114 @@ def lab_dns_url(resolv_conf):
     return None
 
 
+# Connection diagnostics (#31): Mongoose resolves the CSMS host itself and
+# connects to the first A/AAAA record only, so log what it is given and what
+# it gets, next to what libc (as used by other Apps) gets. Bounded, start-up only.
+def mongoose_a_query(name, txnid=1):
+    """The A query exactly as Mongoose's mg_dns_send builds it."""
+    labels = b"".join(bytes([len(p)]) + p.encode("ascii") for p in name.split("."))
+    return txnid.to_bytes(2, "big") + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + \
+        labels + b"\x00\x00\x01\x00\x01"
+
+
+def _skip_name(packet, offset):
+    while True:
+        if offset >= len(packet):
+            raise ValueError("truncated DNS name")
+        length = packet[offset]
+        if length & 0xC0:
+            return offset + 2
+        if length == 0:
+            return offset + 1
+        offset += length + 1
+
+
+def parse_dns_answers(packet):
+    """(rcode, [(type, value)]) for the answer section; A/AAAA values as text."""
+    if len(packet) < 12:
+        raise ValueError("short DNS reply")
+    rcode = packet[3] & 0x0F
+    questions = int.from_bytes(packet[4:6], "big")
+    answers = int.from_bytes(packet[6:8], "big")
+    offset = 12
+    for _ in range(questions):
+        offset = _skip_name(packet, offset) + 4
+    records = []
+    for _ in range(answers):
+        offset = _skip_name(packet, offset)
+        if offset + 10 > len(packet):
+            raise ValueError("truncated DNS record")
+        kind = int.from_bytes(packet[offset:offset + 2], "big")
+        klass = int.from_bytes(packet[offset + 2:offset + 4], "big")
+        length = int.from_bytes(packet[offset + 8:offset + 10], "big")
+        data = packet[offset + 10:offset + 10 + length]
+        offset += 10 + length
+        if len(data) != length:
+            raise ValueError("truncated DNS record")
+        if klass == 1 and kind == 1 and length == 4:
+            records.append(("A", str(ipaddress.IPv4Address(data))))
+        elif klass == 1 and kind == 28 and length == 16:
+            records.append(("AAAA", str(ipaddress.IPv6Address(data))))
+        else:
+            records.append((f"type{kind}", ""))
+    return rcode, records
+
+
+def tcp_probe(address, port, timeout=3.0):
+    """Open and close a TCP connection, sending nothing; 'open' or errno name."""
+    family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as probe:
+        probe.settimeout(timeout)
+        try:
+            probe.connect((address, port))
+        except socket.timeout:
+            return "timeout"
+        except OSError as error:
+            return errno.errorcode.get(error.errno, str(error.errno))
+    return "open"
+
+
+def connection_diagnostics(backend, resolv_conf, dns_url, timeout=2.0):
+    url = urlsplit(backend)
+    host, port = url.hostname, url.port
+    servers = re.findall(r"^nameserver\s+(\S+)", resolv_conf, re.M)
+    lines = [f"resolv.conf nameservers: {', '.join(servers) or 'none'}; "
+             f"Mongoose DNS: {dns_url or 'upstream default udp://8.8.8.8:53'}"]
+    try:
+        ipaddress.ip_address(host)
+        lines.append(f"CSMS host {host} is an address; no DNS lookup.")
+        targets = [host]
+    except ValueError:
+        targets = []
+        try:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            libc = list(dict.fromkeys(info[4][0] for info in infos))
+            lines.append(f"libc getaddrinfo {host}: {', '.join(libc) or 'none'}")
+            targets += libc[:2]
+        except OSError as error:
+            lines.append(f"libc getaddrinfo {host}: failed ({error})")
+        if dns_url:
+            server = urlsplit(dns_url)
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                    udp.settimeout(timeout)
+                    udp.connect((server.hostname, server.port or 53))
+                    udp.send(mongoose_a_query(host))
+                    rcode, records = parse_dns_answers(udp.recv(4096))
+                shown = ", ".join(f"{k} {v}".strip() for k, v in records) or "none"
+                first = next((v for k, v in records if k in ("A", "AAAA")), None)
+                lines.append(f"Mongoose-style A query {host} @ {server.hostname}: "
+                             f"rcode {rcode}, answers {shown}; Mongoose connects to "
+                             f"{first or 'nothing (lookup fails)'}")
+                if first:
+                    targets.insert(0, first)
+            except (OSError, ValueError) as error:
+                lines.append(f"Mongoose-style A query {host} @ {server.hostname}: failed ({error})")
+    for address in list(dict.fromkeys(targets))[:3]:
+        lines.append(f"TCP probe {address} port {port}: {tcp_probe(address, port)}")
+    return ["Connection diagnostics: " + line for line in lines]
+
+
 def run():
     os.umask(0o077)
     try:
@@ -152,9 +262,17 @@ def run():
     signal.signal(signal.SIGINT, stop)
     result = 1
     try:
-        dns = lab_dns_url(Path("/etc/resolv.conf").read_text())
+        resolv_conf = Path("/etc/resolv.conf").read_text()
+        dns = lab_dns_url(resolv_conf)
         if dns:
             os.environ["MO_LAB_DNS_URL"] = dns
+        if enabled:
+            try:
+                backend = json.loads((DATA / "test-identity.json").read_text())["backend_url"]
+                for line in connection_diagnostics(backend, resolv_conf, dns):
+                    print(line, flush=True)
+            except Exception as error:  # diagnostics must never block start-up
+                print(f"Connection diagnostics: skipped ({type(error).__name__})", flush=True)
         children.append(subprocess.Popen([str(ROOT / "mo_simulator")], cwd=DATA))
         children.append(subprocess.Popen(["nginx", "-c", str(ROOT / "nginx.conf"),
                                           "-g", "daemon off;"]))

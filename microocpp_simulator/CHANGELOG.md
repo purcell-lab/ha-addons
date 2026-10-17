@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.6
+
+- Connection diagnostics for #31 (the App never reaches the CSMS; every
+  attempt ends in Mongoose `socket error`). At start, with a backend URL set,
+  the launcher logs `Connection diagnostics:` lines: the `/etc/resolv.conf`
+  nameservers and the one handed to Mongoose, the libc `getaddrinfo` answer
+  for the CSMS host, the answer to Mongoose's own A query (byte-for-byte the
+  same packet) and the address Mongoose will connect to, and a TCP connect
+  probe (no data sent) to those addresses. Each Mongoose connection error now
+  also names the peer address and port it tried. No behaviour change.
+
 ## 0.1.5
 
 - Resolve CSMS hostnames through the Supervisor DNS (#38): Mongoose has its own
