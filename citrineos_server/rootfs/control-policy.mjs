@@ -6,10 +6,10 @@ export const STATION='SIM-EV-EVEREST-V2G-01';
 export const STATION_PATTERN=/^SIM-EV-[A-Za-z0-9_-]{1,36}$/;
 export const commandStation=o=>o.command_station_id||STATION;
 export const PROTOCOL='ocpp2.1';
-// Charging (import) bound covers a 3-phase 32 A AC simulator (3 x 32 A x 240 V).
-// V2G discharge (export) stays at the DC simulator's 11 kW.
-export const MAX_IMPORT_W=23000;
-export const MAX_EXPORT_W=11000;
+// Lab bounds per period: 25 kW charging (import) and V2G discharge (export),
+// above a 3-phase 32 A AC simulator (3 x 32 A x 240 V = 23 kW).
+export const MAX_IMPORT_W=25000;
+export const MAX_EXPORT_W=25000;
 export const ROUTES=[
   '/ocpp/2.1/evdriver/requestStartTransaction',
   '/ocpp/2.1/evdriver/requestStopTransaction',
