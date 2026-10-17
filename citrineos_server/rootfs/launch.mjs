@@ -162,7 +162,15 @@ export async function main() {
   const o=fs.existsSync(`${DATA}/options.json`) ? JSON.parse(fs.readFileSync(`${DATA}/options.json`)) : {mode:'disconnected'};
   validate(o);
   if(process.getuid()===0) {
-    if(o.mode==='isolated') fs.chownSync(DATA,1000,1000);
+    if(o.mode==='isolated') {
+      fs.chownSync(DATA,1000,1000);
+      // CitrineOS reads its role rules at start; write them from the gateway's route
+      // list while still root (the app folder is root-owned), readable by uid 1000.
+      const rules=`${APP}/rbac-rules.json`;
+      const base=JSON.parse(fs.readFileSync(`${here}/rbac-rules.json`,'utf8'));
+      fs.writeFileSync(rules,JSON.stringify(rbacRules(base,o.command_control_enabled===true)));
+      fs.chmodSync(rules,0o644);
+    }
     process.setgid(1000);process.setuid(1000);
   }
   if(o.mode==='disconnected') {
@@ -235,9 +243,6 @@ export async function main() {
     res.end(JSON.stringify({keys:[signer.jwk]}));
   });
   await new Promise(r=>jwks.listen(8091,'127.0.0.1',r)); streams.push(jwks);
-  // CitrineOS reads its role rules at start; write them from the gateway's route list.
-  const base=JSON.parse(fs.readFileSync(`${here}/rbac-rules.json`,'utf8'));
-  fs.writeFileSync(`${APP}/rbac-rules.json`,JSON.stringify(rbacRules(base,o.command_control_enabled===true)));
   const upstream=run([`${APP}/dist/index.js`]);
   upstream.then(()=>process.exit(upstreamExitCode(shutting))).catch(()=>{
     if(shutting){process.exit(upstreamExitCode(shutting));return;}
