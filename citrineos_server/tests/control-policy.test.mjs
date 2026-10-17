@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ROUTES,STATION,validateCommand,targetAllows,commandStation} from '../rootfs/control-policy.mjs';
+import {ROUTES,STATION,validateCommand,targetAllows,commandStation,stationAllowed,routesFor,
+  routeProtocol,COMMANDS_BY_PROTOCOL} from '../rootfs/control-policy.mjs';
 const url=i=>new URL('http://lab'+ROUTES[i]+'?identifier='+STATION+'&tenantId=1');
 const start={remoteStartId:12,evseId:1,idToken:{type:'ISO14443',idToken:'C17E0001'}};
 const profile=()=>({evseId:1,chargingProfile:{id:9001,stackLevel:1,chargingProfilePurpose:'TxProfile',
@@ -113,4 +114,45 @@ test('configured command station replaces the default target, never widens it',(
   assert.equal(targetAllows(at(2),profile(),s),false);
   assert.equal(commandStation({}),STATION);
   assert.equal(commandStation({command_station_id:other}),other);
+});
+test('physical command station: only with the real-stations flag, any OCPP identity',()=>{
+  const real='ACME-WB-0042';
+  const at=(i,routes=ROUTES)=>new URL('http://lab'+routes[i]+'?identifier='+real+'&tenantId=1');
+  assert.equal(validateCommand(at(0),start,real),false);
+  assert.equal(validateCommand(at(0),start,real,true),true);
+  assert.equal(stationAllowed(real),false);
+  assert.equal(stationAllowed(real,true),true);
+  assert.equal(stationAllowed('SIM-EV-EVEREST-G1'),true);
+  for(const bad of ['has space','a/b','a:b','',  'x'.repeat(49)]) assert.equal(stationAllowed(bad,true),false,bad);
+  // The flag widens the identity only: the configured station is still the one target.
+  assert.equal(validateCommand(at(0),start,'OTHER-1',true),false);
+});
+test('OCPP 2.0.1 routes: charging-only periods, and the route must match the station protocol',()=>{
+  assert.deepEqual(Object.keys(COMMANDS_BY_PROTOCOL),['ocpp2.1','ocpp2.0.1']);
+  const v201=routesFor('ocpp2.0.1');
+  assert.equal(v201[2],'/ocpp/2.0.1/smartcharging/setChargingProfile');
+  assert.equal(routeProtocol(v201[2]),'ocpp2.0.1');
+  assert.equal(routeProtocol('/ocpp/1.6/smartcharging/setChargingProfile'),null);
+  const at=i=>new URL('http://lab'+v201[i]+'?identifier='+STATION+'&tenantId=1');
+  const ac=()=>{const p=profile();p.chargingProfile.chargingSchedule[0].chargingSchedulePeriod=
+    [{startPeriod:0,limit:7000,numberPhases:3},{startPeriod:60,limit:0,numberPhases:3}];return p;};
+  assert.equal(validateCommand(at(2),ac()),true);
+  assert.equal(validateCommand(at(2),profile()),false,'2.0.1 has no CentralSetpoint');
+  const only=ac();only.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].operationMode='ChargingOnly';
+  assert.equal(validateCommand(at(2),only),false,'2.0.1 has no operationMode');
+  assert.equal(validateCommand(at(0),start),true);
+  assert.equal(validateCommand(at(1),{transactionId:'test-123'}),true);
+  assert.equal(validateCommand(at(3),{chargingProfileId:9001}),true);
+  const s201=state();s201.data.ChargingStations[0].protocol='ocpp2.0.1';
+  assert.equal(targetAllows(at(2),ac(),s201),true);
+  assert.equal(targetAllows(url(2),profile(),s201),false,'2.1 route to a 2.0.1 station');
+  assert.equal(targetAllows(at(2),ac(),state()),false,'2.0.1 route to a 2.1 station');
+});
+test('transaction IDs accept OCPP identifierString characters',()=>{
+  for(const id of ['a1:b2.c3','TX@1|2+3=4','*abc*']) {
+    assert.equal(validateCommand(url(1),{transactionId:id}),true,id);
+    const s=state();s.data.Transactions[0].transactionId=id;
+    assert.equal(targetAllows(url(1),{transactionId:id},s),true,id);
+  }
+  for(const id of ['a b','a/b','x'.repeat(65),'é']) assert.equal(validateCommand(url(1),{transactionId:id}),false,id);
 });

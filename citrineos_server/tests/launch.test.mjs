@@ -167,3 +167,18 @@ test('a deliberate stop exits 0; an unrequested upstream exit fails (#30)',()=>{
   assert.equal(upstreamExitCode(true),0);
   assert.equal(upstreamExitCode(false),1);
 });
+test('physical command station: explicit flag, Plugfest listener, no profile simulator',()=>{
+  const pf={...good,plugfest_enabled:true,plugfest_open_admission:true,command_control_enabled:true,
+    command_token:'e'.repeat(64),open_admission_enabled:true};
+  const real={...pf,command_station_id:'ACME-WB-0042'};
+  assert.throws(()=>validate(real),/SIM-EV-/);
+  assert.doesNotThrow(()=>validate({...real,command_real_stations_enabled:true}));
+  assert.throws(()=>validate({...real,command_real_stations_enabled:true,plugfest_enabled:false,
+    plugfest_open_admission:false}),/plugfest_enabled/);
+  assert.throws(()=>validate({...real,command_real_stations_enabled:true,profile_simulator_enabled:true,
+    profile_simulator_password:'f'.repeat(32)}),/profile_simulator_enabled/);
+  assert.throws(()=>validate({...real,command_real_stations_enabled:'yes'}));
+  assert.throws(()=>validate({...real,command_real_stations_enabled:true,command_station_id:'a/b'}));
+  // The flag alone changes nothing for a simulator command station.
+  assert.doesNotThrow(()=>validate({...pf,command_real_stations_enabled:true,command_station_id:'SIM-EV-EVEREST-G1'}));
+});
