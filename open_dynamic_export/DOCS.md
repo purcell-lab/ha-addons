@@ -51,7 +51,7 @@ automations through the Mosquitto App) use `"type": "mqtt"` with
 | `sep2_cert_file`, `sep2_key_file` | `sep2-cert.pem`, `sep2-key.pem` | CSIP-AUS device certificate and key file names in this App's folder |
 | `sep2_pen` | `62223` | CSIP-AUS Private Enterprise Number (upstream default) |
 | `timezone` | `Australia/Brisbane` | IANA time zone for schedules and logs |
-| `log_level` | `info` | ODE debug-file log level |
+| `log_level` | `info` | ODE log level, for the App log and ODE's internal debug file; `debug` shows CSIP-AUS requests and control decisions in the App log (very verbose) |
 | `influxdb_host` | empty | Optional InfluxDB 2 host for history charts |
 | `influxdb_port`, `influxdb_org`, `influxdb_bucket`, `influxdb_token` | | InfluxDB settings; the token is required with a host |
 

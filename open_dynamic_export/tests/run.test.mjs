@@ -76,6 +76,7 @@ test('environment maps options and only sets InfluxDB when configured', () => {
     assert.equal(env.TZ, 'Australia/Brisbane');
     assert.equal(env.SEP2_PEN, '62223');
     assert.equal(env.LOGLEVEL, 'info');
+    assert.equal(env.STDOUT_LOGLEVEL, 'info');
     assert.equal(env.PATH, '/bin');
     assert.ok(!('INFLUXDB_HOST' in env));
     const influx = environment({ ...GOOD, influxdb_host: 'influx', influxdb_token: 't' }, {});

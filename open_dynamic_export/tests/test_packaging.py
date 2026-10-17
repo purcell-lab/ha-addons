@@ -12,6 +12,7 @@ DOCKERFILE = (ROOT / "Dockerfile").read_text()
 PATCH = (ROOT / "ingress.patch").read_text()
 RAMP_PATCH = (ROOT / "ramp-tms.patch").read_text()
 INFLUX_PATCH = (ROOT / "influxdb-quiet.patch").read_text()
+LOG_PATCH = (ROOT / "stdout-log-level.patch").read_text()
 PUBLISH = (REPO / ".github/workflows/ode-publish.yml").read_text()
 PR = (REPO / ".github/workflows/ode.yml").read_text()
 COMMIT = "bc807abbc4c58be3294257ee76f0348dc87c4945"  # upstream v0.20.0
@@ -47,7 +48,7 @@ class PinningTest(unittest.TestCase):
         self.assertNotIn("latest", DOCKERFILE)
 
     def test_patches_are_applied_in_order(self):
-        self.assertIn("for p in ingress ramp-tms influxdb-quiet; do", DOCKERFILE)
+        self.assertIn("for p in ingress ramp-tms influxdb-quiet stdout-log-level; do", DOCKERFILE)
         self.assertIn('git apply --check "/tmp/$p.patch"', DOCKERFILE)
 
     def test_patch_is_applied_and_limited_to_ingress(self):
@@ -69,6 +70,11 @@ class PinningTest(unittest.TestCase):
         self.assertEqual(files, {"src/app.ts"})
         self.assertIn("err.message === \"InfluxDB isn't available\"", INFLUX_PATCH)
         self.assertIn("+    next(err);", INFLUX_PATCH)
+
+    def test_log_patch_only_sets_the_stdout_level(self):
+        files = set(re.findall(r"^diff --git a/(\S+) ", LOG_PATCH, re.M))
+        self.assertEqual(files, {"src/helpers/logger.ts"})
+        self.assertIn("+                level: process.env['STDOUT_LOGLEVEL'] ?? 'info',", LOG_PATCH)
 
     def test_logs_kept_off_persistent_storage(self):
         self.assertIn("ln -s /tmp/ode-logs /app/logs", DOCKERFILE)

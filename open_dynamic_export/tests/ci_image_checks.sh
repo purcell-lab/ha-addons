@@ -17,6 +17,8 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   test -s /usr/share/doc/open-dynamic-export/ingress.patch
   test -s /usr/share/doc/open-dynamic-export/ramp-tms.patch
   test -s /usr/share/doc/open-dynamic-export/influxdb-quiet.patch
+  test -s /usr/share/doc/open-dynamic-export/stdout-log-level.patch
+  grep -q STDOUT_LOGLEVEL /app/dist/helpers/logger.js
   grep -q rampTmsToSeconds /app/dist/setpoints/csipAus/index.js
   grep -q "status(503)" /app/dist/app.js
   test "$(readlink /app/logs)" = /tmp/ode-logs

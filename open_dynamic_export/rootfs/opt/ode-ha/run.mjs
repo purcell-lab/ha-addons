@@ -89,6 +89,7 @@ export function environment(options, base = process.env) {
         SEP2_KEY_FILE: options.sep2_key_file,
         SEP2_PEN: String(options.sep2_pen),
         LOGLEVEL: options.log_level,
+        STDOUT_LOGLEVEL: options.log_level,
     };
     for (const key of Object.keys(env)) {
         if (key.startsWith('INFLUXDB_')) delete env[key];
