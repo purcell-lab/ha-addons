@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Charts for the LOA-11 report, built from data/ with the standard library only.
+"""Charts for the LOA-11 report, built from data/<run>/ with the standard library only.
 
-python3 make_charts.py   # writes charts/*.svg
+python3 make_charts.py   # writes charts/<run>/*.svg for every run below
 """
 import csv
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DATA = HERE / "data"
-OUT = HERE / "charts"
 AEST = timezone(timedelta(hours=10))
 
 # Reference palette (light): categorical slots 1-3, status critical/good, ink and chrome.
@@ -29,9 +28,25 @@ def hms(t):
     return datetime.fromtimestamp(t, AEST).strftime("%H:%M:%S")
 
 
-def csip_controls():
-    """(start, end, watts, tag) from the raw DERControl and DefaultDERControl XML."""
-    text = (DATA / "csip-aus-derc.xml").read_text()
+# Per run: plot window, when the default control first applied, any period the integration was locked,
+# and the profile the charger held through the run (for the timing lanes).
+RUNS = {
+    "74853": {"window": ("2026-10-17T03:07:40+00:00", "2026-10-17T03:19:20+00:00"),
+              "default_from": "2026-10-17T03:07:59.491998+00:00",
+              "lock": ("2026-10-17T13:09:13.29+10:00", "2026-10-17T13:16:00.70+10:00"),
+              "held": "2026-10-17T03:09:12.775Z",
+              "sends_note": ("2026-10-17T13:09:06+10:00", "13 sends at 1 s (ODE ramp)")},
+    "74858": {"window": ("2026-10-17T03:52:00+00:00", "2026-10-17T04:03:40+00:00"),
+              "default_from": "2026-10-17T03:52:05.8+00:00",
+              "lock": None,
+              "held": "2026-10-17T03:53:27.965Z",
+              "sends_note": ("2026-10-17T13:57:12+10:00", "8 sends at 1 s (ODE ramp-down)")},
+}
+
+
+def csip_controls(data):
+    """(start, end, watts, tag) from the raw DERControl XML."""
+    text = (data / "csip-aus-derc.xml").read_text()
     controls = []
     for i, block in enumerate(re.findall(r"<DERControl .*?</DERControl>", text, re.S), 1):
         start = int(re.search(r"<start>(\d+)</start>", block).group(1))
@@ -45,11 +60,8 @@ def csip_controls():
     return controls
 
 
-DEFAULT_FROM = ts("2026-10-17T03:07:59.491998+00:00")  # DefaultDERControl first served (opModImpLimW 0)
-
-
-def csip_limit(t, controls):
-    if t < DEFAULT_FROM:
+def csip_limit(t, controls, default_from):
+    if t < default_from:
         return None
     for i, (start, end, watts, _) in enumerate(controls):
         # Consecutive controls are created about 0.1 s apart, so each ends a fraction of a second
@@ -60,8 +72,8 @@ def csip_limit(t, controls):
     return 0
 
 
-def load_profiles():
-    rows = json.loads((DATA / "ocpp-charging-profiles.json").read_text())["profiles"]
+def load_profiles(data):
+    rows = json.loads((data / "ocpp-charging-profiles.json").read_text())["profiles"]
     out = []
     for row in rows:
         sched = row["request"]["chargingProfile"]["chargingSchedule"][0]
@@ -70,35 +82,53 @@ def load_profiles():
     return out
 
 
-def load_sends():
-    with open(DATA / "bridge-sends.csv") as f:
-        return [(ts(r["time_aest"]), int(r["limit_w"]) if r["limit_w"] else None, r["result"], r["note"])
-                for r in csv.DictReader(f)]
+def load_sends(data):
+    with open(data / "bridge-sends.csv") as f:
+        return [(ts(r["time_aest"]), int(r["limit_w"]) if r["limit_w"] else None, r["result"], r["note"],
+                 r.get("schedule") or "") for r in csv.DictReader(f)]
 
 
-def load_power():
-    with open(DATA / "charger-power.csv") as f:
+def load_power(data):
+    with open(data / "charger-power.csv") as f:
         return [(ts(r["time_aest"]), int(r["power_w"])) for r in csv.DictReader(f)]
 
 
-def ocpp_limit(t, profiles, sends):
+def schedule_events(profiles, sends):
+    """Every accepted profile as (received, [(absolute start, limit)], end).
+
+    Profiles captured from the charger's log are exact. A send without a captured profile is rebuilt
+    from what the bridge recorded: its period-0 limit and, when present, its schedule signature
+    (absolute boundary second:limit), rounded as the bridge rounds (decreases down, increases up,
+    from a schedule that starts 1 s before the send).
+    """
+    events = [(rec, [(start + sp, lim) for sp, lim in periods], start + dur) for rec, start, periods, dur in profiles]
+    for t, watts, result, _, sig in sends:
+        if result != "accepted" or watts is None or any(abs(e[0] - t) < 0.6 for e in events):
+            continue
+        now = t - 0.15  # the bridge renders the plan about 0.15 s before the send completes
+        segs, last = [(t, watts)], watts
+        for item in filter(None, sig.split(",")):
+            b, v = (int(x) for x in item.split(":"))
+            if v == last or b <= now:
+                continue
+            offset = b - now + 1
+            segs.append((now - 1 + (math.floor(offset) if v < last else math.ceil(offset)), v))
+            last = v
+        events.append((t, segs, now - 1 + 600))
+    return sorted(events)
+
+
+def ocpp_limit(t, events):
     """Limit the charger's TxProfile set at time t (newest accepted profile wins)."""
-    best = None
-    for received, start, periods, duration in profiles:
-        if received <= t and (best is None or received > best[0]):
-            best = (received, start, periods, duration)
-    early = [s for s in sends if s[2] == "accepted" and s[0] <= t and s[1] is not None]
-    if early and (best is None or early[-1][0] > best[0]) and early[-1][0] < profiles[0][0]:
-        return early[-1][1]
-    if best is None:
-        return early[-1][1] if early else None
-    _, start, periods, duration = best
-    offset = t - start
-    if offset >= duration:
+    current = [e for e in events if e[0] <= t]
+    if not current:
         return None
-    limit = periods[0][1]
-    for start_period, value in periods:
-        if offset >= start_period:
+    _, segs, end = current[-1]
+    if t >= end:
+        return None
+    limit = segs[0][1]
+    for start, value in segs:
+        if t >= start:
             limit = value
     return limit
 
@@ -120,9 +150,9 @@ class Plot:
         self.add(f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="{anchor}" fill="{fill}" font-size="{size}" '
                  f'font-weight="{weight}">{s}</text>')
 
-    def save(self, name):
-        OUT.mkdir(exist_ok=True)
-        (OUT / name).write_text("\n".join(self.parts + ["</svg>"]) + "\n")
+    def save(self, out, name):
+        out.mkdir(parents=True, exist_ok=True)
+        (out / name).write_text("\n".join(self.parts + ["</svg>"]) + "\n")
 
 
 def step_path(points, sx, sy):
@@ -154,25 +184,27 @@ def sample(fn, t0, t1, step=0.1):
     return pts
 
 
-def overview(controls, profiles, sends, power):
-    t0, t1 = ts("2026-10-17T03:07:40+00:00"), ts("2026-10-17T03:19:20+00:00")
-    p = Plot(920, 440, "LOA-11: CSIP-AUS import limit, OCPP TxProfile limit and charger power",
+def overview(run):
+    controls, events, power, cfg = run["controls"], run["events"], run["power"], run["cfg"]
+    t0, t1 = (ts(x) for x in cfg["window"])
+    p = Plot(920, 440, f"LOA-11 run {run['name']}: CSIP-AUS import limit, OCPP TxProfile limit and charger power",
              "SIM-EV-EVEREST-G1, 3-phase 32 A AC (max about 22 kW). Times AEST, 17 Oct 2026.")
     left, right, top, bottom = 64, 900, 64, 380
     ymax = 30000
     sx = lambda t: left + (t - t0) / (t1 - t0) * (right - left)
     sy = lambda w: bottom - min(w, ymax) / ymax * (bottom - top)
-    lock0, lock1 = ts("2026-10-17T13:09:13.29+10:00"), ts("2026-10-17T13:16:00.70+10:00")
-    p.add(f'<rect x="{sx(lock0):.1f}" y="{top}" width="{sx(lock1) - sx(lock0):.1f}" height="{bottom - top}" '
-          f'fill="{CRITICAL}" fill-opacity="0.07"/>')
-    p.text((sx(lock0) + sx(lock1)) / 2, sy(27000), "Integration locked after CitrineOS HTTP 500: no profiles sent",
-           "middle", CRITICAL)
+    if cfg["lock"]:
+        lock0, lock1 = (ts(x) for x in cfg["lock"])
+        p.add(f'<rect x="{sx(lock0):.1f}" y="{top}" width="{sx(lock1) - sx(lock0):.1f}" height="{bottom - top}" '
+              f'fill="{CRITICAL}" fill-opacity="0.07"/>')
+        p.text((sx(lock0) + sx(lock1)) / 2, sy(27000), "Integration locked after CitrineOS HTTP 500: no profiles sent",
+               "middle", CRITICAL)
     for kw in range(0, 31, 5):
         y = sy(kw * 1000)
         p.add(f'<line x1="{left}" x2="{right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{GRID if kw else AXIS}"/>')
         p.text(left - 8, y + 4, f"{kw}", "end")
     p.text(16, top - 6, "kW", fill=INK2)
-    minute = ts("2026-10-17T03:08:00+00:00")
+    minute = math.ceil(t0 / 60) * 60
     while minute <= t1:
         x = sx(minute)
         p.add(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{bottom}" y2="{bottom + 5}" stroke="{AXIS}"/>')
@@ -181,16 +213,13 @@ def overview(controls, profiles, sends, power):
     y = sy(CAP_W)
     p.add(f'<line x1="{left}" x2="{right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{INK2}" stroke-dasharray="4 4"/>')
     p.text(right - 4, y - 5, "Bridge cap 25 kW", "end")
-    csip_pts = sample(lambda t: csip_limit(t, controls), t0, t1)
+    csip_pts = sample(lambda t: csip_limit(t, controls, run["default_from"]), t0, t1)
     p.add(f'<path d="{step_path(csip_pts, sx, sy)}" fill="none" stroke="{CSIP}" stroke-width="2"/>')
-    ocpp_pts = sample(lambda t: ocpp_limit(t, profiles, sends), t0, t1)
+    ocpp_pts = sample(lambda t: ocpp_limit(t, events), t0, t1)
     p.add(f'<path d="{step_path(ocpp_pts, sx, sy)}" fill="none" stroke="{OCPP}" stroke-width="2" '
           f'stroke-dasharray="6 3"/>')
     pw = [(t, w) for t, w in power if t0 <= t <= t1]
-    hold = []
-    for i, (t, w) in enumerate(pw):
-        hold.append((t, w))
-    p.add(f'<path d="{step_path(hold + [(t1, pw[-1][1])], sx, sy)}" fill="none" stroke="{POWER}" '
+    p.add(f'<path d="{step_path(pw + [(t1, pw[-1][1])], sx, sy)}" fill="none" stroke="{POWER}" '
           f'stroke-width="2"/>')
     for t, w in pw:
         p.add(f'<circle cx="{sx(t):.1f}" cy="{sy(w):.1f}" r="2.5" fill="{POWER}" stroke="{SURFACE}" '
@@ -208,16 +237,21 @@ def overview(controls, profiles, sends, power):
               f'stroke-dasharray="{dash}"/>')
         p.text(lx + 28, ly + 4, label, fill=INK)
         lx += 28 + 6.5 * len(label) + 32
-    p.save("limits-and-power.svg")
+    p.save(run["out"], "limits-and-power.svg")
 
 
-def timing(controls, profiles, sends):
-    t0, t1 = ts("2026-10-17T03:07:40+00:00"), ts("2026-10-17T03:19:20+00:00")
-    p = Plot(920, 330, "LOA-11 timing: CSIP-AUS controls, bridge sends and the schedule held by the charger",
-             "Each lane on the same clock (AEST). The 13:09:11 profile carried every remaining step through the lock.")
+def timing(run):
+    controls, events, sends, cfg = run["controls"], run["events"], run["sends"], run["cfg"]
+    t0, t1 = (ts(x) for x in cfg["window"])
+    held = next(e for e in events if abs(e[0] - ts(cfg["held"])) < 0.01)
+    held_label = hms(held[1][0][0])
+    p = Plot(920, 330, f"LOA-11 run {run['name']} timing: CSIP-AUS controls, bridge sends, charger schedule",
+             f"Each lane on the same clock (AEST). The {held_label} profile held every remaining step"
+             + (" through the lock." if cfg["lock"] else "."))
     left, right = 200, 900
     sx = lambda t: left + (t - t0) / (t1 - t0) * (right - left)
-    lanes = ["CSIP-AUS controls", "Bridge sends", "Integration state", "Charger schedule (13:09:11)"]
+    held_lane = f"Charger schedule ({held_label})"
+    lanes = ["CSIP-AUS controls", "Bridge sends", "Integration state", held_lane]
     lane_y = {name: 72 + i * 56 for i, name in enumerate(lanes)}
     for name, y in lane_y.items():
         p.text(16, y + 18, name, fill=INK, weight="600")
@@ -226,47 +260,58 @@ def timing(controls, profiles, sends):
         p.add(f'<line x1="{sx(start):.1f}" x2="{sx(start):.1f}" y1="64" y2="292" stroke="{AXIS}" '
               f'stroke-dasharray="2 3"/>')
     y = lane_y["CSIP-AUS controls"]
-    p.add(f'<rect x="{sx(DEFAULT_FROM):.1f}" y="{y + 4}" width="{sx(t1) - sx(DEFAULT_FROM):.1f}" height="24" '
+    d0 = run["default_from"]
+    p.add(f'<rect x="{sx(d0):.1f}" y="{y + 4}" width="{sx(t1) - sx(d0):.1f}" height="24" '
           f'fill="none" stroke="{CSIP}" stroke-dasharray="3 3" rx="4"/>')
-    p.text(sx(DEFAULT_FROM) + 4, y + 21, "Default 0 W", fill=INK)
+    room = sx(controls[0][0]) - sx(d0)
+    p.text(sx(d0) + 4, y + 21, "Default 0 W" if room > 80 else "Default", fill=INK)
     for start, end, watts, tag in controls:
         p.add(f'<rect x="{sx(start) + 1:.1f}" y="{y + 4}" width="{sx(end) - sx(start) - 2:.1f}" height="24" '
               f'fill="{CSIP}" rx="4"/>')
         p.text((sx(start) + sx(end)) / 2, y + 21, f"{tag} {watts / 1000:g} kW", "middle", "#ffffff", weight="600")
     y = lane_y["Bridge sends"]
-    for t, watts, result, _ in sends:
+    for t, watts, result, *_ in sends:
         x = sx(t)
         if result == "accepted":
             p.add(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{y + 6}" y2="{y + 28}" stroke="{OCPP}" stroke-width="2"/>')
         else:
             p.add(f'<path d="M{x - 6:.1f},{y + 8}L{x + 6:.1f},{y + 26}M{x + 6:.1f},{y + 8}L{x - 6:.1f},{y + 26}" '
                   f'stroke="{CRITICAL}" stroke-width="2.5"/>')
-            p.text(x + 10, y + 21, "HTTP 500 at 13:09:13", fill=CRITICAL)
-    p.text(sx(ts("2026-10-17T13:09:06+10:00")), y + 46, "13 sends at 1 s (ODE ramp)", "middle")
+            p.text(x + 10, y + 21, f"HTTP 500 at {hms(t)}", fill=CRITICAL)
+    note_t, note = cfg["sends_note"]
+    p.text(sx(ts(note_t)), y + 46, note, "middle")
     y = lane_y["Integration state"]
-    lock0, lock1 = ts("2026-10-17T13:09:13.29+10:00"), ts("2026-10-17T13:16:00.70+10:00")
-    for a, b, colour, label in ((t0, lock0, GOOD, "OK"), (lock0, lock1, CRITICAL, "Locked: outcome unknown"),
-                                (lock1, t1, GOOD, "OK after reload")):
+    if cfg["lock"]:
+        lock0, lock1 = (ts(x) for x in cfg["lock"])
+        states = ((t0, lock0, GOOD, "OK"), (lock0, lock1, CRITICAL, "Locked: outcome unknown"),
+                  (lock1, t1, GOOD, "OK after reload"))
+    else:
+        states = ((t0, t1, GOOD, "OK: every send dispatched, no errors"),)
+    for a, b, colour, label in states:
         p.add(f'<rect x="{sx(a) + 1:.1f}" y="{y + 8}" width="{sx(b) - sx(a) - 2:.1f}" height="18" '
               f'fill="{colour}" fill-opacity="0.18" stroke="{colour}" rx="4"/>')
         p.text((sx(a) + sx(b)) / 2, y + 21, ("✓ " if colour == GOOD else "✕ ") + label, "middle", INK)
-    y = lane_y["Charger schedule (13:09:11)"]
-    received, start, periods, duration = next(pr for pr in profiles if abs(pr[0] - ts("2026-10-17T03:09:12.775Z")) < 0.01)
-    bounds = [start + sp for sp, _ in periods] + [start + duration]
-    for (sp, watts), a, b in zip(periods, bounds, bounds[1:]):
+    y = lane_y[held_lane]
+    _, segs, end = held
+    bounds = [a for a, _ in segs] + [end]
+    for (a, watts), b in zip(segs, bounds[1:]):
         b = min(b, t1)
+        if b - a < 4:
+            p.add(f'<rect x="{sx(a):.1f}" y="{y + 4}" width="{max(sx(b) - sx(a), 2):.1f}" height="24" fill="{INK2}"/>')
+            continue
         p.add(f'<rect x="{sx(a) + 1:.1f}" y="{y + 4}" width="{sx(b) - sx(a) - 2:.1f}" height="24" fill="{OCPP}" '
               f'fill-opacity="0.85" rx="4"/>')
         p.text((sx(a) + sx(b)) / 2, y + 21, f"{watts / 1000:g} kW", "middle", INK, weight="600")
-    minute = ts("2026-10-17T03:08:00+00:00")
+    minute = math.ceil(t0 / 60) * 60
     while minute <= t1:
         p.text(sx(minute), 312, hms(minute)[:5], "middle")
         minute += 60
-    p.save("timing-lanes.svg")
+    p.save(run["out"], "timing-lanes.svg")
 
 
-def step_response(controls, profiles, sends, power):
-    p = Plot(920, 350, "Step response at each scheduled decrease (5 s samples)",
+def step_response(run):
+    controls, events, power = run["controls"], run["events"], run["power"]
+    p = Plot(920, 350, f"LOA-11 run {run['name']}: step response at each scheduled decrease (5 s samples)",
              "Window: 15 s before to 20 s after the Cactus control start. The charger applied steps from the profile it already held.")
     panels = [c for c in controls if c[3] in ("DERC3", "DERC4", "DERC5")]
     width, gap, left0, top, bottom = 262, 30, 44, 112, 286
@@ -288,9 +333,9 @@ def step_response(controls, profiles, sends, power):
         x0 = sx(start)
         p.add(f'<line x1="{x0:.1f}" x2="{x0:.1f}" y1="{top}" y2="{bottom}" stroke="{INK2}" stroke-dasharray="2 3"/>')
         p.text(left, top - 36, f"{tag}: to {watts / 1000:g} kW at {hms(start)}", fill=INK, weight="600")
-        csip_pts = sample(lambda t: csip_limit(t, controls), t0, t1, 0.05)
+        csip_pts = sample(lambda t: csip_limit(t, controls, run["default_from"]), t0, t1, 0.05)
         p.add(f'<path d="{step_path(csip_pts, sx, sy)}" fill="none" stroke="{CSIP}" stroke-width="2"/>')
-        ocpp_pts = sample(lambda t: ocpp_limit(t, profiles, sends), t0, t1, 0.05)
+        ocpp_pts = sample(lambda t: ocpp_limit(t, events), t0, t1, 0.05)
         p.add(f'<path d="{step_path(ocpp_pts, sx, sy)}" fill="none" stroke="{OCPP}" stroke-width="2" '
               f'stroke-dasharray="6 3"/>')
         # The time from which the charger's limit stays at the new level (a later profile can briefly undo it).
@@ -310,7 +355,7 @@ def step_response(controls, profiles, sends, power):
                 p.add(f'<circle cx="{sx(t):.1f}" cy="{sy(w):.1f}" r="3" fill="{POWER}" stroke="{SURFACE}"/>')
         first = next((t, w) for t, w in power if t > start and w <= watts * 1.05 + 100)
         first_step = next(t for t, v in ocpp_pts if v is not None and v <= watts)
-        note = f" (first {first_step - start:+.1f} s, undone for 1 s)" if ocpp_step - first_step > 0.5 else ""
+        note = (f" (first {first_step - start:+.1f} s, then live sends raised it)" if ocpp_step - first_step > 0.5 else "")
         p.text(left, top - 21, f"OCPP step {ocpp_step - start:+.1f} s{note}", fill=INK2, size=11)
         p.text(left, top - 7, f"First 5 s sample at new level {first[0] - start:+.1f} s", fill=INK2, size=11)
     lx, ly = left0, 336
@@ -320,14 +365,19 @@ def step_response(controls, profiles, sends, power):
               f'stroke-dasharray="{dash}"/>')
         p.text(lx + 28, ly + 4, label, fill=INK)
         lx += 28 + 6.5 * len(label) + 32
-    p.save("step-response.svg")
+    p.save(run["out"], "step-response.svg")
 
 
 def main():
-    controls, profiles, sends, power = csip_controls(), load_profiles(), load_sends(), load_power()
-    overview(controls, profiles, sends, power)
-    timing(controls, profiles, sends)
-    step_response(controls, profiles, sends, power)
+    for name, cfg in RUNS.items():
+        data = HERE / "data" / name
+        sends = load_sends(data)
+        run = {"name": name, "cfg": cfg, "out": HERE / "charts" / name, "controls": csip_controls(data),
+               "events": schedule_events(load_profiles(data), sends), "sends": sends, "power": load_power(data),
+               "default_from": ts(cfg["default_from"])}
+        overview(run)
+        timing(run)
+        step_response(run)
 
 
 if __name__ == "__main__":

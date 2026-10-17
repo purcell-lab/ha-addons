@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Cactus LOA-11 (artifact set 1792207045): response to GET /edev/1/derp/1/derc, received 2026-10-17T03:08:59.121207Z (Cactus runner request log). Pretty-printed, otherwise unchanged. -->
+<!-- Cactus LOA-11 run 74858: response to GET /edev/1/derp/1/derc, received 2026-10-17T03:53:08.464850Z (Cactus runner request log). Pretty-printed, otherwise unchanged. -->
 <DERControlList xmlns="urn:ieee:std:2030.5:ns" xmlns:csipaus="https://csipaus.org/ns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" href="/envoy/edev/1/derp/1/derc" subscribable="1" all="5" results="5">
-  <DERControl href="/envoy/edev/1/derp/1/derc/1792206446" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
-    <mRID>30000000000000006ad2e66e00000000</mRID>
-    <description>2026-10-17T13:08:58.430877+10:00</description>
+  <DERControl href="/envoy/edev/1/derp/1/derc/1792208914" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
+    <mRID>30000000000000006ad2f01200000000</mRID>
+    <description>2026-10-17T13:53:07.768353+10:00</description>
     <version>1</version>
-    <creationTime>1792206538</creationTime>
+    <creationTime>1792209187</creationTime>
     <EventStatus>
       <currentStatus>1</currentStatus>
-      <dateTime>1792206538</dateTime>
+      <dateTime>1792209187</dateTime>
       <potentiallySuperseded>false</potentiallySuperseded>
     </EventStatus>
     <interval>
       <duration>120</duration>
-      <start>1792206538</start>
+      <start>1792209187</start>
     </interval>
     <DERControlBase>
       <csipaus:opModImpLimW>
@@ -22,19 +22,19 @@
       </csipaus:opModImpLimW>
     </DERControlBase>
   </DERControl>
-  <DERControl href="/envoy/edev/1/derp/1/derc/1792206447" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
-    <mRID>30000000000000006ad2e66f00000000</mRID>
-    <description>2026-10-17T13:10:58.601749+10:00</description>
+  <DERControl href="/envoy/edev/1/derp/1/derc/1792208915" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
+    <mRID>30000000000000006ad2f01300000000</mRID>
+    <description>2026-10-17T13:55:07.910900+10:00</description>
     <version>1</version>
-    <creationTime>1792206538</creationTime>
+    <creationTime>1792209187</creationTime>
     <EventStatus>
       <currentStatus>0</currentStatus>
-      <dateTime>1792206538</dateTime>
+      <dateTime>1792209187</dateTime>
       <potentiallySuperseded>false</potentiallySuperseded>
     </EventStatus>
     <interval>
       <duration>120</duration>
-      <start>1792206658</start>
+      <start>1792209307</start>
     </interval>
     <DERControlBase>
       <csipaus:opModImpLimW>
@@ -43,19 +43,19 @@
       </csipaus:opModImpLimW>
     </DERControlBase>
   </DERControl>
-  <DERControl href="/envoy/edev/1/derp/1/derc/1792206448" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
-    <mRID>30000000000000006ad2e67000000000</mRID>
-    <description>2026-10-17T13:12:58.692213+10:00</description>
+  <DERControl href="/envoy/edev/1/derp/1/derc/1792208916" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
+    <mRID>30000000000000006ad2f01400000000</mRID>
+    <description>2026-10-17T13:57:08.006277+10:00</description>
     <version>1</version>
-    <creationTime>1792206538</creationTime>
+    <creationTime>1792209188</creationTime>
     <EventStatus>
       <currentStatus>0</currentStatus>
-      <dateTime>1792206538</dateTime>
+      <dateTime>1792209188</dateTime>
       <potentiallySuperseded>false</potentiallySuperseded>
     </EventStatus>
     <interval>
       <duration>120</duration>
-      <start>1792206778</start>
+      <start>1792209428</start>
     </interval>
     <DERControlBase>
       <csipaus:opModImpLimW>
@@ -64,19 +64,19 @@
       </csipaus:opModImpLimW>
     </DERControlBase>
   </DERControl>
-  <DERControl href="/envoy/edev/1/derp/1/derc/1792206449" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
-    <mRID>30000000000000006ad2e67100000000</mRID>
-    <description>2026-10-17T13:14:58.744418+10:00</description>
+  <DERControl href="/envoy/edev/1/derp/1/derc/1792208917" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
+    <mRID>30000000000000006ad2f01500000000</mRID>
+    <description>2026-10-17T13:59:08.059774+10:00</description>
     <version>1</version>
-    <creationTime>1792206538</creationTime>
+    <creationTime>1792209188</creationTime>
     <EventStatus>
       <currentStatus>0</currentStatus>
-      <dateTime>1792206538</dateTime>
+      <dateTime>1792209188</dateTime>
       <potentiallySuperseded>false</potentiallySuperseded>
     </EventStatus>
     <interval>
       <duration>120</duration>
-      <start>1792206898</start>
+      <start>1792209548</start>
     </interval>
     <DERControlBase>
       <csipaus:opModImpLimW>
@@ -85,19 +85,19 @@
       </csipaus:opModImpLimW>
     </DERControlBase>
   </DERControl>
-  <DERControl href="/envoy/edev/1/derp/1/derc/1792206450" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
-    <mRID>30000000000000006ad2e67200000000</mRID>
-    <description>2026-10-17T13:16:58.787932+10:00</description>
+  <DERControl href="/envoy/edev/1/derp/1/derc/1792208918" replyTo="/envoy/edev/1/rsps/site_control/rsp" responseRequired="03">
+    <mRID>30000000000000006ad2f01600000000</mRID>
+    <description>2026-10-17T14:01:08.112259+10:00</description>
     <version>1</version>
-    <creationTime>1792206538</creationTime>
+    <creationTime>1792209188</creationTime>
     <EventStatus>
       <currentStatus>0</currentStatus>
-      <dateTime>1792206538</dateTime>
+      <dateTime>1792209188</dateTime>
       <potentiallySuperseded>false</potentiallySuperseded>
     </EventStatus>
     <interval>
       <duration>120</duration>
-      <start>1792207018</start>
+      <start>1792209668</start>
     </interval>
     <DERControlBase>
       <csipaus:opModImpLimW>

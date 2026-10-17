@@ -1,13 +1,42 @@
 # LOA-11 test report: CSIP-AUS import limits to an OCPP AC charger
 
-Cactus test procedure **LOA-11** (CSIP-AUS v1.2), run on 17 October 2026 from
-13:07:26 to 13:17:25 AEST. Open Dynamic Export (ODE) was the CSIP-AUS client.
-A Home Assistant bridge turned ODE's import limit and schedule into OCPP 2.1
-TxProfiles, which CitrineOS sent to the EVerest AC test charger.
+Cactus test procedure **LOA-11** (CSIP-AUS v1.2), run twice on 17 October 2026.
+Open Dynamic Export (ODE) was the CSIP-AUS client. A Home Assistant bridge
+turned ODE's import limit and schedule into OCPP 2.1 TxProfiles, which
+CitrineOS sent to the EVerest AC test charger.
+
+| Run | Time (AEST) | Cactus criteria | Bridge |
+|---|---|---|---|
+| [74853](#run-74853) | 13:07–13:17 | 15 of 16. DERC5 completed missing: run finalised before DERC5 ended | Locked for 6 min 47 s after a CitrineOS HTTP 500; the charger followed the profile it already held |
+| [74858](#run-74858) | 13:52–14:03 | **16 of 16** | No errors. Every step on time, except at DERC3, where ODE's ramp-down was re-sent above the held 12 kW step for about 8 s (fixed since) |
 
 Times are AEST (UTC+10) unless marked UTC.
 
-## Result
+## Set-up (both runs)
+
+```
+Cactus (CSIP-AUS v1.2 server)
+  └─ Open Dynamic Export 0.1.2 (v0.20.0 + ramp-tms, influxdb-quiet, stdout-log-level patches)
+       └─ MQTT limits/csipAus (about 1 message per second)
+            └─ HA automation "Lab: ODE schedule to AC EVerest (prototype v2)" (schedule-ahead bridge)
+                 └─ citrine_ha service lab_schedule (0.3.3 for run 74853, 0.3.4 for run 74858)
+                      └─ CitrineOS Isolated Lab 0.5.3 (OCPP 2.1, lab policy ≤ 25 kW, ≤ 600 s, ≤ 10 periods)
+                           └─ EVerest OCPP 2.1 Test Charger 0.1.4: SIM-EV-EVEREST-G1, 3-phase, 32 A (about 22 kW maximum)
+```
+
+- The bridge sends one TxProfile per update. Period 0 is ODE's current limit,
+  already ramped by ODE. Later periods are ODE's scheduled CSIP-AUS controls
+  for the next 600 s. The bridge caps limits at 25 kW and uses
+  `numberPhases: 3`.
+- The bridge sends when the current limit moves by more than 200 W or 5 %,
+  falls by more than 50 W, or the future steps change. Otherwise it resends
+  every 60 s.
+- The charger sends transaction MeterValues every 5 s
+  (`tx_sample_interval_s: 5`), so power readings have 5 s resolution.
+
+## Run 74853
+
+### Result
 
 | Check | Result |
 |---|---|
@@ -24,32 +53,10 @@ LOA-11 run failed the same way: its completed response got HTTP 404 because the
 run had already closed. The run summary shows "1/1 steps complete" once the
 controls are fetched. **Finalise only after the last control's end time.**
 
-## Set-up
+### CSIP-AUS schedule from Cactus (raw)
 
-```
-Cactus (CSIP-AUS v1.2 server)
-  └─ Open Dynamic Export 0.1.2 (v0.20.0 + ramp-tms, influxdb-quiet, stdout-log-level patches)
-       └─ MQTT limits/csipAus (about 1 message per second)
-            └─ HA automation "Lab: ODE schedule to AC EVerest (prototype v2)" (schedule-ahead bridge)
-                 └─ citrine_ha 0.3.3 service lab_schedule
-                      └─ CitrineOS Isolated Lab 0.5.3 (OCPP 2.1, lab policy ≤ 25 kW, ≤ 600 s, ≤ 10 periods)
-                           └─ EVerest OCPP 2.1 Test Charger 0.1.4: SIM-EV-EVEREST-G1, 3-phase, 32 A (about 22 kW maximum)
-```
-
-- The bridge sends one TxProfile per update. Period 0 is ODE's current limit,
-  already ramped by ODE. Later periods are ODE's scheduled CSIP-AUS controls
-  for the next 600 s. The bridge caps limits at 25 kW and uses
-  `numberPhases: 3`.
-- The bridge sends when the current limit moves by more than 200 W or 5 %,
-  falls by more than 50 W, or the future steps change. Otherwise it resends
-  every 60 s.
-- The charger sends transaction MeterValues every 5 s
-  (`tx_sample_interval_s: 5`), so power readings have 5 s resolution.
-
-## CSIP-AUS schedule from Cactus (raw)
-
-The raw responses are in [`data/csip-aus-dderc.xml`](data/csip-aus-dderc.xml)
-(DefaultDERControl) and [`data/csip-aus-derc.xml`](data/csip-aus-derc.xml)
+The raw responses are in [`data/74853/csip-aus-dderc.xml`](data/74853/csip-aus-dderc.xml)
+(DefaultDERControl) and [`data/74853/csip-aus-derc.xml`](data/74853/csip-aus-derc.xml)
 (DERControlList). They are copied from the Cactus runner's request log and
 pretty-printed, otherwise unchanged. All five controls were created at
 13:08:58.4 and fetched by ODE at 13:08:59.1.
@@ -87,12 +94,12 @@ Excerpt (DERC3):
 </DERControl>
 ```
 
-## OCPP charging profiles sent to the charger
+### OCPP charging profiles sent to the charger
 
 All profiles are in
-[`data/ocpp-charging-profiles.json`](data/ocpp-charging-profiles.json), as
+[`data/74853/ocpp-charging-profiles.json`](data/74853/ocpp-charging-profiles.json), as
 the charger received them; each one was answered `Accepted`. Every value the
-bridge sent is in [`data/bridge-sends.csv`](data/bridge-sends.csv). That file
+bridge sent is in [`data/74853/bridge-sends.csv`](data/74853/bridge-sends.csv). That file
 includes the start-up sends, which have aged out of the charger's ten-entry log.
 
 This is the last profile before the integration locked. It held every remaining
@@ -120,7 +127,7 @@ LOA-11 step, and the charger followed it for the next seven minutes:
 }
 ```
 
-### CSIP-AUS control vs OCPP period
+#### CSIP-AUS control vs OCPP period
 
 | Control | CSIP-AUS start | OCPP period (13:09:11.354 + `startPeriod`) | OCPP limit | Difference |
 |---|---|---|---|---|
@@ -135,15 +142,15 @@ OCPP periods start on whole seconds from `startSchedule`, so the bridge rounds
 each boundary down. Decreases therefore land up to about 1.4 s early, which is
 the safe direction for an import limit.
 
-## Charts
+### Charts
 
-![Import limit and charger power](charts/limits-and-power.svg)
+![Import limit and charger power](charts/74853/limits-and-power.svg)
 
-![Timing lanes](charts/timing-lanes.svg)
+![Timing lanes](charts/74853/timing-lanes.svg)
 
-![Step response](charts/step-response.svg)
+![Step response](charts/74853/step-response.svg)
 
-## Timing
+### Timing
 
 The charger's response is measured from its 5 s meter samples. A response
 faster than 5 s shows up as "next sample".
@@ -161,7 +168,7 @@ faster than 5 s shows up as "next sample".
 Measured power sits 2 to 4 % below each watt limit (for example 11.4–11.8 kW
 against 12 kW). The simulator's validation record shows the same offset.
 
-## Findings
+### Findings
 
 1. **CitrineOS HTTP 500 locked the integration for 6 min 47 s.** It happened
    at 13:09:13, during ODE's ramp, when the bridge was sending a profile every
@@ -196,7 +203,7 @@ against 12 kW). The simulator's validation record shows the same offset.
    The bridge sent 25 kW at most; the charger drew about 20.5 kW, its 32 A
    3-phase maximum.
 
-## Changes made after this run
+### Changes made after this run
 
 - **Bridge** (HA automation on the lab Home Assistant, 17 Oct 2026):
   - Rises of more than 200 W or 5 % are sent at most every 5 s. Decreases,
@@ -215,7 +222,7 @@ against 12 kW). The simulator's validation record shows the same offset.
   transport errors, 502–504, and 500 to start or stop still block until
   reconciled.
 
-## Limits of this evidence
+### Limits of this evidence
 
 - Power has 5 s resolution (CitrineOS MeterValues via `citrine_ha`). Charger
   response times shorter than that are not measured.
@@ -228,15 +235,135 @@ against 12 kW). The simulator's validation record shows the same offset.
 - Cactus, Home Assistant and the simulator each use their own clock (all
   NTP-synchronised). Sub-second differences between sources are approximate.
 
-## Files
+### Files
 
 | File | Content |
 |---|---|
-| `data/csip-aus-dderc.xml`, `data/csip-aus-derc.xml` | Raw CSIP-AUS DefaultDERControl and DERControlList from Cactus |
-| `data/ocpp-charging-profiles.json` | SetChargingProfile requests received by the charger, with replies |
-| `data/bridge-sends.csv` | Every limit the bridge sent, including the failed send |
-| `data/charger-power.csv` | Charger power from CitrineOS MeterValues (5 s) |
-| `charts/*.svg` | Charts, generated by `python3 make_charts.py` (standard library only) |
+| `data/74853/csip-aus-dderc.xml`, `data/74853/csip-aus-derc.xml` | Raw CSIP-AUS DefaultDERControl and DERControlList from Cactus |
+| `data/74853/ocpp-charging-profiles.json` | SetChargingProfile requests received by the charger, with replies |
+| `data/74853/bridge-sends.csv` | Every limit the bridge sent, including the failed send |
+| `data/74853/charger-power.csv` | Charger power from CitrineOS MeterValues (5 s) |
+| `charts/74853/*.svg` | Charts, generated by `python3 make_charts.py` (standard library only) |
 
 The full Cactus artifact set (including the Envoy database dump) is not
 committed: it holds site identifiers such as the NMI and LFDI.
+
+## Run 74858
+
+Run 13:52:54 to 14:12:15 AEST (initialised 13:48:35). Same chain as run 74853,
+with the changes listed under run 74853 in place: `citrine_ha` 0.3.4, ramp
+rises sent at most every 5 s, boundaries less than 1 s ahead kept, and the
+stall alert. Before the run, the bridge's default-learning rule was also fixed:
+it stored 25 kW as the default when it saw the 0.1 s gap between two
+back-to-back controls. It now learns a default only when no control is active
+within 2 s either side.
+
+### Result
+
+| Check | Result |
+|---|---|
+| Cactus criteria | **16 of 16 passed**, including DERC5 completed (sent 14:03:08.6; the run was finalised at 14:12:15). |
+| Cactus preconditions | Both passed. |
+| Cactus responses | All 15 DERControl responses for the run were accepted (HTTP 201). One earlier response, at 13:50:57, got HTTP 400: ODE answering a control from the previous run before this one started. |
+| Bridge | **No errors.** 24 profiles sent and dispatched; the integration never left the dispatched state and the stall alert never fired. |
+| Charger followed each step | **Yes, with one exception.** At DERC3 the limit was raised above the 12 kW control for about 8 s (finding 2). |
+
+### CSIP-AUS schedule from Cactus (raw)
+
+[`data/74858/csip-aus-derc.xml`](data/74858/csip-aus-derc.xml) and
+[`data/74858/csip-aus-dderc.xml`](data/74858/csip-aus-dderc.xml). The
+controls are the same as run 74853: created together, starting now and then
+every 120 s. The default is again `opModImpLimW` 0, `opModExpLimW` 0
+and `setGradW` 600.
+
+| Control | Exact start | Duration | `opModImpLimW` | Watts |
+|---|---|---|---|---|
+| DERC1 | 13:53:07.768 | 120 s | 6000 × 10¹ | 60,000 |
+| DERC2 | 13:55:07.911 | 120 s | 30000 × 10⁰ | 30,000 |
+| DERC3 | 13:57:08.006 | 120 s | 12000 × 10⁰ | 12,000 |
+| DERC4 | 13:59:08.060 | 120 s | 7500 × 10⁰ | 7,500 |
+| DERC5 | 14:01:08.112 | 120 s | 0 × 10⁰ | 0 |
+
+DERC2 ends at 13:57:07.911, 0.095 s before DERC3 starts. Under CSIP-AUS the
+default (0 W) applies in between.
+
+### OCPP charging profiles
+
+The charger's message log keeps only the ten most recent requests, so the
+full profiles in [`data/74858/ocpp-charging-profiles.json`](data/74858/ocpp-charging-profiles.json)
+are those read during the run: start-up and the DERC1 ramp. Every send is in
+[`data/74858/bridge-sends.csv`](data/74858/bridge-sends.csv) with its period-0
+limit and the schedule signature it carried (`absolute second:limit` for each
+boundary). The charts rebuild the other profiles from these, rounding as the
+bridge does.
+
+The profile the charger held from 13:53:27, with every remaining step:
+
+| Period | `startPeriod` | Absolute (AEST) | Limit | CSIP-AUS |
+|---|---|---|---|---|
+| 0 | 0 | 13:53:26.4 | 25,000 W | DERC1 (60 kW, capped) |
+| 1 | 220 | 13:57:06.4 | 0 W | default gap after DERC2 (DERC2's 30 kW is above the cap, so no step at its start) |
+| 2 | 222 | 13:57:08.4 | 12,000 W | DERC3 13:57:08.006 (+0.4 s, increase rounded up) |
+| 3 | 341 | 13:59:07.4 | 7,500 W | DERC4 13:59:08.060 (−0.7 s) |
+| 4 | 461 | 14:01:07.4 | 0 W | DERC5 14:01:08.112 (−0.7 s) |
+
+### Charts
+
+![Import limit and charger power, run 74858](charts/74858/limits-and-power.svg)
+
+![Timing lanes, run 74858](charts/74858/timing-lanes.svg)
+
+![Step response, run 74858](charts/74858/step-response.svg)
+
+### Timing
+
+| Event | CSIP-AUS time | Limit on the charger | First 5 s meter sample at the new level |
+|---|---|---|---|
+| Default 0 W | before the run | 0 W from 13:52:06 (after a 25 kW start-up flicker at 13:52:05) | 0 W |
+| DERC1 60 kW | 13:53:07.8 | ramp sends 1.8, 12.6, 23.4, 25 kW at 13:53:09.6, 15.7, 21.7, 28.0 | 12.3 kW at 13:53:23.5; 20.2 kW (charger maximum) at 13:53:28.6 |
+| DERC2 30 kW | 13:55:07.9 | 25 kW (cap) | no change: already at its maximum |
+| DERC3 12 kW | 13:57:08.0 | 0 W from 13:57:06.4, 12 kW from 13:57:08.4 (held); 25 kW from 13:57:08.7, then 24.6 → 12 kW one per second until 13:57:16.7 (live) | 11.4 kW at 13:57:13.6, **16.3 kW at 13:57:17.8**, 11.7 kW at 13:57:23.5 |
+| DERC4 7.5 kW | 13:59:08.1 | 13:59:07.4 (held, −0.7 s) | 7.2 kW at 13:59:13.5 (+5.4 s) |
+| DERC5 0 W | 14:01:08.1 | 14:01:07.4 (held, −0.7 s) | 0 W at 14:01:13.5 (+5.4 s) |
+| DERC5 end, default 0 W | 14:03:08.1 | 0 W held (resent every 60 s) | 0 W |
+
+### Findings
+
+1. **The ramp throttle worked.** DERC1's ramp went out as four profiles over
+   18 s, instead of thirteen at 1 s in run 74853. CitrineOS returned no
+   errors in this run.
+2. **ODE's ramp-down was re-sent above a step the charger already held.**
+   The held profile stepped to 12 kW at DERC3. At 13:57:08.7, though, a
+   schedule-change send carried ODE's live limit, still 25 kW because ODE
+   ramps decreases at `setGradW` too. The following one-per-second
+   decreases walked it down to 12 kW by 13:57:16.7. The charger went 11.4 kW,
+   then **16.3 kW**, then 11.7 kW, so it was above the 12 kW control at the
+   13:57:17.8 sample. **Fixed after the run:** period 0 is now
+   min(ODE's ramped limit, the active control's own value). A ramp can still
+   slow a rise, but cannot hold the limit above a lower control.
+3. **The 0.095 s default gap became 2 s at 0 W.** Decreases round down and
+   increases round up to whole seconds, so the gap between DERC2 and DERC3
+   was held as 13:57:06.4–13:57:08.4. The 5 s samples do not show it. It is
+   within the limit, but a real EV would see a 2 s pause.
+4. **ODE's start-up flicker** sent 25 kW for 0.6 s at 13:52:05, as in run
+   74853, before ODE fetched the 0 W default.
+5. **Responses.** ODE's started and completed responses reached Cactus
+   0.5–0.6 s after each control boundary (Envoy log). DERC1 started took 1.7 s,
+   because DERC1 began before ODE fetched it. DERC5 completed was accepted
+   because the run was finalised after DERC5 ended.
+
+### Limits of this evidence
+
+As for run 74853. In addition, most OCPP profiles in this run are rebuilt
+from the bridge's recorded sends rather than read from the charger's log.
+The rebuilt boundaries are accurate to about ±0.2 s.
+
+### Files
+
+| File | Content |
+|---|---|
+| `data/74858/csip-aus-dderc.xml`, `data/74858/csip-aus-derc.xml` | Raw CSIP-AUS DefaultDERControl and DERControlList from Cactus |
+| `data/74858/ocpp-charging-profiles.json` | SetChargingProfile requests read from the charger during the run (start-up and DERC1 ramp) |
+| `data/74858/bridge-sends.csv` | Every send with its period-0 limit and schedule signature |
+| `data/74858/charger-power.csv` | Charger power from CitrineOS MeterValues (5 s) |
+| `charts/74858/*.svg` | Charts, generated by `python3 make_charts.py` |
