@@ -64,6 +64,13 @@ Local finding: even without the firewall, the upstream SDP server answered
 only on its configured interface (`v2g0`), not from another network
 namespace on global or link-local addresses.
 
+## 0.1.7: sample interval option, any-purpose profile panel (2026-10-17)
+
+`tx_sample_interval_s` (default 5, 1 to 60) sets
+`SampledDataTxUpdatedInterval`; 1 s samples outran CitrineOS on the Green
+over long sessions. The profile panel shows the newest SetChargingProfile of
+any purpose (`latest_profile` in `/api/profiles`; `latest_tx_profile` kept).
+
 ## Findings during development
 
 - PyEvJosev's default service order selects plain DC; `DC_BPT,DC` is needed

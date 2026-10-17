@@ -79,6 +79,7 @@ class ValidateTest(unittest.TestCase):
             {"charge_point_id": "REAL-CHARGER"}, {"charge_point_id": "SIM-EV-"},
             {"ocpp_version": "1.6"}, {"ocpp_version": 2.1}, {"phases": 2}, {"phases": True},
             {"max_current_a": 5}, {"max_current_a": 33}, {"max_current_a": True},
+            {"tx_sample_interval_s": 0}, {"tx_sample_interval_s": 61}, {"tx_sample_interval_s": "5"},
             {"csms_url": "wss://host:443"}, {"csms_url": "http://host:80"},
             {"csms_url": "ws://host"}, {"csms_url": "ws://user:pw@host:80"},
             {"csms_url": "ws://host:80/?a=b"}, {"csms_url": "ws://host:80/%2e"},
@@ -153,7 +154,7 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(profile["connectionData"]["securityProfile"], 1)
         self.assertEqual(value(target, "SecurityCtrlr", "SecurityCtrlrIdentity"), "SIM-EV-EVEREST-01")
         self.assertEqual(value(target, "SmartChargingCtrlr", "CompositeScheduleDefaultLimitWatts"), 7360)
-        self.assertEqual(value(target, "SampledDataCtrlr", "SampledDataTxUpdatedInterval"), 1)
+        self.assertEqual(value(target, "SampledDataCtrlr", "SampledDataTxUpdatedInterval"), 5)
         # Regression: a supply-phases override made libocpp ignore all profiles.
         self.assertIsNone(value(target, "ChargingStation", "ChargingStationSupplyPhases"))
 
@@ -224,6 +225,9 @@ class OcppLogTest(unittest.TestCase):
         self.assertIsNone(events[0]["status"])
         self.assertEqual(events[1]["status"], "Rejected")
         self.assertEqual(events[1]["status_info"]["reasonCode"], "InvalidSchedule")
+        latest = ocpp_log.latest_profile(events)
+        self.assertEqual(latest["message_id"], "csms-3")
+        self.assertEqual(latest["payload"]["chargingProfile"]["chargingProfilePurpose"], "TxDefaultProfile")
         tx = ocpp_log.latest_tx_profile(events)
         self.assertEqual(tx["message_id"], "csms-2")
         self.assertEqual(tx["status"], "Accepted")

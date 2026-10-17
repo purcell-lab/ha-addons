@@ -41,6 +41,9 @@ def validate(options):
     acknowledged = options.get("acknowledge_test_isolation", False)
     ha_control = options.get("ha_control", False)
     provisioned = options.get("csms_basic_auth_password", "")
+    interval = options.get("tx_sample_interval_s", 5)
+    if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 60:
+        raise ValueError("tx_sample_interval_s must be 1-60")
     if not isinstance(provisioned, str) or (provisioned and not re.fullmatch(r"[0-9a-f]{32}", provisioned)):
         raise ValueError("CSMS credential must be empty or a provisioned 32-character lowercase hex value")
     if not isinstance(ha_control, bool):
@@ -80,6 +83,7 @@ def validate(options):
         "ocpp_version": version,
         "max_power_kw": power,
         "ha_control": ha_control,
+        "tx_sample_interval_s": interval,
     }
 
 
@@ -221,9 +225,10 @@ def component_config(source, target, settings, password):
     })
     # ChargingStationSupplyPhases stays at the upstream value (3): setting it to 1
     # made libocpp drop every profile from composite schedules (2025.10.0).
-    # One-second transaction samples so step response and direction changes
-    # can be timed from the CSMS record, not only seen.
-    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": 1})
+    # Transaction sample interval (option tx_sample_interval_s, default 5 s).
+    # One-second samples outran CitrineOS on the Green (about one
+    # TransactionEvent every 2 s), so long sessions queued minutes of samples.
+    edit("SampledDataCtrlr", {"SampledDataTxUpdatedInterval": settings["tx_sample_interval_s"]})
     # The upstream lists omit export energy even though the simulated meter
     # provides it. Preserve existing measurands and request both directions
     # in Started, Updated and Ended frames; never synthesize export from net.

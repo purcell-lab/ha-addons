@@ -253,9 +253,14 @@ class GeneratedConfigTest(unittest.TestCase):
         # Regression: a supply-phases override made libocpp ignore all profiles.
         self.assertIsNone(value(target, "ChargingStation", "ChargingStationSupplyPhases"))
 
-    def test_transaction_samples_every_second(self):
+    def test_transaction_sample_interval_option(self):
         _, target = self.build(GOOD)
+        self.assertEqual(value(target, "SampledDataCtrlr", "SampledDataTxUpdatedInterval"), 5)
+        _, target = self.build(dict(GOOD, tx_sample_interval_s=1))
         self.assertEqual(value(target, "SampledDataCtrlr", "SampledDataTxUpdatedInterval"), 1)
+        for bad in (0, 61, True, "5"):
+            with self.assertRaises(ValueError):
+                configure.validate(dict(GOOD, tx_sample_interval_s=bad))
 
     def test_both_energy_registers_requested_for_whole_transaction(self):
         _, target = self.build(GOOD)
@@ -493,6 +498,9 @@ class OcppLogTest(unittest.TestCase):
         self.assertIsNone(events[0]["status"])
         self.assertEqual(events[1]["status"], "Rejected")
         self.assertEqual(events[1]["status_info"]["reasonCode"], "InvalidSchedule")
+        latest = ocpp_log.latest_profile(events)
+        self.assertEqual(latest["message_id"], "csms-3")
+        self.assertEqual(latest["payload"]["chargingProfile"]["chargingProfilePurpose"], "TxDefaultProfile")
         tx = ocpp_log.latest_tx_profile(events)
         self.assertEqual(tx["message_id"], "csms-2")
         self.assertEqual(tx["status"], "Accepted")

@@ -50,6 +50,7 @@ deleted), then set it back to `false`.
 | `ocpp_version` | `2.1` | `2.1` offers `ocpp2.1, ocpp2.0.1`. `2.0.1` offers only `ocpp2.0.1`. |
 | `phases` | `1` | Phases the simulated EV draws. Typical Australian homes are single-phase. |
 | `max_current_a` | `32` | EVSE and EV current limit, 6 to 32 A. Also the default composite limit. |
+| `tx_sample_interval_s` | `5` | Seconds between transaction MeterValues samples sent to the CSMS (`SampledDataTxUpdatedInterval`), 1 to 60. Change it in the App configuration and restart; no rebuild. |
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty `csms_url`. |
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 
@@ -74,8 +75,10 @@ to 0 W; then use **Stop and unplug**.
 
 ## Charging profiles
 
-The **Last received TxProfile** panel shows the latest TxProfile from the
-CSMS message log, its receipt time (UTC), and the station's actual reply
+The **Last received charging profile** panel shows the latest
+SetChargingProfile of any purpose (TxProfile, TxDefaultProfile,
+ChargingStationMaxProfile, ChargingStationExternalConstraints), with its
+purpose, id and stack level, from the CSMS message log, its receipt time (UTC), and the station's actual reply
 (`Accepted` or `Rejected`, with reason). **Recent profile requests** lists the
 last ten SetChargingProfile and ClearChargingProfile requests. **Effective
 limit** is EVerest's composite schedule for EVSE 1.
@@ -93,11 +96,12 @@ of it, and limits below about 12.4 kW paused charging.
 Measured power is a few per cent below a watt limit because the simulated
 supply sits slightly below 230 V. The current follows the limit exactly.
 
-**Transaction samples every second.** From 0.1.2 the station sends a
-TransactionEvent with MeterValues every 1 s while charging
-(`SampledDataTxUpdatedInterval` 1, as in the V2G App), so the CSMS record
-shows each profile step within about a second. Earlier versions sent one
-every 10 s.
+**Transaction samples.** The station sends a TransactionEvent with
+MeterValues every `tx_sample_interval_s` seconds while charging (default 5
+from 0.1.4; 0.1.2 and 0.1.3 sent one every second, earlier versions every
+10 s). On the Green, CitrineOS stored about one TransactionEvent every 2 s,
+so 1 s samples built a queue over a long session and delayed the Ended event
+by minutes.
 
 ## Security boundaries
 

@@ -1,5 +1,5 @@
 name: EVerest OCPP 2.1 Test Charger
-version: "0.1.3"
+version: "0.1.4"
 slug: everest_simulator
 description: Isolated EVerest software-in-the-loop AC charger; OCPP 2.1 with 2.0.1 fallback.
 url: https://github.com/purcell-lab/ha-addons
@@ -21,6 +21,7 @@ options:
   ocpp_version: "2.1"
   phases: 1
   max_current_a: 32
+  tx_sample_interval_s: 5
   acknowledge_test_isolation: false
   archive_and_rebind: false
 schema:
@@ -29,5 +30,6 @@ schema:
   ocpp_version: list(2.1|2.0.1)
   phases: list(1|3)
   max_current_a: int(6,32)
+  tx_sample_interval_s: int(1,60)
   acknowledge_test_isolation: bool
   archive_and_rebind: bool
