@@ -4,7 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,
+import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rbacRules,
   validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
   OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows} from './control-policy.mjs';
 
@@ -235,6 +235,9 @@ export async function main() {
     res.end(JSON.stringify({keys:[signer.jwk]}));
   });
   await new Promise(r=>jwks.listen(8091,'127.0.0.1',r)); streams.push(jwks);
+  // CitrineOS reads its role rules at start; write them from the gateway's route list.
+  const base=JSON.parse(fs.readFileSync(`${here}/rbac-rules.json`,'utf8'));
+  fs.writeFileSync(`${APP}/rbac-rules.json`,JSON.stringify(rbacRules(base,o.command_control_enabled===true)));
   const upstream=run([`${APP}/dist/index.js`]);
   upstream.then(()=>process.exit(upstreamExitCode(shutting))).catch(()=>{
     if(shutting){process.exit(upstreamExitCode(shutting));return;}

@@ -53,6 +53,11 @@ The upstream API binds loopback port 8088 and uses its actual OIDC/JWT provider,
 not local authentication bypass. The gateway signs 60-second internal JWTs with
 an in-memory RSA key and role `lab-reader`; its loopback JWKS endpoint is port 8091.
 RBAC permits only tariff reads for that role. Restart rotates the internal key.
+Scoped commands use role `lab-controller`. At every start the App writes
+CitrineOS's RBAC rules (`rbac-rules.json`) from the gateway's command route
+list: with `command_control_enabled`, `lab-controller` may POST exactly the
+scoped start, stop, profile and clear routes for OCPP 2.1, 2.0.1 and 1.6;
+without it, none. The gateway still applies every check first.
 The bearer gateway is a lab credential bridge, not an interactive identity provider.
 
 No HA/Supervisor API token, Docker socket, host network, device or privileged mount
