@@ -1,0 +1,679 @@
+{
+ "source": "EVerest AC simulator OCPP message log (SIM-EV-EVEREST-G1), as received from CitrineOS. The log keeps the last ten requests per query; earlier requests (13:07:55-13:09:02 AEST) are in bridge-sends.csv only.",
+ "profiles": [
+  {
+   "received": "2026-10-17T03:09:03.336Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:02.002+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 7200,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 116,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 236,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 356,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 476,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:04.306Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:03.121+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 9000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 115,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 235,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 355,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 475,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:05.170Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:03.994+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 10800,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 114,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 234,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 354,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 474,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:06.298Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:05.102+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 12600,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 113,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 233,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 353,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 473,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:07.527Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:06.011+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 14400,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 112,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 232,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 352,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 472,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:08.330Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:07.130+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 16200,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 111,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 231,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 351,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 471,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:09.244Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:08.002+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 18000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 110,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 230,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 350,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 470,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:10.496Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:09.208+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 19800,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 109,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 229,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 349,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 469,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:11.541Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:10.030+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 21600,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 108,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 228,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 348,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 468,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:09:12.775Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:09:11.354+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 23400,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 107,
+         "limit": 25000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 227,
+         "limit": 12000,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 347,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 467,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:16:00.685Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:15:59.406+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 58,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:16:57.794Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:16:56.383+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 7500,
+         "numberPhases": 3
+        },
+        {
+         "startPeriod": 121,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:16:58.838Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:16:57.602+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:17:59.953Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:17:58.746+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:18:57.974Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:18:56.795+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T03:19:59.067Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "b0fb93af-c963-4a47-99de-ca04d9b71f53",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T03:19:57.802+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "numberPhases": 3
+        }
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
