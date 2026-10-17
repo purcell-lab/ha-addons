@@ -190,6 +190,33 @@ class GeneratedConfigTest(unittest.TestCase):
             if path.startswith("/") and "everest" in path and not path.startswith("/data"):
                 self.fail(f"state outside /data: {path}")
 
+    def test_station_and_evse_energy_sinks(self):
+        # libocpp applies a composite schedule for EVSE 0 (station level) and
+        # EVSE 1 every CompositeScheduleIntervalS. Each needs an external-limits
+        # sink mapped to that EVSE, or OCPP201 warns "No evse energy sink
+        # configured for evse_id: 0" on every interval and station-level
+        # profiles are dropped (#28). Same wiring as upstream
+        # config-sil-ocpp201.yaml.
+        config = configure.everest_config(configure.validate(GOOD), Path("/data"))
+        modules = config["active_modules"]
+        ocpp = modules["ocpp"]
+        self.assertEqual(ocpp["config_module"]["CompositeScheduleIntervalS"], 10)
+        mapped = {}
+        for connection in ocpp["connections"]["evse_energy_sink"]:
+            self.assertEqual(connection["implementation_id"], "external_limits")
+            sink = modules[connection["module_id"]]
+            self.assertEqual(sink["module"], "EnergyNode")
+            mapped[sink["mapping"]["module"]["evse"]] = connection["module_id"]
+        self.assertEqual(mapped, {0: "grid_connection_point", 1: "evse_manager_1_ocpp_sink"})
+        # The station node is the EnergyManager's trunk and feeds EVSE 1's node,
+        # so a station limit caps EVSE 1.
+        trunk = modules["energy_manager"]["connections"]["energy_trunk"]
+        self.assertEqual([c["module_id"] for c in trunk], ["grid_connection_point"])
+        consumers = modules["grid_connection_point"]["connections"]["energy_consumer"]
+        self.assertEqual([c["module_id"] for c in consumers], ["evse_manager_1_ocpp_sink"])
+        consumers = modules["evse_manager_1_ocpp_sink"]["connections"]["energy_consumer"]
+        self.assertEqual([c["module_id"] for c in consumers], ["evse_manager_1"])
+
 
 LOG = """2026-10-10T07:13:33.909Z: CentralSystem>ChargePoint  SetChargingProfile
 [

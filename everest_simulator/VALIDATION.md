@@ -61,6 +61,13 @@ CI step means (A) for the same schedule:
   replaced by a stub.
 - The demo build is coverage-instrumented and logs composite schedules
   every interval; both are handled in `app.py`.
+- OCPP201 needs an external-limits sink for every EVSE whose composite
+  schedule libocpp evaluates, including EVSE 0 (station level). The App
+  wires `grid_connection_point` (mapped to EVSE 0) and
+  `evse_manager_1_ocpp_sink` (EVSE 1), as upstream `config-sil-ocpp201.yaml`
+  does, so the AC App never logs "No evse energy sink configured for
+  evse_id: 0" (#28; that warning came from the V2G App). A unit test guards
+  this.
 
 ## 0.1.4: sample interval option, any-purpose profile panel (2026-10-17)
 
