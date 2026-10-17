@@ -11,8 +11,12 @@
 
 ## Changes to upstream
 
-`ingress.patch` is the only source change. It lets the web UI work under
-Home Assistant Ingress, which serves it below `/api/hassio_ingress/<token>/`:
+Three patches are applied, in this order. Each must apply cleanly to the
+pinned commit (the build runs `git apply --check`).
+
+### `ingress.patch`
+
+Lets the web UI work under Home Assistant Ingress, which serves it below `/api/hassio_ingress/<token>/`:
 
 - `src/ui/ingress.ts` (new) detects that prefix in the browser;
 - the TanStack router gets it as `basepath`, and the API client as
@@ -21,8 +25,27 @@ Home Assistant Ingress, which serves it below `/api/hassio_ingress/<token>/`:
   relative;
 - the `/api` docs redirect and the Redoc spec URL are relative.
 
-Without a prefix (the optional LAN port) the UI behaves as upstream. The
-server, control logic and CSIP-AUS client are unchanged.
+Without a prefix (the optional LAN port) the UI behaves as upstream.
+
+### `ramp-tms.patch`
+
+Upstream pull request
+[#138](https://github.com/longzheng/open-dynamic-export/pull/138), commit
+`55eab7c` ("Fix rampTms being applied as seconds instead of hundredths of a
+second"), not yet merged upstream. CSIP-AUS `DERControlBase.rampTms` is in
+hundredths of a second; v0.20.0 used it as seconds, so a control with
+`rampTms` 6000 ramped over 100 minutes instead of 60 seconds. The patch
+divides by 100 for all four limits and adds upstream's tests. Drop it
+when the pin moves to a release that includes #138.
+
+### `influxdb-quiet.patch`
+
+Without InfluxDB, the UI's history endpoints (`/api/data/*`) throw
+"InfluxDB isn't available" on every poll, and Express prints each stack
+trace to the App log. The patch adds one error handler after the API
+routes that answers that error with HTTP 503 and does not log it. Other
+errors are passed on unchanged. The charts still show an error.
+Control logic and the CSIP-AUS client are unchanged by this patch.
 
 ## This App's own code
 

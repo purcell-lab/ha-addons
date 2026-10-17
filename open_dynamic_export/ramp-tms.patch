@@ -1,0 +1,156 @@
+diff --git a/src/sep2/helpers/controlLimitRamp.test.ts b/src/sep2/helpers/controlLimitRamp.test.ts
+index e4cecd1..c1fd58b 100644
+--- a/src/sep2/helpers/controlLimitRamp.test.ts
++++ b/src/sep2/helpers/controlLimitRamp.test.ts
+@@ -3,6 +3,7 @@ import { addSeconds } from 'date-fns';
+ import {
+     ControlLimitRampHelper,
+     calculateRampedValue,
++    rampTmsToSeconds,
+ } from './controlLimitRamp.js';
+ import { RampRateHelper } from './rampRate.js';
+ 
+@@ -10,6 +11,20 @@ afterEach(() => {
+     vi.getRealSystemTime();
+ });
+ 
++describe('rampTmsToSeconds', () => {
++    it('should convert hundredths of a second to seconds', () => {
++        expect(rampTmsToSeconds(6000)).toBe(60);
++        expect(rampTmsToSeconds(100)).toBe(1);
++        expect(rampTmsToSeconds(50)).toBe(0.5);
++        expect(rampTmsToSeconds(33)).toBe(0.33);
++    });
++
++    it('should pass through zero and undefined', () => {
++        expect(rampTmsToSeconds(0)).toBe(0);
++        expect(rampTmsToSeconds(undefined)).toBe(undefined);
++    });
++});
++
+ describe('ControlLimitRampHelper', () => {
+     let rampRateHelper: RampRateHelper;
+     let helper: ControlLimitRampHelper;
+@@ -135,6 +150,37 @@ describe('ControlLimitRampHelper', () => {
+         expect(helper.getRampedValue()).toBe(1500);
+     });
+ 
++    it('should complete a rampTms ramp in hundredths of a second, not seconds', () => {
++        vi.setSystemTime(new Date('2021-01-01T00:00:00Z'));
++        rampRateHelper.onDerSample({
++            nameplate: { maxW: 5000 },
++        });
++
++        helper.updateTarget({
++            type: 'active',
++            value: 333,
++            rampTimeSeconds: undefined,
++        });
++
++        // cache initial value
++        expect(helper.getRampedValue()).toBe(333);
++
++        // a DERControl with rampTms 6000 (hundredths) = 60 seconds
++        helper.updateTarget({
++            type: 'active',
++            value: 2500,
++            rampTimeSeconds: rampTmsToSeconds(6000),
++        });
++
++        // halfway through the 60 second ramp
++        vi.setSystemTime(new Date('2021-01-01T00:00:30Z'));
++        expect(helper.getRampedValue()).toBeCloseTo(1416.5, 0);
++
++        // the ramp has completed by 60 seconds
++        vi.setSystemTime(new Date('2021-01-01T00:01:00Z'));
++        expect(helper.getRampedValue()).toBe(2500);
++    });
++
+     it('should return ramped value with 1% ramp rate if going from active to default', () => {
+         vi.setSystemTime(new Date('2021-01-01T00:00:00Z'));
+         rampRateHelper.setDefaultDERControlRampRate(100);
+diff --git a/src/sep2/helpers/controlLimitRamp.ts b/src/sep2/helpers/controlLimitRamp.ts
+index 2dcb23e..306cc50 100644
+--- a/src/sep2/helpers/controlLimitRamp.ts
++++ b/src/sep2/helpers/controlLimitRamp.ts
+@@ -1,3 +1,4 @@
++import { Decimal } from 'decimal.js';
+ import { cappedChange } from '../../helpers/math.js';
+ import type { RampRateHelper } from './rampRate.js';
+ 
+@@ -9,6 +10,19 @@ export type ControlLimitRampTarget =
+       }
+     | { type: 'none'; value: number | undefined };
+ 
++// DERControlBase.rampTms is expressed in hundredths of a second (resolution
++// 1/100 sec) but this helper works in seconds, so it must be scaled down.
++// e.g. rampTms 6000 = 60 seconds
++export function rampTmsToSeconds(
++    rampTms: number | undefined,
++): number | undefined {
++    if (rampTms === undefined) {
++        return undefined;
++    }
++
++    return new Decimal(rampTms).div(100).toNumber();
++}
++
+ export class ControlLimitRampHelper {
+     private rampRateHelper: RampRateHelper;
+     private cachedValue:
+diff --git a/src/setpoints/csipAus/index.ts b/src/setpoints/csipAus/index.ts
+index e10a3c9..888f841 100644
+--- a/src/setpoints/csipAus/index.ts
++++ b/src/setpoints/csipAus/index.ts
+@@ -14,6 +14,7 @@ import type { SiteSample } from '../../meters/siteSample.js';
+ import { SEP2Client } from '../../sep2/client.js';
+ import {
+     ControlLimitRampHelper,
++    rampTmsToSeconds,
+     type ControlLimitRampTarget,
+ } from '../../sep2/helpers/controlLimitRamp.js';
+ import {
+@@ -351,7 +352,9 @@ export class CsipAusSetpoint implements SetpointType {
+                                       opModExpLimW.control.multiplier,
+                                   )
+                                 : undefined,
+-                            rampTimeSeconds: opModExpLimW.rampTms,
++                            rampTimeSeconds: rampTmsToSeconds(
++                                opModExpLimW.rampTms,
++                            ),
+                         };
+                     }
+                     case 'none':
+@@ -380,7 +383,9 @@ export class CsipAusSetpoint implements SetpointType {
+                                       opModGenLimW.control.multiplier,
+                                   )
+                                 : undefined,
+-                            rampTimeSeconds: opModGenLimW.rampTms,
++                            rampTimeSeconds: rampTmsToSeconds(
++                                opModGenLimW.rampTms,
++                            ),
+                         };
+                     }
+                     case 'none':
+@@ -405,7 +410,9 @@ export class CsipAusSetpoint implements SetpointType {
+                                       opModImpLimW.control.multiplier,
+                                   )
+                                 : undefined,
+-                            rampTimeSeconds: opModImpLimW.rampTms,
++                            rampTimeSeconds: rampTmsToSeconds(
++                                opModImpLimW.rampTms,
++                            ),
+                         };
+                     }
+                     case 'none':
+@@ -434,7 +441,9 @@ export class CsipAusSetpoint implements SetpointType {
+                                       opModLoadLimW.control.multiplier,
+                                   )
+                                 : undefined,
+-                            rampTimeSeconds: opModLoadLimW.rampTms,
++                            rampTimeSeconds: rampTmsToSeconds(
++                                opModLoadLimW.rampTms,
++                            ),
+                         };
+                     }
+                     case 'none':

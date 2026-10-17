@@ -10,6 +10,8 @@ REPO = ROOT.parent
 CONFIG = yaml.safe_load((ROOT / "config.yaml").read_text())
 DOCKERFILE = (ROOT / "Dockerfile").read_text()
 PATCH = (ROOT / "ingress.patch").read_text()
+RAMP_PATCH = (ROOT / "ramp-tms.patch").read_text()
+INFLUX_PATCH = (ROOT / "influxdb-quiet.patch").read_text()
 PUBLISH = (REPO / ".github/workflows/ode-publish.yml").read_text()
 PR = (REPO / ".github/workflows/ode.yml").read_text()
 COMMIT = "bc807abbc4c58be3294257ee76f0348dc87c4945"  # upstream v0.20.0
@@ -44,12 +46,29 @@ class PinningTest(unittest.TestCase):
         self.assertIn("pnpm install --frozen-lockfile", DOCKERFILE)
         self.assertNotIn("latest", DOCKERFILE)
 
+    def test_patches_are_applied_in_order(self):
+        self.assertIn("for p in ingress ramp-tms influxdb-quiet; do", DOCKERFILE)
+        self.assertIn('git apply --check "/tmp/$p.patch"', DOCKERFILE)
+
     def test_patch_is_applied_and_limited_to_ingress(self):
-        self.assertIn("git apply --check /tmp/ingress.patch", DOCKERFILE)
         files = set(re.findall(r"^diff --git a/(\S+) ", PATCH, re.M))
         self.assertEqual(files, {"index.html", "src/app.ts", "src/ui/client.ts",
                                  "src/ui/config/site.ts", "src/ui/ingress.ts",
                                  "src/ui/main.tsx", "vite.config.ts"})
+
+    def test_ramp_patch_is_upstream_pr_138_only(self):
+        files = set(re.findall(r"^diff --git a/(\S+) ", RAMP_PATCH, re.M))
+        self.assertEqual(files, {"src/sep2/helpers/controlLimitRamp.ts",
+                                 "src/sep2/helpers/controlLimitRamp.test.ts",
+                                 "src/setpoints/csipAus/index.ts"})
+        # All four CSIP-AUS limits convert rampTms (hundredths of a second).
+        self.assertEqual(len(re.findall(r"^-\s+rampTimeSeconds: opMod\w+\.rampTms,$", RAMP_PATCH, re.M)), 4)
+
+    def test_influxdb_patch_only_quietens_that_error(self):
+        files = set(re.findall(r"^diff --git a/(\S+) ", INFLUX_PATCH, re.M))
+        self.assertEqual(files, {"src/app.ts"})
+        self.assertIn("err.message === \"InfluxDB isn't available\"", INFLUX_PATCH)
+        self.assertIn("+    next(err);", INFLUX_PATCH)
 
     def test_logs_kept_off_persistent_storage(self):
         self.assertIn("ln -s /tmp/ode-logs /app/logs", DOCKERFILE)

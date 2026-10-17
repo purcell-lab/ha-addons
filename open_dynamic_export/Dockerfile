@@ -1,6 +1,7 @@
 # Open Dynamic Export (MIT, https://github.com/longzheng/open-dynamic-export)
-# v0.20.0, built from the pinned upstream commit with this App's ingress
-# patch (ingress.patch) and run by this App's launcher (rootfs/opt/ode-ha).
+# v0.20.0, built from the pinned upstream commit with this App's patches
+# (ingress, ramp-tms, influxdb-quiet) and run by this App's launcher
+# (rootfs/opt/ode-ha).
 # Built and published in GitHub Actions (ode-publish.yml); Home Assistant
 # pulls the prebuilt image rather than compiling on the host.
 ARG NODE_IMAGE=node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a
@@ -16,8 +17,11 @@ RUN git init -q . \
     && git fetch -q --depth 1 origin "${ODE_COMMIT}" \
     && git checkout -q FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${ODE_COMMIT}"
-COPY ingress.patch /tmp/ingress.patch
-RUN git apply --check /tmp/ingress.patch && git apply /tmp/ingress.patch \
+# Applied in order; each must apply cleanly to the pinned commit.
+COPY ingress.patch ramp-tms.patch influxdb-quiet.patch /tmp/
+RUN for p in ingress ramp-tms influxdb-quiet; do \
+        git apply --check "/tmp/$p.patch" && git apply "/tmp/$p.patch" || exit 1; \
+    done \
     && corepack enable \
     && pnpm install --frozen-lockfile \
     && pnpm run build \
@@ -25,7 +29,8 @@ RUN git apply --check /tmp/ingress.patch && git apply /tmp/ingress.patch \
     && mkdir -p /out/app /out/usr/share/doc/open-dynamic-export \
     && cp -a dist node_modules package.json /out/app/ \
     && cp LICENSE /out/usr/share/doc/open-dynamic-export/LICENSE \
-    && cp /tmp/ingress.patch /out/usr/share/doc/open-dynamic-export/ingress.patch \
+    && cp /tmp/ingress.patch /tmp/ramp-tms.patch /tmp/influxdb-quiet.patch \
+          /out/usr/share/doc/open-dynamic-export/ \
     && echo "${ODE_COMMIT}" > /out/usr/share/doc/open-dynamic-export/COMMIT
 
 FROM ${NODE_IMAGE}
