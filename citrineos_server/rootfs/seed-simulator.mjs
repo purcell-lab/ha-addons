@@ -2,6 +2,8 @@ import {createRequire} from 'node:module';
 import {commandStation} from './control-policy.mjs';
 const requireApp=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');
 const {Client}=createRequire(requireApp.resolve('@citrineos/dal'))('pg');
+export const LAB_TARIFF='HA-LAB-ZERO';
+export const LAB_LOCATION='Home Assistant lab';
 export async function seedSimulator(o) {
   // Parameterised, dedicated-lab-only bootstrap. No public API exposes SQL.
   const db=new Client({host:o.database_host,user:'citrine',password:o.database_password,database:'citrine'});
@@ -64,6 +66,24 @@ export async function seedSimulator(o) {
         AND c.name='SecurityCtrlr' AND c.instance IS NULL
         AND v.name='BasicAuthPassword' AND v.instance IS NULL
         AND NOT (cs."ocppConnectionName" = ANY($1::text[]))`,[targets.map(([name])=>name)]);
+    // Lab tariff and location (#30): upstream logs "Tariff not found for
+    // connector" every minute of a transaction and "does not have a
+    // locationId" at each start. A zero-cost tariff (upstream already reports
+    // cost 0 without one) goes on every tenant-1 connector and one
+    // non-published lab Location on every tenant-1 station. Only unset
+    // associations are filled; a station or connector first seen after this
+    // start (open admission, Plugfest status reports) gets them at the next start.
+    await db.query(`INSERT INTO "Tariffs" ("tariffId","tenantId",currency,"pricePerKwh","createdAt","updatedAt")
+      VALUES ($1,1,'EUR',0,NOW(),NOW()) ON CONFLICT ("tariffId","tenantId") DO NOTHING`,[LAB_TARIFF]);
+    const {rows:[tariff]}=await db.query(`SELECT id FROM "Tariffs" WHERE "tariffId"=$1 AND "tenantId"=1`,[LAB_TARIFF]);
+    await db.query(`UPDATE "Connectors" SET "tariffId"=$1 WHERE "tenantId"=1 AND "tariffId" IS NULL`,[tariff.id]);
+    await db.query(`INSERT INTO "Locations"
+      (name,address,city,"tenantId","publishUpstream","timeZone",coordinates,"createdAt","updatedAt")
+      SELECT $1,'Laboratory','Laboratory',1,false,'UTC',ST_GeomFromText('POINT(0 0)'),NOW(),NOW()
+      WHERE NOT EXISTS (SELECT 1 FROM "Locations" WHERE "tenantId"=1 AND name=$1)`,[LAB_LOCATION]);
+    const {rows:[location]}=await db.query(`SELECT id FROM "Locations"
+      WHERE "tenantId"=1 AND name=$1 ORDER BY id LIMIT 1`,[LAB_LOCATION]);
+    await db.query(`UPDATE "ChargingStations" SET "locationId"=$1 WHERE "tenantId"=1 AND "locationId" IS NULL`,[location.id]);
     await db.query(`INSERT INTO "Authorizations"
       ("idToken","idTokenType","tenantId",status,"concurrentTransaction","isPrepaid","createdAt","updatedAt")
       VALUES ('C17E0001','ISO14443',1,'Accepted',false,false,NOW(),NOW()) ON CONFLICT DO NOTHING`);

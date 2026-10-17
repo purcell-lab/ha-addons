@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.3
+
+- Station replies no longer stop after a quick reconnect (#67). On the
+  Green, an EVerest station reconnected after `Pong not received from
+  server!`; CitrineOS then stored all its messages but answered none
+  (Heartbeat, StatusNotification and TransactionEvent timed out on the
+  station, TransactionEvent Started was stored three times), while
+  RequestStartTransaction still reached it. Upstream v2.0.1 deregisters the
+  old connection in the background, and that deregistration removed the
+  RabbitMQ bindings the new connection had just added. The image build now
+  patches the upstream connection handler so a reconnect waits until the old
+  connection has finished closing (`patch-reconnect.mjs`; the build fails on
+  any other upstream file). CI checks the image is patched and reconnects a
+  station nine times, each time expecting replies to BootNotification and
+  Heartbeat.
+- Less log noise (#30): startup seeds a zero-cost lab tariff on tenant-1
+  connectors and an unpublished lab Location on tenant-1 stations that have
+  none, so upstream stops logging `Tariff not found for connector N` every
+  minute and `does not have a locationId` at each transaction start.
+  Stations and connectors first seen after a start get them at the next
+  start. The remaining upstream warnings are listed in the documentation.
+  (A deliberate stop already exits 0 since 0.5.2.)
+
 ## 0.6.2
 
 - Read-only station configuration for the OCPP 1.6 command station:

@@ -86,6 +86,45 @@ CI checks a logical `pg_dump`/`pg_restore` into a disposable second database and
 server restart persistence. This does not claim that a full Supervisor disaster
 restore has been tested. Take a protected HA backup before deployment.
 
+## Upstream changes in this App
+
+**Reconnect patch (#67).** The image build patches one upstream file,
+`@citrineos/ocpp/dist/src/transport/network-connection/websocket-network-connection.js`
+(`rootfs/patch-reconnect.mjs`). Upstream v2.0.1 closes a station's old
+connection in the background: it frees the station's connection slot at once,
+then deregisters the station from the message router, which unbinds the
+station's RabbitMQ bindings. A station that reconnected at once (EVerest does
+after `Pong not received from server!`) registered its bindings in the
+meantime, and the old deregistration then removed them: CitrineOS stored
+every message from the station, but no reply (CALLRESULT) reached it, while
+commands to the station still worked. With the patch a new connection waits
+until an earlier connection of the same identity has finished closing. The
+build fails unless the file is the exact v2.0.1 build, and CI checks that the
+image is patched (`node /opt/citrine-ha/patch-reconnect.mjs --check`). If a
+station shows the old symptom on an unpatched version, restart only the
+station (one clean connection).
+
+**Lab tariff and location (#30).** When any charger listener is on, startup
+adds a zero-cost tariff (`HA-LAB-ZERO`, EUR 0 per kWh; upstream already
+reports cost 0 without one) to every tenant-1 connector without a tariff, and
+the lab Location `Home Assistant lab` (not published upstream) to every
+tenant-1 station without a location. Upstream then no longer logs `Tariff not
+found for connector N` every minute of a transaction, or `does not have a
+locationId` at each transaction start. Existing tariffs and locations are not
+changed. A station or connector first seen after this start (open admission,
+Plugfest stations' connectors from their status reports) is covered at the
+next start and logs these lines until then.
+
+Upstream log lines that remain and need no action:
+
+- `Active Transaction not found on charging station {} evse {} <station> 1`:
+  a clock-aligned MeterValues (15 min by default) for an EVSE with no
+  transaction.
+- `(sequelize) Warning: Unknown attributes (chargingSchedule,transactionId)
+  passed to defaults option of findOrCreate` on each SetChargingProfile.
+- `MaxListenersExceededWarning: 11 connected listeners added to
+  [RabbitMQConnectionManager]` at start: one listener per upstream module.
+
 ## Deliberate limits
 
 An optional dedicated simulator test is described below. TxProfile, V2G, operator
