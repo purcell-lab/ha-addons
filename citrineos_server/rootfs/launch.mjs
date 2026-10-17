@@ -6,7 +6,8 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rbacRules,
   validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
-  OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows} from './control-policy.mjs';
+  OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
+  CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -243,6 +244,18 @@ export async function main() {
     res.end(JSON.stringify({keys:[signer.jwk]}));
   });
   await new Promise(r=>jwks.listen(8091,'127.0.0.1',r)); streams.push(jwks);
+  // CitrineOS posts a station's reply to the callbackUrl given with a request.
+  // Each configuration read registers a one-time random path here (loopback only).
+  const replies=new Map();
+  const callbacks=http.createServer(async(req,res)=>{
+    const m=req.method==='POST'?/^\/callback\/([0-9a-f-]{36})$/.exec(req.url):null;
+    const resolve=m?replies.get(m[1]):undefined;
+    let size=0;const chunks=[];
+    for await(const c of req) {size+=c.length;if(size>65536){res.writeHead(413);res.end();return;}chunks.push(c);}
+    if(resolve) {try{resolve(JSON.parse(Buffer.concat(chunks).toString()));}catch{resolve({});}}
+    res.writeHead(resolve?200:404);res.end();
+  });
+  await new Promise(r=>callbacks.listen(8092,'127.0.0.1',r)); streams.push(callbacks);
   const upstream=run([`${APP}/dist/index.js`]);
   upstream.then(()=>process.exit(upstreamExitCode(shutting))).catch(()=>{
     if(shutting){process.exit(upstreamExitCode(shutting));return;}
@@ -295,6 +308,39 @@ export async function main() {
       signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token('lab-operator')}`}});
     res.writeHead(r.status);res.end(await r.text());
   }
+  // Read-only OCPP 1.6 configuration of the command station (CONFIG_KEYS only).
+  async function stationConfiguration(req,res,controller) {
+    if(req.method!=='POST'){res.writeHead(405);res.end('{"error":"POST required"}');return;}
+    if(!controller){res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
+    let size=0;const chunks=[];
+    for await(const c of req) {size+=c.length;if(size>4096){res.writeHead(413);res.end('{}');return;}chunks.push(c);}
+    let parsed;
+    try{parsed=JSON.parse(Buffer.concat(chunks).toString());}catch{res.writeHead(400);res.end('{"error":"Invalid JSON"}');return;}
+    if(!validateConfigRequest(parsed)){res.writeHead(400);res.end('{"error":"Only the listed configuration keys can be read"}');return;}
+    const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+      method:'POST',headers:{'Content-Type':'application/json',
+        'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
+      body:JSON.stringify({query:TARGET_QUERY,variables:{name:station}}),
+    });
+    if(!configTargetAllows(state,station)){
+      res.writeHead(409);res.end('{"error":"The command station must be online on OCPP 1.6"}');return;
+    }
+    const nonce=crypto.randomUUID();
+    const reply=new Promise(resolve=>replies.set(nonce,resolve));
+    try {
+      const q=new URLSearchParams({identifier:station,tenantId:'1',callbackUrl:`http://127.0.0.1:8092/callback/${nonce}`});
+      const r=await fetch(`http://127.0.0.1:8088${CONFIG_UPSTREAM}?${q}`,{method:'POST',redirect:'error',
+        body:JSON.stringify({key:parsed.key}),signal:AbortSignal.timeout(4000),
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
+      const sent=await r.json().catch(()=>null);
+      if(!r.ok||!Array.isArray(sent)||!sent.every(x=>x?.success===true)){
+        res.writeHead(502);res.end('{"error":"CitrineOS did not send the request"}');return;
+      }
+      const payload=await Promise.race([reply,delay(8000).then(()=>null)]);
+      if(!payload){res.writeHead(504);res.end('{"error":"Station did not answer within 8 s"}');return;}
+      res.end(JSON.stringify({station_id:station,protocol:'ocpp1.6',...configResult(payload,parsed.key)}));
+    } finally {replies.delete(nonce);}
+  }
   const gateway=http.createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
     try {
@@ -307,6 +353,7 @@ export async function main() {
       if(!publicHealth && !controller && !equalToken(req.headers.authorization,`Bearer ${o.api_token}`)) {
         res.writeHead(401);res.end('{"error":"Authentication required"}');return;
       }
+      if(url.pathname===CONFIG_ROUTE) {await stationConfiguration(req,res,controller);return;}
       const command=req.method==='POST'&&ALL_ROUTES.includes(url.pathname);
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
@@ -315,6 +362,7 @@ export async function main() {
           commands:ROUTES,protocols:PROTOCOLS,commands_by_protocol:COMMANDS_BY_PROTOCOL,
           max_import_w:MAX_IMPORT_W,max_export_w:MAX_EXPORT_W,
           max_profile_seconds:600,max_periods:10,automatic_control:false,
+          station_configuration:{route:CONFIG_ROUTE,protocols:['ocpp1.6'],keys:CONFIG_KEYS},
           clear_requires_closed_transaction:true,real_devices_enabled:o.command_real_stations_enabled===true,
           open_admission:o.open_admission_enabled===true}));return;
       }

@@ -72,6 +72,8 @@ try:
     assert request("/commands/tariff?tenantId=2")[0] == 403
     assert request("/commands/tariff?tenantId=1")[0] == 200
     assert request("/admin",body={})[0] == 403
+    # The station configuration read needs the command credential.
+    assert request("/lab/station-configuration",body={"key":["ChargingScheduleAllowedChargingRateUnit"]})[0] == 403
     assert request("/v1/graphql",body={"query":"query { ChargingStations { id tenantId } }"},auth=False)[0] == 401
     query = (ROOT/"citrineos_server/tests/discovery.graphql").read_text()
     status,data=request("/v1/graphql",body={"query":query,"variables":{"tenantId":1}})
