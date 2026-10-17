@@ -181,6 +181,10 @@ class GeneratedConfigTest(unittest.TestCase):
         ev = config["active_modules"]["ev_manager_1"]["config_module"]
         self.assertTrue(ev["three_phases"])
         self.assertIn("draw_power_regulated 16,3", ev["auto_exec_commands"])
+        # Composite schedules in amps avoid EVerest's double phase division of
+        # watt limits on 3-phase AC.
+        ocpp = config["active_modules"]["ocpp"]["config_module"]
+        self.assertEqual(ocpp["RequestCompositeScheduleUnit"], "A")
         for path in json.dumps(config).split('"'):
             if path.startswith("/") and "everest" in path and not path.startswith("/data"):
                 self.fail(f"state outside /data: {path}")
@@ -344,16 +348,20 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertIn("image: ghcr.io/purcell-lab/{arch}-everest-simulator", CONFIG_TEXT)
         self.assertIn('IMAGE=ghcr.io/purcell-lab/${{ matrix.arch }}-everest-simulator', self.publish)
 
-    def test_only_tags_trigger_publication(self):
+    def test_only_tags_or_manual_dispatch_trigger_publication(self):
+        # A tag, or an explicit manual run with version and target (#51).
         trigger = self.publish.split("\non:", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn('"everest_simulator-v*"', trigger)
-        for forbidden in ("pull_request", "branches", "workflow_dispatch", "schedule"):
+        self.assertIn("workflow_dispatch:", trigger)
+        for required in ("version:", "target:"):
+            self.assertIn(required, trigger)
+        for forbidden in ("pull_request", "branches", "schedule"):
             self.assertNotIn(forbidden, trigger)
         self.assertNotIn("packages: write", self.ci)
 
     def test_gate_before_push_and_no_overwrite_or_latest(self):
         order = [self.publish.index(step) for step in (
-            "Tag must match the App version", "Refuse to overwrite a published version",
+            "Tag or requested version must match the App version", "Refuse to overwrite a published version",
             "ci_image_checks.sh", 'docker push "$IMAGE:$VERSION"')]
         self.assertEqual(order, sorted(order))
         self.assertEqual(self.publish.count("docker push"), 1)
