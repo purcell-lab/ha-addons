@@ -157,11 +157,25 @@ still apply: online, tenant 1, exact active transaction and bounded profiles.
 Commands may be enabled with either `profile_simulator_enabled` or
 `open_admission_enabled`; they still need the separate command credential.
 
-Scoped commands speak OCPP 2.1 (`/ocpp/2.1/...`) or OCPP 2.0.1
-(`/ocpp/2.0.1/...`). The route's version must be the protocol the station
-negotiated; there is no fallback between versions. On 2.0.1 a profile period
-is charging-only (`limit`, optional `numberPhases`/`phaseToUse`): 2.0.1 has
-no `operationMode`, `setpoint` or `dischargeLimit`. `/lab/control-policy`
+Scoped commands speak OCPP 2.1 (`/ocpp/2.1/...`), OCPP 2.0.1
+(`/ocpp/2.0.1/...`) or OCPP 1.6 (`/ocpp/1.6/...`). The route's version must
+be the protocol the station negotiated; there is no fallback between
+versions. On 2.0.1 a profile period is charging-only (`limit`, optional
+`numberPhases`/`phaseToUse`): 2.0.1 has no `operationMode`, `setpoint` or
+`dischargeLimit`.
+
+OCPP 1.6 uses its own messages with the same bounds:
+
+| Command | Route | Payload |
+|---|---|---|
+| Start | `/ocpp/1.6/evdriver/remoteStartTransaction` | `{"connectorId": 1, "idTag": "C17E0001"}` |
+| Stop | `/ocpp/1.6/evdriver/remoteStopTransaction` | `{"transactionId": <integer>}` |
+| Profile | `/ocpp/1.6/smartcharging/setChargingProfile` | `connectorId` 1 and `csChargingProfiles`: a TxProfile on the active integer `transactionId`, one W schedule, periods of `startPeriod`, a whole-watt `limit` and optional `numberPhases` 1 or 3 |
+| Clear | `/ocpp/1.6/smartcharging/clearChargingProfile` | `{"id": <profile id>}`, after the transaction has closed |
+
+Many 1.6 chargers accept only amps (`ChargingScheduleAllowedChargingRateUnit`
+= `Current`). Those reject a W profile, and the HA integration reports the
+rejection; amp profiles are not enabled here. `/lab/control-policy`
 lists the routes per protocol (`protocols`, `commands_by_protocol`) and still
 reports the original 2.1 `protocol` and `commands` for older clients.
 
@@ -183,7 +197,8 @@ clear only after the transaction has closed.
 - `/lab/control-policy` reports `real_devices_enabled: true`. CitrineOS-HA
   0.3.4 and earlier refuse such a policy; use a version that supports
   physical stations.
-- OCPP 1.6 stations stay monitor-only.
+- The station may use OCPP 2.1, 2.0.1 or 1.6. On 2.0.1 and 1.6 profiles are
+  charging-only.
 
 Before you command a real charger:
 
@@ -223,9 +238,9 @@ charging stations on the venue network need to connect. `plugfest_enabled`
 
 - OCPP 2.1, 2.0.1 and 1.6, Security Profile 1 (Basic Auth over `ws://`),
   tenant 1. The server chooses the first of 2.1, 2.0.1, 1.6 that the station
-  offers. 1.6 stations use the same Basic Auth password. The HA integration,
-  scoped commands and Operator UI commands cover 2.0.1 and 2.1 only, so a
-  1.6 station is monitor-only here;
+  offers. 1.6 stations use the same Basic Auth password. Scoped commands
+  (see above) cover 2.1, 2.0.1 and 1.6; Operator UI commands cover 2.0.1
+  and 2.1 only;
 - only the identities in `plugfest_stations` are admitted, each with its own
   password; unknown stations and wrong passwords are refused at the
   WebSocket upgrade;

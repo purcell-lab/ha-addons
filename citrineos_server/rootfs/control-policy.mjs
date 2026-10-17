@@ -10,16 +10,20 @@ export const commandStation=o=>o.command_station_id||STATION;
 export const stationAllowed=(station,real=false)=>
   STATION_PATTERN.test(station)||(real===true&&REAL_STATION_PATTERN.test(station));
 // PROTOCOL and ROUTES keep the original OCPP 2.1 contract that clients check.
-// PROTOCOLS adds OCPP 2.0.1 stations (charging-only periods; no setpoints).
+// PROTOCOLS adds OCPP 2.0.1 and 1.6 stations (charging-only periods; no setpoints).
 export const PROTOCOL='ocpp2.1';
-export const PROTOCOLS=['ocpp2.1','ocpp2.0.1'];
+export const PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
 // Lab bounds per period: 25 kW charging (import) and V2G discharge (export),
 // above a 3-phase 32 A AC simulator (3 x 32 A x 240 V = 23 kW).
 export const MAX_IMPORT_W=25000;
 export const MAX_EXPORT_W=25000;
+// Same order for every version: start, stop, profile, clear.
 const ACTIONS=['evdriver/requestStartTransaction','evdriver/requestStopTransaction',
   'smartcharging/setChargingProfile','smartcharging/clearChargingProfile'];
-export const routesFor=protocol=>ACTIONS.map(a=>`/ocpp/${protocol.slice(4)}/${a}`);
+const ACTIONS_16=['evdriver/remoteStartTransaction','evdriver/remoteStopTransaction',
+  'smartcharging/setChargingProfile','smartcharging/clearChargingProfile'];
+export const routesFor=protocol=>(protocol==='ocpp1.6'?ACTIONS_16:ACTIONS)
+  .map(a=>`/ocpp/${protocol.slice(4)}/${a}`);
 export const ROUTES=routesFor(PROTOCOL);
 export const COMMANDS_BY_PROTOCOL=Object.fromEntries(PROTOCOLS.map(p=>[p,routesFor(p)]));
 export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
@@ -27,7 +31,10 @@ export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
 export function routeProtocol(pathname) {
   return PROTOCOLS.find(p=>COMMANDS_BY_PROTOCOL[p].includes(pathname))||null;
 }
-const action=pathname=>ACTIONS.indexOf(pathname.split('/').slice(3).join('/'));
+const action=pathname=>{
+  const p=routeProtocol(pathname);
+  return p?COMMANDS_BY_PROTOCOL[p].indexOf(pathname):-1;
+};
 const keys=(o,allowed)=>o!==null && typeof o==='object' && !Array.isArray(o)
   && Object.keys(o).every(k=>allowed.includes(k));
 const int=(n,min,max)=>Number.isInteger(n)&&n>=min&&n<=max;
@@ -46,6 +53,7 @@ export function validateCommand(url,p,station=STATION,real=false) {
     ||url.searchParams.getAll('tenantId').length!==1
     ||url.searchParams.get('identifier')!==station
     ||url.searchParams.get('tenantId')!=='1') return false;
+  if(protocol==='ocpp1.6') return validate16(a,p);
   if(a===0) return keys(p,['remoteStartId','evseId','idToken'])
     &&int(p.remoteStartId,0,2147483647)&&p.evseId===1
     &&keys(p.idToken,['idToken','type'])&&p.idToken.idToken==='C17E0001'&&p.idToken.type==='ISO14443';
@@ -73,6 +81,36 @@ export function validateCommand(url,p,station=STATION,real=false) {
     last=x.startPeriod;return ok;
   });
 }
+// OCPP 1.6 has integer transaction IDs, connectorId instead of evseId, a single
+// csChargingProfiles schedule and no setpoints. Limits are whole watts here, which
+// satisfies the 1.6 multipleOf 0.1 without floating-point surprises.
+function validate16(a,p) {
+  if(a===0) return keys(p,['connectorId','idTag'])&&p.connectorId===1&&p.idTag==='C17E0001';
+  if(a===1) return keys(p,['transactionId'])&&int(p.transactionId,0,2147483647);
+  if(a===3) return keys(p,['id'])&&int(p.id,1,2147483647);
+  if(!keys(p,['connectorId','csChargingProfiles'])||p.connectorId!==1)return false;
+  const c=p.csChargingProfiles;
+  if(!keys(c,['chargingProfileId','stackLevel','chargingProfilePurpose','chargingProfileKind','transactionId','chargingSchedule'])
+    ||!int(c.chargingProfileId,1,2147483647)||!int(c.stackLevel,0,10)
+    ||c.chargingProfilePurpose!=='TxProfile'||!int(c.transactionId,0,2147483647)
+    ||!['Absolute','Relative'].includes(c.chargingProfileKind))return false;
+  const s=c.chargingSchedule;
+  if(!keys(s,['startSchedule','duration','chargingRateUnit','chargingSchedulePeriod'])
+    ||!int(s.duration,1,600)||s.chargingRateUnit!=='W'
+    ||!Array.isArray(s.chargingSchedulePeriod)||s.chargingSchedulePeriod.length<1
+    ||s.chargingSchedulePeriod.length>10)return false;
+  if(c.chargingProfileKind==='Absolute'&&!timestamp(s.startSchedule))return false;
+  if(c.chargingProfileKind==='Relative'&&s.startSchedule!==undefined)return false;
+  let last=-1;
+  return s.chargingSchedulePeriod.every((x,i)=>{
+    const ok=keys(x,['startPeriod','limit','numberPhases'])
+      &&int(x.startPeriod,0,s.duration-1)&&(i!==0||x.startPeriod===0)&&x.startPeriod>last
+      &&int(x.limit,0,MAX_IMPORT_W)
+      &&(x.numberPhases===undefined||x.numberPhases===1||x.numberPhases===3);
+    last=x.startPeriod;return ok;
+  });
+}
+
 // A period is either a V2G CentralSetpoint period (setpoint and discharge
 // limit required, OCPP 2.1 only), or an AC charging-only period (operationMode
 // absent or ChargingOnly, no setpoint or discharge). OCPP 2.0.1 has no
@@ -121,8 +159,9 @@ export function targetAllows(url,p,result,station=STATION) {
   // Clearing a profile during discharge can restore the default import limit.
   // Only allow cleanup once the transaction is evidenced closed.
   if(a===3)return active.length===0;
-  const id=a===1?p.transactionId:p.chargingProfile.transactionId;
-  return active.length===1&&active[0].transactionId===id;
+  const id=a===1?p.transactionId:(p.chargingProfile||p.csChargingProfiles).transactionId;
+  // CitrineOS stores 1.6 integer transaction IDs as strings.
+  return active.length===1&&active[0].transactionId===String(id);
 }
 
 // Operator UI scope (operator_ui_enabled). Reads go to Hasura as the

@@ -14,6 +14,10 @@
   version must match the station's protocol. The policy adds `protocols` and
   `commands_by_protocol`, and keeps `protocol`/`commands` (2.1) for older
   clients.
+- Scoped commands also accept OCPP 1.6 routes for a 1.6 station:
+  `remoteStartTransaction`, `remoteStopTransaction` (integer transaction
+  ID), `setChargingProfile` (`csChargingProfiles`, whole-watt charging-only
+  periods) and `clearChargingProfile` by `id`.
 - Transaction IDs accept the OCPP identifierString characters
   (`* - _ = : + | @ .`) that physical chargers use.
 
