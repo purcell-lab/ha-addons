@@ -136,8 +136,8 @@ async function waitFor(label,check) {
   for(let i=0;i<90;i++) { if(await check()) return; await delay(2000); }
   throw new Error(`${label} readiness timed out`);
 }
-async function jsonFetch(url, options={}) {
-  const r=await fetch(url,{...options,signal:AbortSignal.timeout(10000),redirect:'error'});
+async function jsonFetch(url, options={}, timeoutMs=10000) {
+  const r=await fetch(url,{...options,signal:AbortSignal.timeout(timeoutMs),redirect:'error'});
   const data=await r.json();
   if(!r.ok || data.errors || data.error) throw new Error(`Dependency response rejected (${r.status})`);
   return data;
@@ -252,7 +252,9 @@ export async function main() {
   await jsonFetch(`http://${o.hasura_host}:8080/v1/metadata`,{
     method:'POST',headers:{'Content-Type':'application/json','x-hasura-admin-secret':o.hasura_secret},
     body:JSON.stringify({type:'replace_metadata',args:{allow_inconsistent_metadata:false,metadata}}),
-  });
+  // The full Operator UI schema took 10 s to apply on a busy Green and the
+  // 10 s request timeout failed startup although Hasura stored it.
+  },120000);
   // Operator UI requests: GraphQL as operator_ro (Hasura refuses any
   // mutation: the role has no insert, update or delete permission), and the
   // fixed operator command set when enabled. Nothing else is reachable.

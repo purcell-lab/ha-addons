@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1
+
+- Startup no longer fails when Hasura takes longer than 10 s to apply the
+  metadata. With `operator_ui_enabled` the full upstream schema took 10 s on a
+  busy Home Assistant Green: Hasura stored it, but the 10 s request timeout
+  had already failed the start ("Laboratory startup failed"), three times in a
+  row. The metadata request now allows 120 s; other requests keep 10 s.
+
 ## 0.6.0
 
 - Scoped commands for a physical charger (opt-in): with
