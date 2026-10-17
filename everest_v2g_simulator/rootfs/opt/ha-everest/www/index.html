@@ -48,8 +48,9 @@
       <button data-cmd="stop"><svg class="icon"><use href="#i-stop"/></svg>EV stop session</button>
       <button data-cmd="unplug" class="warn"><svg class="icon"><use href="#i-unplug"/></svg>Unplug now</button>
     </div>
-    <p class="note">Plug in waits for authorisation. Start the transaction from the test central system (RequestStartTransaction). To discharge, send an OCPP 2.1 TxProfile period with operationMode CentralSetpoint and a negative setpoint in W.</p>
+    <p class="note">Plug in waits up to 3 minutes for authorisation. Start the transaction from the test central system (RequestStartTransaction). To discharge, send an OCPP 2.1 TxProfile period with operationMode CentralSetpoint and a negative setpoint in W.</p>
     <p id="cmdmsg" class="note" role="status"></p>
+    <p id="evwatch" class="alert" role="status" hidden></p>
   </section>
 
   <section>

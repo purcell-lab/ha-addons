@@ -44,10 +44,14 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
   (4.14 kW). Without the one-phase fallback, EnergyManager enforces 0 W for
   any charging target below it, even on this DC EVSE.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
+- EvManager `dc_max_voltage_limit` equal to `dc_target_voltage` and the DC
+  supply's `min_voltage` (380 V). In the ISO 15118-20 dynamic charge loop
+  EvseManager sets the supply to the EV's maximum voltage when charging
+  (default 900 V) and to the larger minimum when discharging.
 
 ## Local patches
 
-`patch_josev.py` runs at image build and edits three files; `patch_yeti.py`
+`patch_josev.py` runs at image build and edits four files; `patch_yeti.py`
 patches one binary.
 
 Josev `iso15118/evcc/controller/simulator.py` (2025.9.0, bundled with
@@ -55,6 +59,15 @@ EVerest 2025.10.0): the simulated EV's ISO 15118-20 BPT discharge limits are
 hard-coded at 25 A and 11 kW in charge parameter discovery and the dynamic
 DC loop. With the DC supply at its 200 V default minimum, discharge stopped
 at 5 kW. The patch sets 66 A and 25 kW (25 kW at the App's 380 V).
+
+Josev `iso15118/evcc/states/iso15118_20_states.py` (2025.9.0): the EV
+gives up 60 s after the first Ongoing AuthorizationRes, and PyEvJosev
+allows one SDP retry cycle, so the EV starts no new session in that
+plug-in. A RequestStartTransaction about 60 s after plug-in then left the
+transaction at 0 W. The charger (libiso15118 v0.9.0) answers Ongoing for
+3 minutes (`TIMEOUT_EIM_ONGOING`); the patch makes the EV wait 190 s, so
+the charger decides. Only the Authorization state used the shared ongoing
+timeout; the patch requires exactly those two uses.
 
 `YetiSimulator` binary (everest-core 2025.10.0, prebuilt): the simulated
 board reports 32 A import and 16 A export per phase, which EvseManager uses
@@ -111,6 +124,14 @@ VALIDATION.md:
    end (for example unplugged while waiting for authorisation): with the
    connection closed, `Session::poll` returns before handling any event.
    Discovery is then ignored until the App restarts. The App reports it.
+10. Josev waits only 60 s for authorisation, the charger 3 minutes, and
+    PyEvJosev hard-codes one SDP retry cycle, so a session that ends before
+    charging leaves EvManager waiting with the plug-in refused (Local
+    patches; the App's EV watchdog re-plugs).
+11. OCPP201 applies every composite from libocpp's
+    `get_all_composite_schedules`, which always includes EVSE 0, and warns
+    each interval when EVSE 0 has no energy sink. There is no option to
+    skip EVSE 0 (see item 3 for why it has no sink here).
 
 ## Licences
 

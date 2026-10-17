@@ -13,8 +13,11 @@ from urllib.parse import urlsplit
 
 DEFAULT_CPID = "SIM-EV-EVEREST-V2G-01"
 from netguard import EVCC_LINK, SECC_LINK  # noqa: E402  private veth pair
-# Simulated battery voltage: the EV's target and the DC supply's minimum. The
-# supply's default 200 V minimum set the voltage whenever it discharged.
+# Simulated battery voltage: the EV's target and maximum, and the DC supply's
+# minimum. In the ISO 15118-20 dynamic charge loop EvseManager sets the
+# supply to the EV's maximum voltage when charging (EvManager default 900 V)
+# and to the larger of the EV and supply minimums when discharging (supply
+# default 200 V), so all three must be this value.
 DC_VOLTAGE = 380
 GRID_VOLTAGE = 230
 # The simulated board (YetiSimulator) reported 32 A import and 16 A export per
@@ -345,6 +348,7 @@ def everest_config(settings, data, pki_password):
                 "config_module": {
                     "connector_id": 1, "auto_enable": True, "auto_exec": False,
                     "dc_target_current": rating["dc_amps"], "dc_target_voltage": DC_VOLTAGE,
+                    "dc_max_voltage_limit": DC_VOLTAGE,
                     "auto_exec_commands": ev_session(),
                 },
                 "connections": {

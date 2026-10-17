@@ -1,17 +1,18 @@
 #!/bin/sh
 # Release gate for a built V2G App image, shared by PR CI and the publish job.
 # Usage: ci_image_checks.sh <image-ref>   (run from the repository root)
-# CHECKS=full (default, release gate) runs every acceptance scenario and the
-# discovery recovery run on an IPv6 eth0 network.
+# CHECKS=full (default, release gate) runs every acceptance scenario
+# (including the 3-minute EV watchdog run) and the discovery recovery run on
+# an IPv6 eth0 network.
 # CHECKS=minimal (pull request CI) runs one OCPP 2.1 V2G session with the
 # TxProfile steps, the fail-closed, self-test, listener and firewall checks.
-# Offline, recovery, 2.0.1 fallback and pinned 2.0.1 run at release.
+# Offline, recovery, 2.0.1 fallback, pinned 2.0.1 and watchdog run at release.
 set -eu
 IMAGE="$1"
 TESTS=everest_v2g_simulator/tests
 CHECKS="${CHECKS:-full}"
 case "$CHECKS" in
-  full) SCENARIOS="offline recovery v2g21 fallback pinned201" ;;
+  full) SCENARIOS="offline recovery v2g21 fallback pinned201 watchdog" ;;
   minimal) SCENARIOS="v2g21" ;;
   *) echo "CHECKS must be full or minimal"; exit 2 ;;
 esac
@@ -31,6 +32,7 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   grep -q "ha-everest: EV ISO 15118 stack stopped" /opt/everest/libexec/everest/modules/PyEvJosev/module.py
   grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
   grep -q "ha-everest: 25 kW EV discharge" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py
+  grep -q "ha-everest: EV waits for authorisation as long as the charger" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py
   python3 /opt/ha-everest/patch_yeti.py --check
   java -version 2>&1 | head -1; nft --version
   test "$(readlink -f /usr/bin/java)" = /opt/java/bin/java

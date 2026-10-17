@@ -32,7 +32,8 @@ Each step below is a separate operator decision; none happens automatically.
    requested version matches `config.yaml` (a manual run also refuses a
    version whose tag already exists), refuses to overwrite an existing version, builds, runs the
    same release gate as PR CI (`tests/ci_image_checks.sh`: DC V2G modules
-   and no private keys; V2G, fallback, pinned 2.0.1 and offline acceptance;
+   and no private keys; V2G, fallback, pinned 2.0.1, offline, recovery and
+   EV watchdog acceptance;
    fail-closed without NET_ADMIN; listeners; external firewall probe with
    negative control; clean shutdown), pushes only the version tag (no
    `latest`) and adds a build provenance attestation. The run summary records each digest.

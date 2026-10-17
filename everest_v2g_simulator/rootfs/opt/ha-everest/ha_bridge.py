@@ -161,6 +161,7 @@ def status_attributes(status, diag):
     meter = ((evse.get("powermeter") or {}).get("value") or {})
     power = (meter.get("power_W") or {}).get("total")
     selftest = (diag or {}).get("selftest") or {}
+    watchdog = status.get("ev_watchdog") or {}
     return {
         "friendly_name": f"{app.get('charge_point_id', 'EVerest V2G')} V2G App",
         "icon": "mdi:car-electric",
@@ -174,6 +175,9 @@ def status_attributes(status, diag):
                               "failed" if selftest else "not run",
         "discovery_detail": selftest.get("summary"),
         "ev_stack_restarts": app.get("ev_stack_restarts", 0),
+        # ok, gave_up or recovering; see the EV watchdog (DOCS.md).
+        "ev_session": watchdog.get("ev_session", "unknown"),
+        "ev_last_recovery": watchdog.get("last_recovery"),
         "charger_ignoring_discovery": bool(app.get("charger_sdp_blocked")),
         "commands": list(COMMANDS),
         "command_event": EVENT,

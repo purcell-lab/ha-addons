@@ -212,6 +212,36 @@ SIM_UPSTREAM = '''def f(RationalNumber, a, d):
     )
     return ac, dc, dynamic
 '''
+AUTH_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py")
+# Verbatim excerpts of Josev 2025.9.0 iso15118/evcc/states/iso15118_20_states.py:
+# the import and the Authorization state's ongoing loop.
+AUTH_UPSTREAM = '''import time
+from iso15118.shared.messages.timeouts import Timeouts as TimeoutsShared
+
+
+class Timeouts:
+    AUTHORIZATION_REQ = 2
+
+
+def ongoing(comm_session, create_next_message, stop_state_machine):
+    elapsed_time: float = 0
+    if comm_session.ongoing_timer >= 0:
+        elapsed_time = time.time() - comm_session.ongoing_timer
+        if elapsed_time > TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT:
+            stop_state_machine(
+                "Ongoing timer timed out for " "AuthorizationRes"
+            )
+            return
+    else:
+        comm_session.ongoing_timer = time.time()
+
+    create_next_message(
+        min(
+            Timeouts.AUTHORIZATION_REQ,
+            TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
+        ),
+    )
+'''
 UDP_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py")
 # Verbatim excerpt of Josev's UDPClient._create_socket (EVerest 2025.10.0).
 UDP_UPSTREAM = '''import socket
@@ -332,6 +362,30 @@ class PatchJosevTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch_josev.patch_sim(upstream.replace("exponent=0, value=25)", "exponent=0, value=30)", 1))
 
+    def test_ev_waits_for_authorisation_as_long_as_the_charger(self):
+        # Issue #33: Josev gave up 60 s after the first Ongoing reply.
+        upstream = (AUTH_UPSTREAM if not AUTH_FILE.exists() else AUTH_FILE.read_text())
+        patched = patch_josev.patch_auth(upstream)
+        self.assertIn(patch_josev.AUTH_MARKER, patched)
+        self.assertNotIn("TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT", patched)
+        self.assertEqual(patch_josev.patch_auth(patched), patched)
+        self.assertGreater(patch_josev.AUTH_WAIT_S, 180)  # libiso15118 TIMEOUT_EIM_ONGOING
+        with self.assertRaises(ValueError):
+            patch_josev.patch_auth(upstream.replace("TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT", "60", 1))
+        if AUTH_FILE.exists():
+            return
+        stub = type("Shared", (), {"V2G_EVCC_ONGOING_TIMEOUT": 60})
+        namespace = {"TimeoutsShared": stub}
+        exec(compile(patched.replace(patch_josev.AUTH_IMPORT, ""), "states", "exec"), namespace)
+        self.assertEqual(namespace["HA_EVEREST_AUTH_WAIT_S"], patch_josev.AUTH_WAIT_S)
+        session = type("Session", (), {"ongoing_timer": time.time() - 120})()
+        stopped, sent = [], []
+        namespace["ongoing"](session, sent.append, stopped.append)
+        self.assertEqual((stopped, sent), ([], [2]))  # still waiting after 120 s
+        session.ongoing_timer = time.time() - 200
+        namespace["ongoing"](session, sent.append, stopped.append)
+        self.assertEqual(len(stopped), 1)
+
     def test_refuses_unexpected_upstream(self):
         with self.assertRaises(ValueError):
             patch_josev.patch(UPSTREAM.replace("break", "return"))
@@ -342,10 +396,13 @@ class PatchJosevTest(unittest.TestCase):
             udp.write_text(UDP_UPSTREAM)
             sim = Path(tmp) / "simulator.py"
             sim.write_text(SIM_UPSTREAM)
-            patch_josev.main(path, udp, sim)
+            auth = Path(tmp) / "iso15118_20_states.py"
+            auth.write_text(AUTH_UPSTREAM)
+            patch_josev.main(path, udp, sim, auth)
             self.assertIn(patch_josev.MARKER, path.read_text())
             self.assertIn(patch_josev.UDP_MARKER, udp.read_text())
             self.assertIn(patch_josev.SIM_MARKER, sim.read_text())
+            self.assertIn(patch_josev.AUTH_MARKER, auth.read_text())
 
     @unittest.skipUnless(UPSTREAM_FILE.exists(), "everest-core checkout not present")
     def test_matches_real_upstream_file(self):

@@ -4,8 +4,9 @@ Runs the real entrypoint (firewall, private veth link, test PKI, mosquitto,
 EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
 
   v2g21      CSMS prefers 2.1 -> ocpp2.1; ISO 15118-20 DC_BPT session; a
-             CentralSetpoint TxProfile charges then discharges (V2G export);
-             after stop and unplug a fresh session charges again
+             CentralSetpoint TxProfile charges then discharges (V2G export),
+             at 380 V both ways; after stop and unplug a fresh session,
+             started 75 s after plug-in, charges again
   fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit
   pinned201  App option ocpp_version 2.0.1; CSMS prefers 2.1 -> ocpp2.0.1
   offline    Empty csms_url: no connection attempt leaves the host; the
@@ -15,9 +16,13 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
              plug-in, the patched module replaces that stack and a fresh
              EV stack completes discovery; unplugging before authorisation
              leaves the charger ignoring discovery, which the App reports
+  watchdog   No authorisation: after the charger's 3-minute limit the EV
+             gives up its session; the App re-plugs it, and a later start
+             still charges
 
 Each charging step compares mean measured DC power with the setpoint, and
-metered import and export energy with the integral of measured power.
+mean DC voltage with the simulated battery voltage, and metered import and
+export energy with the integral of measured power.
 """
 import asyncio
 import datetime as dt
@@ -47,6 +52,12 @@ RATING_KW = 25
 # 2.0.1 has no setpoints: one plain import limit below the rating.
 FALLBACK_LIMIT_W = 4000
 POWER_TOLERANCE = 0.03
+# Simulated battery voltage in both directions (configure.DC_VOLTAGE). Before
+# 0.1.10 charging ran at the EV's 900 V maximum (issue #70).
+DC_VOLTAGE = 380
+VOLTAGE_TOLERANCE = 0.05
+# Issue #33: before 0.1.10 the EV gave up about 60 s after plug-in.
+LATE_START_S = 75
 
 
 def setpoint_period(offset, watts):
@@ -108,6 +119,8 @@ def reading():
     si = (status["evse"].get("session_info") or {}).get("value") or {}
     return {
         "power": (pm.get("power_W") or {}).get("total"),
+        "voltage": (pm.get("voltage_V") or {}).get("DC"),
+        "current": (pm.get("current_A") or {}).get("DC"),
         "imported": (pm.get("energy_Wh_import") or {}).get("total"),
         "exported": (pm.get("energy_Wh_export") or {}).get("total"),
         "state": si.get("state"),
@@ -120,11 +133,20 @@ def iso_start(seconds=3):
     return start, start.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-async def start_session(csms, first=True):
+def check_voltage(r):
+    """DC voltage at the battery voltage while power flows, either direction."""
+    assert abs(r["voltage"] - DC_VOLTAGE) <= VOLTAGE_TOLERANCE * DC_VOLTAGE, r
+    assert abs(r["current"] * r["voltage"] - r["power"]) <= max(100, 0.05 * abs(r["power"])), r
+    return {"W": round(r["power"]), "V": round(r["voltage"], 1), "A": round(r["current"], 2)}
+
+
+async def start_session(csms, first=True, start_delay_s=0):
     await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="idle EVSE")
     assert http("/api/ev/plugin", "POST")["sent"]
     await wait_for(lambda: reading()["state"] in ("AuthRequired", "Preparing"), 30,
                    what="plugged state")
+    # The EV waits for authorisation as long as the charger (3 minutes).
+    await asyncio.sleep(start_delay_s)
     reply = await csms.call("RequestStartTransaction", {
         "idToken": {"idToken": "SIM-TEST", "type": "Central"}, "evseId": 1, "remoteStartId": 7})
     assert reply[2]["status"] == "Accepted", reply
@@ -142,7 +164,8 @@ async def sample(t0, duration):
     samples = []
     while time.time() < t0 + duration:
         r = reading()
-        samples.append((time.time() - t0, r["power"], r["imported"], r["exported"], r["state"]))
+        samples.append((time.time() - t0, r["power"], r["imported"], r["exported"], r["state"],
+                        r["voltage"]))
         await asyncio.sleep(1)
     return samples
 
@@ -154,7 +177,15 @@ def check_steps(samples, targets):
         assert window, f"no samples for step {i}"
         mean_w = sum(s[1] for s in window) / len(window)
         ok = abs(mean_w - target) <= max(50, POWER_TOLERANCE * abs(target))
-        steps.append({"target_W": target, "mean_W": round(mean_w), "pass": ok})
+        step = {"target_W": target, "mean_W": round(mean_w)}
+        volts = [s[5] for s in window if s[5] is not None]
+        if target:
+            # Same operating point both ways, so the current scales with power.
+            mean_v = sum(volts) / len(volts) if volts else None
+            step["mean_V"] = round(mean_v, 1) if volts else None
+            ok = ok and volts and abs(mean_v - DC_VOLTAGE) <= VOLTAGE_TOLERANCE * DC_VOLTAGE
+        step["pass"] = bool(ok)
+        steps.append(step)
     trace = [(round(s[0]), s[1]) for s in samples]
     assert all(s["pass"] for s in steps), {"steps": steps, "trace": trace}
     return steps
@@ -231,9 +262,12 @@ async def v2g_scenario():
         assert tx and tx["status"] == "Accepted", tx
         assert tx["payload"]["chargingProfile"]["chargingSchedule"][0]["chargingSchedulePeriod"] == periods
         await finish(csms, txid)
-        # A new session after unplug charges normally (default limit).
-        txid = await start_session(csms, first=False)
-        report["second_session_W"] = reading()["power"]
+        # A new session after unplug charges normally (default limit), also
+        # when the start comes more than 60 s after plug-in (issue #33).
+        txid = await start_session(csms, first=False, start_delay_s=LATE_START_S)
+        report["second_session"] = check_voltage(reading())
+        assert "maximum number of SDP retry cycles" not in log_text(app), "EV gave up waiting"
+        assert http("/api/status")["ev_watchdog"]["recoveries"] == 0
         await finish(csms, txid)
         report["result"] = "pass"
     finally:
@@ -246,6 +280,8 @@ async def v2g_scenario():
                      "Handshake complete!"):
         assert evidence in log, f"missing ISO 15118-20 evidence: {evidence}"
     report["iso15118_20"] = "DC_BPT over mutual TLS 1.3"
+    # Issue #28: the EVSE 0 warning is dropped; EVSE 1 has its sink.
+    assert "Can not apply external limits" not in log, "external limits warning in the App log"
     return report
 
 
@@ -375,6 +411,45 @@ async def recovery_scenario():
     return {"scenario": "recovery", "result": "pass"}
 
 
+async def watchdog_scenario():
+    csms = await MockCsms(accept=("ocpp2.1", "ocpp2.0.1"), port=9220).start()
+    app = App({"csms_url": "ws://127.0.0.1:9220", "charge_point_id": CPID, "ocpp_version": "2.1",
+               "max_power_kw": RATING_KW, "acknowledge_test_isolation": True})
+    app.start()
+    report = {"scenario": "watchdog"}
+    try:
+        await asyncio.wait_for(csms.boot.wait(), 120)
+        await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="idle EVSE")
+        assert http("/api/ev/plugin", "POST")["sent"]
+        await wait_for(lambda: reading()["state"] in ("AuthRequired", "Preparing"), 30,
+                       what="plugged state")
+        # No authorisation: the charger fails the session after 3 minutes
+        # (libiso15118 EIM limit), and the EV starts no new one.
+        await wait_for(lambda: "maximum number of SDP retry cycles" in log_text(app), 240,
+                       interval=2, what="EV giving up")
+        await wait_for(lambda: http("/api/status")["ev_watchdog"]["recoveries"] == 1, 120,
+                       what="automatic re-plug")
+        report["watchdog"] = http("/api/status")["ev_watchdog"]
+        assert report["watchdog"]["last_recovery"]["result"] == "re-plugged", report
+        await wait_for(lambda: log_text(app).count("Received session setup with evccid") >= 2, 60,
+                       what="session setup by the re-plugged EV")
+        reply = await csms.call("RequestStartTransaction", {
+            "idToken": {"idToken": "SIM-TEST", "type": "Central"}, "evseId": 1, "remoteStartId": 8})
+        assert reply[2]["status"] == "Accepted", reply
+        await wait_for(lambda: reading()["state"] == "Charging" and (reading()["power"] or 0) > 1000,
+                       90, what="DC charging after the re-plug")
+        await asyncio.sleep(10)
+        report["charging"] = check_voltage(reading())
+        started = [e for e in csms.calls("TransactionEvent") if e["eventType"] == "Started"]
+        await finish(csms, started[-1]["transactionInfo"]["transactionId"])
+        report["result"] = "pass"
+    finally:
+        report["app_exit"] = app.stop()
+        csms.server.close()
+    assert report["app_exit"] == 0, report
+    return report
+
+
 async def main(selected):
     results = []
     if "offline" in selected:
@@ -387,8 +462,10 @@ async def main(selected):
         results.append(await fallback_scenario())
     if "pinned201" in selected:
         results.append(await version_only_scenario("pinned201", "2.0.1", ("ocpp2.1", "ocpp2.0.1"), "ocpp2.0.1"))
+    if "watchdog" in selected:
+        results.append(await watchdog_scenario())
     print(json.dumps(results, indent=2), flush=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201"]))
+    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201", "watchdog"]))

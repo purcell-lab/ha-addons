@@ -108,13 +108,15 @@ and power come only from the CSMS.
 
 - **Plug in**: the EV runs SLAC, opens the ISO 15118-20 TLS session, offers
   DC_BPT and waits for authorisation. Start the transaction from the CSMS
-  with RequestStartTransaction. Cable check and pre-charge take about 15 s.
+  with RequestStartTransaction within 3 minutes (60 s before 0.1.10).
+  Cable check and pre-charge take about 15 s.
 - **EV stop session**: the EV ends the ISO 15118 session and unplugs.
 - **Unplug now**: immediate unplug, which ends any transaction.
 
 Live readings refresh every second and show state, direction, signed power
 (negative is discharge), meter import and export energy, DC voltage and
-current, and the rated power. Green means import (charging) and blue means
+current, and the rated power. The simulated battery is at 380 V in both
+directions, so 20 kW is about 52.6 A (charging ran at 900 V before 0.1.10). Green means import (charging) and blue means
 export (discharge, V2G); every value also carries a +/- sign, an arrow icon
 and a text label, so colour is never the only cue. A bidirectional bar and a
 two-minute trend show power against the rated limit. The discovery self-test
@@ -133,6 +135,22 @@ logs `ha-everest: EV ISO 15118 stack stopped (replaced by a new plug-in)`;
 other EV stack errors are logged the same way and the next plug-in
 retries. The Status page and the HA
 status object count these restarts as `ev_stack_restarts`.
+
+**EV watchdog.** If the EV's ISO 15118 session ends before charging, the
+EV gives up for the rest of that plug-in and logs `maximum number of SDP
+retry cycles (1) is now reached`; the charger keeps the connector in
+`Preparing` at 0 W and a new plug-in is refused. The usual cause is no
+authorisation within 3 minutes: the charger (libiso15118) then fails the
+session. 5 s after that line the App unplugs the EV, waits 10 s and plugs
+it in again, as you would by hand, so a later RequestStartTransaction
+still charges. It logs `EV watchdog: ...` and never acts while power flows,
+while unplugged, or when an EV command from the UI or HA came at about the
+same time. After 3
+re-plugs without a session that delivers power it stops and asks for a
+manual unplug and plug-in. A transaction that had already started ends
+with the unplug; start a new one. The Status page shows a notice, and the
+status object reports `ev_session` (`ok`, `gave_up` or `recovering`) and
+`ev_last_recovery`.
 
 ## Discovery diagnostics
 
@@ -195,7 +213,8 @@ the Ingress UI. It opens no port and adds no inbound path.
 - **Status object** `sensor.<charge_point_id>_v2g_app` (for example
   `sensor.sim_ev_everest_v2g_01_v2g_app`): EVSE state as the state, with
   attributes for the negotiated OCPP version, direction, power, energy,
-  `ev_stack_restarts` and the last self-test summary. Refreshed every
+  `ev_stack_restarts`, `ev_session`, `ev_last_recovery` and the last
+  self-test summary. Refreshed every
   30 s and after each command. It is a plain state object, not a
   registered entity, and disappears from the state list after an HA
   restart until the bridge republishes it.
@@ -291,7 +310,10 @@ VALIDATION.md. The App does not hide them.
   EVSE 0 composite as per-phase shares, and EVerest 2025.10.0 reads the L1
   share as the total, which capped every target at a third of the rating.
   The App therefore applies OCPP limits through EVSE 1, whose composite
-  already includes station-level profiles.
+  already includes station-level profiles. OCPP201 still computes the EVSE 0
+  composite every 10 s and warns `Can not apply external limits! No evse
+  energy sink configured for evse_id: 0`; neither module can skip EVSE 0,
+  so from 0.1.10 the App drops only that line from its log.
 
 ### CSMS requirements
 
