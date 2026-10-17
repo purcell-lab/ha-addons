@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 440" width="920" height="440" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="12">
 <rect width="100%" height="100%" fill="#fcfcfb"/>
-<text x="16" y="24" font-size="15" font-weight="600" fill="#0b0b0b">LOA-11: CSIP-AUS import limit, OCPP TxProfile limit and charger power</text>
+<text x="16" y="24" font-size="15" font-weight="600" fill="#0b0b0b">LOA-11 run 74853: CSIP-AUS import limit, OCPP TxProfile limit and charger power</text>
 <text x="16" y="42" fill="#52514e">SIM-EV-EVEREST-G1, 3-phase 32 A AC (max about 22 kW). Times AEST, 17 Oct 2026.</text>
 <rect x="175.4" y="64" width="486.6" height="316" fill="#d03b3b" fill-opacity="0.07"/>
 <text x="418.7" y="95.6" text-anchor="middle" fill="#d03b3b" font-size="12" font-weight="400">Integration locked after CitrineOS HTTP 500: no profiles sent</text>
