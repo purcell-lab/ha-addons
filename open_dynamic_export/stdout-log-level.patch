@@ -1,0 +1,14 @@
+diff --git a/src/helpers/logger.ts b/src/helpers/logger.ts
+index cbaebd3..e0965c8 100644
+--- a/src/helpers/logger.ts
++++ b/src/helpers/logger.ts
+@@ -38,7 +38,8 @@ export const pinoLogger = pino({
+             },
+             {
+                 target: 'pino-pretty',
+-                level: 'info',
++                // stdout level; defaults to info as upstream
++                level: process.env['STDOUT_LOGLEVEL'] ?? 'info',
+                 options: {
+                     singleLine: true,
+                 },

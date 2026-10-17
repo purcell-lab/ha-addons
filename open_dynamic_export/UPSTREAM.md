@@ -11,7 +11,7 @@
 
 ## Changes to upstream
 
-Three patches are applied, in this order. Each must apply cleanly to the
+Four patches are applied, in this order. Each must apply cleanly to the
 pinned commit (the build runs `git apply --check`).
 
 ### `ingress.patch`
@@ -46,6 +46,14 @@ trace to the App log. The patch adds one error handler after the API
 routes that answers that error with HTTP 503 and does not log it. Other
 errors are passed on unchanged. The charts still show an error.
 Control logic and the CSIP-AUS client are unchanged by this patch.
+
+### `stdout-log-level.patch`
+
+Upstream logs to stdout (the App log) at `info` only; its `LOGLEVEL`
+setting applies to the debug file under `./logs`, which this App keeps in
+`/tmp` inside the container. The patch reads the stdout level from
+`STDOUT_LOGLEVEL` (default `info`, as upstream). The launcher sets it from
+the `log_level` option, so `debug` also reaches the App log.
 
 ## This App's own code
 
