@@ -307,6 +307,10 @@ def everest_config(settings, data, pki_password):
                 "module": "DCSupplySimulator",
                 "config_implementation": {"main": {
                     "bidirectional": True,
+                    # Upstream defaults to 1 A at 200 V min: EvseManager then
+                    # sees a 200 W minimum, ignores a 0 W target (min > max)
+                    # and keeps the previous current in the new direction.
+                    "min_current": 0.0,
                     "max_power": float(rating["watts"]),
                     "max_current": float(rating["dc_amps"] + 5),
                 }},

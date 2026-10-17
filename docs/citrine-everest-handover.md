@@ -24,8 +24,10 @@ Mark chose to stop that defect blocking CI: the native test now records the
 `citrineos_server/tests/v2g_trial.py`). It still runs, is written to the
 evidence file and raises a CI warning; it fails the job again if the 0 W step
 starts passing, so the allowance is removed. Every other step, both energy
-checks and closure still fail the job. The defect itself is not fixed and
-remains a deployment blocker. [Native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38102326637)
+checks and closure still fail the job. Fixed in everest_v2g_simulator 0.1.8
+(17 October 2026): the simulated DC supply's 1 A / 200 V minimum made
+EvseManager ignore a 0 W target. The native trial's 0 W step then passed, so
+the allowance was removed and a 0 W step is now checked like every other. [Native evidence](https://github.com/purcell-lab/ha-addons/actions/runs/38102326637)
 
 Two later runs tracked discharge correctly after an earlier -5,000 W request
 produced -1,111.11 W. Its cause remains unresolved; passing repeats do not

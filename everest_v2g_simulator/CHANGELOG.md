@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.8 (unreleased)
+
+- 0 W setpoints are honoured. The simulated DC supply now has a 0 A minimum
+  current (upstream default 1 A at 200 V), so EvseManager no longer sees a
+  200 W minimum above a 0 W target and keeps the previous current. Before,
+  a 0 W setpoint left the EV at its previous power, and after a discharge
+  that power reappeared as charging. The acceptance run now steps
+  +6,000, 0, -5,000, 0 and +3,000 W.
+- Still upstream: a charging-only period (no `setpoint` or
+  `dischargeLimit`) does not bound discharge, because EVerest 2025.10.0
+  OCPP201 sends no export limit. Use CentralSetpoint periods (DOCS.md).
+
+## 0.1.7
+
+- `tx_sample_interval_s` option (default 5 s) and a profile panel that
+  shows the newest SetChargingProfile of any purpose.
+
 ## 0.1.6 (unreleased)
 
 - Offer and publish aarch64 images again alongside amd64, for example for a

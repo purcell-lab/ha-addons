@@ -18,11 +18,11 @@ def discovery_ready(value):
             and value["selftest"].get("pass") is True)
 
 
-# Known EVerest V2G runtime defect: a 0 W CentralSetpoint period keeps the
-# previous positive setpoint (+3 kW in every native and live run so far).
-# Recorded and annotated, but it does not fail the trial. Strict: once the
-# 0 W step passes, the trial fails so this allowance is removed.
-KNOWN_DEFECT_SETPOINTS = {0: "EVerest V2G runtime holds the previous setpoint at 0 W"}
+# Known runtime defects by setpoint: recorded and annotated, but they do not
+# fail the trial. Strict: once such a step passes, the trial fails so its
+# allowance is removed. Empty since everest_v2g_simulator 0.1.8, which honours
+# 0 W setpoints (it used to hold the previous setpoint, +3 kW in every run).
+KNOWN_DEFECT_SETPOINTS = {}
 
 
 def evaluate_steps(targets, samples, step):
