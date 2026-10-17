@@ -2,6 +2,7 @@
 
 1. Josev's UDP client sends SDP on the configured interface (v2g1).
 2. A fresh simulated-EV ISO 15118 stack on every plug-in.
+3. The simulated EV discharges up to 25 kW (66 A) instead of 11 kW (25 A).
 
 Upstream PyEvJosev (EVerest 2025.10.0) runs one Josev EVCC per plug-in with
 asyncio.run(). When discovery fails, Josev logs SDPFailedError but its
@@ -93,6 +94,26 @@ UDP_REPLACEMENT = """        interface_index = socket.if_nametoindex(iface)
 """
 
 
+SIM_TARGET = Path("/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py")
+SIM_MARKER = "ha-everest: 25 kW EV discharge"
+# Josev 2025.9.0 hard-codes the EV's ISO 15118-20 BPT discharge limits (charge
+# parameter discovery and the dynamic DC loop): 25 A, which at the DC supply's
+# voltage capped discharge at 5 kW, and 11 kW. 66 A at 380 V is 25 kW.
+SIM_CURRENT = ("ev_max_discharge_current=RationalNumber(exponent=0, value=25),",
+               "ev_max_discharge_current=RationalNumber(exponent=0, value=66),  "
+               "# ha-everest: 25 kW EV discharge (patch_josev.py)")
+SIM_POWER = ("ev_max_discharge_power=RationalNumber(exponent=3, value=11),",
+             "ev_max_discharge_power=RationalNumber(exponent=3, value=25),")
+
+
+def patch_sim(text):
+    if SIM_MARKER in text:
+        return text
+    if text.count(SIM_CURRENT[0]) != 2 or text.count(SIM_POWER[0]) != 3:
+        raise ValueError("Josev simulator.py does not match the expected upstream text")
+    return text.replace(*SIM_CURRENT).replace(*SIM_POWER)
+
+
 def patch_udp(text):
     if UDP_MARKER in text:
         return text
@@ -118,10 +139,12 @@ def apply(path, function):
     print(f"patched {path}")
 
 
-def main(path=TARGET, udp_path=UDP_TARGET):
+def main(path=TARGET, udp_path=UDP_TARGET, sim_path=SIM_TARGET):
     apply(path, patch)
     if udp_path:
         apply(udp_path, patch_udp)
+    if sim_path:
+        apply(sim_path, patch_sim)
 
 
 if __name__ == "__main__":

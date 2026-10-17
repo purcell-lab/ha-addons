@@ -64,7 +64,7 @@ class ManifestTest(unittest.TestCase):
                      'ocpp_version: "2.1"', "acknowledge_test_isolation: false",
                      "charge_point_id: SIM-EV-EVEREST-V2G-01", "ocpp_version: list(2.1|2.0.1)",
                      "charge_point_id: match(^SIM-EV-[A-Za-z0-9_-]{1,36}$)",
-                     "max_power_kw: int(3,11)", "slug: everest_v2g_simulator"):
+                     "max_power_kw: int(3,25)", "slug: everest_v2g_simulator"):
             self.assertIn(line, CONFIG_TEXT)
         for forbidden in ("ports:", "host_network", "full_access", "devices:", "SYS_ADMIN",
                           "NET_RAW", "hassio_api", "hassio_role", "docker_api", "auth_api", "map:"):
@@ -123,9 +123,13 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(configure.VERSIONS["2.0.1"], "ocpp2.0.1")
 
     def test_power_rating(self):
-        self.assertEqual(configure.validate({})["max_power_kw"], 11)
+        self.assertEqual(configure.validate({})["max_power_kw"], 25)
         rating = configure.ratings(configure.validate(dict(GOOD, max_power_kw=7)))
-        self.assertEqual(rating, {"watts": 7000, "phase_amps": 31, "dc_amps": 18})
+        self.assertEqual(rating, {"watts": 7000, "phase_amps": 31, "dc_amps": 19})
+        # 25 kW: 109 A per phase stays below the patched 128 A board limit
+        # (patch_yeti.py), and 66 A DC at 380 V is the EV's discharge limit.
+        rating = configure.ratings({"max_power_kw": 25})
+        self.assertEqual(rating, {"watts": 25000, "phase_amps": 109, "dc_amps": 66})
         # One phase must carry the full rating (see configure.ratings).
         for kw in range(3, configure.MAX_POWER_KW + 1):
             rating = configure.ratings({"max_power_kw": kw})
@@ -135,7 +139,7 @@ class ValidateTest(unittest.TestCase):
         bad = [
             {"charge_point_id": "REAL-CHARGER"}, {"charge_point_id": "SIM-EV-"},
             {"ocpp_version": "1.6"}, {"ocpp_version": 2.1}, {"max_power_kw": 2},
-            {"max_power_kw": 12}, {"max_power_kw": True}, {"max_power_kw": "11"},
+            {"max_power_kw": 26}, {"max_power_kw": True}, {"max_power_kw": "11"},
             {"max_power_kw": 7.5},
             {"csms_url": "wss://host:443"}, {"csms_url": "http://host:80"},
             {"csms_url": "ws://host"}, {"csms_url": "ws://user:pw@host:80"},
@@ -310,6 +314,10 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(supply["config_implementation"]["main"]["max_power"], 7000)
         # A 0 W target needs a 0 W supply minimum (VALIDATION.md).
         self.assertEqual(supply["config_implementation"]["main"]["min_current"], 0.0)
+        # The supply's own 200 V minimum set the voltage while discharging.
+        self.assertEqual(supply["config_implementation"]["main"]["min_voltage"], 380.0)
+        ev = next(m for m in active.values() if m["module"] == "EvManager")["config_module"]
+        self.assertEqual(ev["dc_target_voltage"], 380)
         d20 = next(m for m in active.values() if m["module"] == "Evse15118D20")
         self.assertEqual(d20["config_module"]["device"], netguard.SECC_LINK)
         josev = next(m for m in active.values() if m["module"] == "PyEvJosev")["config_module"]

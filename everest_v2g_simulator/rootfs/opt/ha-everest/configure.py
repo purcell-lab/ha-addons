@@ -13,11 +13,15 @@ from urllib.parse import urlsplit
 
 DEFAULT_CPID = "SIM-EV-EVEREST-V2G-01"
 from netguard import EVCC_LINK, SECC_LINK  # noqa: E402  private veth pair
-DC_VOLTAGE = 400
+# Simulated battery voltage: the EV's target and the DC supply's minimum. The
+# supply's default 200 V minimum set the voltage whenever it discharged.
+DC_VOLTAGE = 380
 GRID_VOLTAGE = 230
-# The simulated board (YetiSimulator) reports AC export of at most 16 A on
-# three phases (11.04 kW), which caps discharge; the option stays within it.
-MAX_POWER_KW = 11
+# The simulated board (YetiSimulator) reported 32 A import and 16 A export per
+# phase (22.08 / 11.04 kW). patch_yeti.py raises both to 128 A at build time,
+# so the per-phase allowance below (up to 109 A) is the limit; patch_josev.py
+# lets the simulated EV discharge 25 kW.
+MAX_POWER_KW = 25
 # ISO 15118 EVSEID syntax with a test-only operator code.
 EVSE_ID = "AU*PUR*ESIM01*1"
 # Per-session ISO 15118 traces stay in the container, never in /data.
@@ -37,7 +41,7 @@ def validate(options):
     csms = options.get("csms_url", "")
     cpid = options.get("charge_point_id", DEFAULT_CPID)
     version = options.get("ocpp_version", "2.1")
-    power = options.get("max_power_kw", 11)
+    power = options.get("max_power_kw", MAX_POWER_KW)
     acknowledged = options.get("acknowledge_test_isolation", False)
     ha_control = options.get("ha_control", False)
     provisioned = options.get("csms_basic_auth_password", "")
@@ -311,6 +315,7 @@ def everest_config(settings, data, pki_password):
                     # sees a 200 W minimum, ignores a 0 W target (min > max)
                     # and keeps the previous current in the new direction.
                     "min_current": 0.0,
+                    "min_voltage": float(DC_VOLTAGE),
                     "max_power": float(rating["watts"]),
                     "max_current": float(rating["dc_amps"] + 5),
                 }},

@@ -30,6 +30,8 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
     -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
   grep -q "ha-everest: EV ISO 15118 stack stopped" /opt/everest/libexec/everest/modules/PyEvJosev/module.py
   grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
+  grep -q "ha-everest: 25 kW EV discharge" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py
+  python3 /opt/ha-everest/patch_yeti.py --check
   java -version 2>&1 | head -1; nft --version
   test "$(readlink -f /usr/bin/java)" = /opt/java/bin/java
   test ! -e /usr/lib/jvm'

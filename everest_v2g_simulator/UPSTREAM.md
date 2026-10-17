@@ -47,7 +47,24 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
 
 ## Local patches
 
-`patch_josev.py` runs at image build and edits two files.
+`patch_josev.py` runs at image build and edits three files; `patch_yeti.py`
+patches one binary.
+
+Josev `iso15118/evcc/controller/simulator.py` (2025.9.0, bundled with
+EVerest 2025.10.0): the simulated EV's ISO 15118-20 BPT discharge limits are
+hard-coded at 25 A and 11 kW in charge parameter discovery and the dynamic
+DC loop. With the DC supply at its 200 V default minimum, discharge stopped
+at 5 kW. The patch sets 66 A and 25 kW (25 kW at the App's 380 V).
+
+`YetiSimulator` binary (everest-core 2025.10.0, prebuilt): the simulated
+board reports 32 A import and 16 A export per phase, which EvseManager uses
+for DC too, capping the charger at 22.08 kW charging and 11.04 kW
+discharging. Configuration can only lower these. `patch_yeti.py` raises both
+to 128 A: a three-float `.rodata` block on amd64, two `movi` instructions on
+arm64 (an `fmov` immediate cannot exceed 31.0). It accepts only the exact
+SHA-256 and original bytes of each architecture's binary, and the image
+checks run it with `--check`. The App's per-phase setting (up to 109 A for
+25 kW) is the limit that applies.
 
 Josev `iso15118/evcc/transport/udp_client.py`: upstream computes the
 interface index but leaves `IPV6_MULTICAST_IF` commented out, so the EV's

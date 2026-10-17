@@ -77,9 +77,12 @@ COPY UPSTREAM.md /usr/share/doc/everest/UPSTREAM.md
 # Upstream's admin-panel controller listens on all interfaces; this App
 # replaces it with a stub that only tracks the manager's lifetime.
 # patch_josev.py: a failed EV session (for example an unanswered SDP request)
-# no longer ends upstream's plug-in loop; each plug-in starts a fresh stack.
+# no longer ends upstream's plug-in loop; each plug-in starts a fresh stack;
+# the simulated EV may discharge 25 kW. patch_yeti.py: the simulated board's
+# 16 A / 32 A per-phase limits (11 / 22 kW) become 128 A, checked by SHA-256.
 RUN install -m 0755 /opt/ha-everest/controller-stub.sh /opt/everest/bin/controller \
     && python3 /opt/ha-everest/patch_josev.py \
+    && python3 /opt/ha-everest/patch_yeti.py \
     && python3 -m py_compile /opt/ha-everest/*.py \
     && python3 -c "import pydantic, py4j, aiofile, environs, netifaces, psutil, cryptography"
 WORKDIR /data

@@ -1,5 +1,5 @@
 name: EVerest DC V2G Test Charger
-version: "0.1.8"
+version: "0.1.9"
 slug: everest_v2g_simulator
 description: Isolated EVerest bidirectional DC charger and EV (ISO 15118-20 DC_BPT); OCPP 2.1 with 2.0.1 fallback.
 url: https://github.com/purcell-lab/ha-addons
@@ -26,7 +26,7 @@ options:
   csms_url: ""
   charge_point_id: SIM-EV-EVEREST-V2G-01
   ocpp_version: "2.1"
-  max_power_kw: 11
+  max_power_kw: 25
   tx_sample_interval_s: 5
   acknowledge_test_isolation: false
   archive_and_rebind: false
@@ -36,7 +36,7 @@ schema:
   csms_url: str
   charge_point_id: match(^SIM-EV-[A-Za-z0-9_-]{1,36}$)
   ocpp_version: list(2.1|2.0.1)
-  max_power_kw: int(3,11)
+  max_power_kw: int(3,25)
   tx_sample_interval_s: int(1,60)
   acknowledge_test_isolation: bool
   archive_and_rebind: bool
