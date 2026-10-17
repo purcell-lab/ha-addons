@@ -40,9 +40,11 @@ CPID = "SIM-EV-EVEREST-V2G-01"
 # Charge, stop, discharge (V2G export), stop, charge. Signed W: negative is
 # discharge. The 0 W steps failed before 0.1.8: the EV stayed at 6,000 W, and
 # after a discharge the previous magnitude reappeared as charging
-# (VALIDATION.md).
-SETPOINTS_W = [6000, 0, -5000, 0, 3000]
-# 2.0.1 has no setpoints: one plain import limit below the 11 kW rating.
+# (VALIDATION.md). The 20 kW steps exceed the limits before 0.1.9: 5 kW
+# discharge (EV 25 A at 200 V) and 11.04 / 22.08 kW from the simulated board.
+SETPOINTS_W = [6000, 0, -20000, 0, 20000]
+RATING_KW = 25
+# 2.0.1 has no setpoints: one plain import limit below the rating.
 FALLBACK_LIMIT_W = 4000
 POWER_TOLERANCE = 0.03
 
@@ -50,7 +52,7 @@ POWER_TOLERANCE = 0.03
 def setpoint_period(offset, watts):
     # Every period carries a setpoint: EVerest 2025.10.0 applies the nearest
     # setpoint to periods without one (VALIDATION.md).
-    return {"startPeriod": offset, "limit": 11000.0, "dischargeLimit": -11000.0,
+    return {"startPeriod": offset, "limit": RATING_KW * 1000.0, "dischargeLimit": -RATING_KW * 1000.0,
             "setpoint": float(watts), "operationMode": "CentralSetpoint"}
 
 
@@ -205,7 +207,7 @@ def tx_profile(profile_id, txid, start_text, periods):
 async def v2g_scenario():
     csms = await MockCsms(accept=("ocpp2.1", "ocpp2.0.1"), port=9220).start()
     app = App({"csms_url": "ws://127.0.0.1:9220", "charge_point_id": CPID, "ocpp_version": "2.1",
-               "max_power_kw": 11, "acknowledge_test_isolation": True})
+               "max_power_kw": RATING_KW, "acknowledge_test_isolation": True})
     app.start()
     report = {"scenario": "v2g21"}
     try:
@@ -250,7 +252,7 @@ async def v2g_scenario():
 async def fallback_scenario():
     csms = await MockCsms(accept=("ocpp2.0.1",), port=9220).start()
     app = App({"csms_url": "ws://127.0.0.1:9220", "charge_point_id": CPID, "ocpp_version": "2.1",
-               "max_power_kw": 11, "acknowledge_test_isolation": True})
+               "max_power_kw": RATING_KW, "acknowledge_test_isolation": True})
     app.start()
     report = {"scenario": "fallback"}
     try:

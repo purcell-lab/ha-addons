@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rootfs/opt/ha-everest"))
 import diag  # noqa: E402
 import patch_josev  # noqa: E402
+import patch_yeti  # noqa: E402
 
 IF_INET6 = """fe80000000000000a8bbccfffe000001 05 40 20 80     v2g0
 fe80000000000000a8bbccfffe000002 06 40 20 40     v2g1
@@ -187,6 +188,30 @@ UPSTREAM = '''    def start_evcc_handler(self):
         return True
 '''
 UPSTREAM_FILE = Path("/tmp/everest-core/modules/EV/PyEvJosev/module.py")
+SIM_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py")
+# The BPT discharge limits of Josev 2025.9.0 iso15118/evcc/controller/simulator.py.
+SIM_UPSTREAM = '''def f(RationalNumber, a, d):
+    ac = dict(
+        **a,
+        ev_max_discharge_power=RationalNumber(exponent=3, value=11),
+        ev_min_discharge_power=RationalNumber(exponent=0, value=100),
+    )
+    dc = dict(
+        **d,
+        # Todo(sl): Update later if bpt is also available
+        ev_max_discharge_power=RationalNumber(exponent=3, value=11),
+        ev_min_discharge_power=RationalNumber(exponent=3, value=1),
+        ev_max_discharge_current=RationalNumber(exponent=0, value=25),
+        ev_min_discharge_current=RationalNumber(exponent=0, value=0),
+    )
+    dynamic = dict(
+        **d,
+        ev_max_discharge_power=RationalNumber(exponent=3, value=11),
+        ev_min_discharge_power=RationalNumber(exponent=0, value=300),
+        ev_max_discharge_current=RationalNumber(exponent=0, value=25),
+    )
+    return ac, dc, dynamic
+'''
 UDP_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py")
 # Verbatim excerpt of Josev's UDPClient._create_socket (EVerest 2025.10.0).
 UDP_UPSTREAM = '''import socket
@@ -296,6 +321,17 @@ class PatchJosevTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch_josev.patch_udp(upstream.replace("interface_index = socket", "index = socket"))
 
+    def test_ev_discharges_25_kw(self):
+        upstream = (SIM_UPSTREAM if not SIM_FILE.exists() else SIM_FILE.read_text())
+        patched = patch_josev.patch_sim(upstream)
+        compile(patched, "simulator.py", "exec")
+        self.assertEqual(patched.count("ev_max_discharge_current=RationalNumber(exponent=0, value=66)"), 2)
+        self.assertEqual(patched.count("ev_max_discharge_power=RationalNumber(exponent=3, value=25)"), 3)
+        self.assertNotIn("value=25),\n", patched.replace("exponent=3, value=25)", ""))
+        self.assertEqual(patch_josev.patch_sim(patched), patched)
+        with self.assertRaises(ValueError):
+            patch_josev.patch_sim(upstream.replace("exponent=0, value=25)", "exponent=0, value=30)", 1))
+
     def test_refuses_unexpected_upstream(self):
         with self.assertRaises(ValueError):
             patch_josev.patch(UPSTREAM.replace("break", "return"))
@@ -304,9 +340,12 @@ class PatchJosevTest(unittest.TestCase):
             path.write_text("class X:\n" + UPSTREAM)
             udp = Path(tmp) / "udp_client.py"
             udp.write_text(UDP_UPSTREAM)
-            patch_josev.main(path, udp)
+            sim = Path(tmp) / "simulator.py"
+            sim.write_text(SIM_UPSTREAM)
+            patch_josev.main(path, udp, sim)
             self.assertIn(patch_josev.MARKER, path.read_text())
             self.assertIn(patch_josev.UDP_MARKER, udp.read_text())
+            self.assertIn(patch_josev.SIM_MARKER, sim.read_text())
 
     @unittest.skipUnless(UPSTREAM_FILE.exists(), "everest-core checkout not present")
     def test_matches_real_upstream_file(self):
@@ -317,3 +356,48 @@ class PatchJosevTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class YetiBoardLimitTest(unittest.TestCase):
+    """patch_yeti.py: exact binaries and bytes only; real files when present."""
+
+    REAL = {"amd64": Path("/tmp/yeti/amd64_YetiSimulator"), "arm64": Path("/tmp/yeti/arm64_YetiSimulator")}
+
+    def test_known_binary_is_patched_at_exact_offsets(self):
+        data = bytearray(64)
+        data[8:12] = patch_yeti.F32
+        data[16:20] = patch_yeti.FMOV_16
+        digest = __import__("hashlib").sha256(bytes(data)).hexdigest()
+        edits = [(8, patch_yeti.F32, patch_yeti.F128), (16, patch_yeti.FMOV_16, patch_yeti.MOVI_128)]
+        original = dict(patch_yeti.PATCHES)
+        patch_yeti.PATCHES[digest] = ("test", edits)
+        try:
+            patched, arch = patch_yeti.patch(bytes(data))
+            self.assertEqual(arch, "test")
+            self.assertEqual(patched[8:12], patch_yeti.F128)
+            self.assertEqual(patched[16:20], patch_yeti.MOVI_128)
+            self.assertEqual(sum(a != b for a, b in zip(patched, data)), 5)
+            self.assertEqual(patch_yeti.patch(patched), (patched, "test"))
+            broken = bytearray(data)
+            broken[20] = 1
+            with self.assertRaises(ValueError):
+                patch_yeti.patch(bytes(broken))
+        finally:
+            patch_yeti.PATCHES.clear()
+            patch_yeti.PATCHES.update(original)
+
+    def test_constants(self):
+        self.assertEqual(struct.unpack("<f", patch_yeti.F128)[0], 128.0)
+        # movi v0.2s, #imm8, lsl #24: imm8 0x42 -> 32.0, 0x43 -> 128.0 (bits 9:5 differ).
+        self.assertEqual(int.from_bytes(patch_yeti.MOVI_128, "little") - int.from_bytes(patch_yeti.MOVI_32, "little"),
+                         1 << 5)
+        # 128 A x 3 x 230 V carries the 25 kW rating with margin.
+        self.assertGreater(patch_yeti.BOARD_AMPS * 230, 25000)
+
+    def test_real_binaries_when_present(self):
+        for arch, path in self.REAL.items():
+            if not path.exists():
+                continue
+            patched, found = patch_yeti.patch(path.read_bytes())
+            self.assertEqual(found, arch)
+            self.assertEqual(patch_yeti.patch(patched), (patched, arch))

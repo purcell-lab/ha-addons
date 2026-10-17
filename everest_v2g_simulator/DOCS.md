@@ -90,7 +90,7 @@ still needs `archive_and_rebind` once.
 | `csms_url` | Empty | OCPP base URL without the station ID. `ws://` on an explicit port, no credentials, query or `%` encoding. |
 | `charge_point_id` | `SIM-EV-EVEREST-V2G-01` | Required `SIM-EV-` namespace, up to 36 suffix characters. Also the Basic Auth user. |
 | `ocpp_version` | `2.1` | `2.1` offers `ocpp2.1, ocpp2.0.1`. `2.0.1` offers only `ocpp2.0.1`. |
-| `max_power_kw` | `11` | Charger rating in both directions, 3 to 11 kW. Also the default composite limit. The simulated board's AC export capability (16 A on three phases) sets the 11 kW ceiling. |
+| `max_power_kw` | `25` | Charger rating in both directions, 3 to 25 kW. Also the default composite limit. The simulated battery is at 380 V, so 25 kW is 66 A DC. Upstream's simulated board allows only 11.04 kW discharge and 22.08 kW charge; the image raises its limits (UPSTREAM.md, local patches). |
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty `csms_url`. |
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 | `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |

@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.8 (unreleased)
+## 0.1.9
+
+- 25 kW in both directions (`max_power_kw` 3 to 25, default 25), at 380 V.
+  Three limits capped the simulator below that:
+  - The simulated EV's discharge limit was hard-coded at 25 A and 11 kW in
+    Josev, and the DC supply's 200 V default minimum set the voltage while
+    discharging, so discharge stopped at 5 kW (25 A x 200 V). The EV now
+    allows 66 A and 25 kW, and the supply minimum and EV target are 380 V.
+  - The simulated board (YetiSimulator) reports 16 A export and 32 A import
+    per phase, capping discharge at 11.04 kW and charging at 22.08 kW. A
+    build-time patch raises both to 128 A in the prebuilt binary, checked by
+    SHA-256 and exact bytes for each architecture (UPSTREAM.md).
+- The acceptance run now steps +6,000, 0, -20,000, 0 and +20,000 W.
+
+## 0.1.8
 
 - 0 W setpoints are honoured. The simulated DC supply now has a 0 A minimum
   current (upstream default 1 A at 200 V), so EvseManager no longer sees a
