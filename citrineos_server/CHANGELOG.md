@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.1
+
+- Startup no longer fails when Hasura takes longer than 10 s to apply the
+  metadata. With `operator_ui_enabled` the full upstream schema took 10 s on a
+  busy Home Assistant Green: Hasura stored it, but the 10 s request timeout
+  had already failed the start ("Laboratory startup failed"), three times in a
+  row. The metadata request now allows 120 s; other requests keep 10 s.
+- Scoped commands on OCPP 2.0.1 and 1.6 now work. 0.6.0 accepted those
+  routes at the gateway, but CitrineOS's role rules (`rbac-rules.json`, baked
+  into the image) granted the command role only the 2.1 routes, so CitrineOS
+  refused them ("Authentication or authorization failed"). The App now writes
+  the rules at every start from the gateway's own route list: the command role
+  gets exactly the scoped command routes when `command_control_enabled` is on,
+  and none when it is off. Reader and Operator UI rules are unchanged. Route
+  changes no longer need a rebuild of the rules file.
+
 ## 0.6.0
 
 - Scoped commands for a physical charger (opt-in): with

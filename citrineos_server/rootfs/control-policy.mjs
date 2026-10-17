@@ -27,6 +27,24 @@ export const routesFor=protocol=>(protocol==='ocpp1.6'?ACTIONS_16:ACTIONS)
 export const ROUTES=routesFor(PROTOCOL);
 export const COMMANDS_BY_PROTOCOL=Object.fromEntries(PROTOCOLS.map(p=>[p,routesFor(p)]));
 export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
+// CitrineOS role-based access for the scoped command role, derived from the
+// same route list the gateway enforces so the two cannot drift apart (0.6.0
+// accepted 2.0.1 and 1.6 routes at the gateway but CitrineOS refused them).
+// Starts from the shipped rules (reader and Operator UI roles unchanged),
+// removes the command role from every scoped route, then grants it exactly
+// ALL_ROUTES when scoped commands are enabled.
+export const COMMAND_ROLE='lab-controller';
+export function rbacRules(base,commandsEnabled) {
+  const rules=JSON.parse(JSON.stringify(base));
+  const tenant=rules['1'];
+  for(const route of ALL_ROUTES) {
+    const roles=(tenant[route]?.POST||[]).filter(r=>r!==COMMAND_ROLE);
+    if(commandsEnabled===true) roles.unshift(COMMAND_ROLE);
+    if(roles.length) tenant[route]={...tenant[route],POST:roles};
+    else if(tenant[route]) { delete tenant[route].POST; if(!Object.keys(tenant[route]).length) delete tenant[route]; }
+  }
+  return rules;
+}
 // The OCPP version a command route speaks, e.g. 'ocpp2.0.1'; null if not a lab route.
 export function routeProtocol(pathname) {
   return PROTOCOLS.find(p=>COMMANDS_BY_PROTOCOL[p].includes(pathname))||null;

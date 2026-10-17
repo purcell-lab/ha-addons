@@ -193,3 +193,27 @@ test('OCPP 1.6 routes: 1.6 payload shapes, integer transaction IDs, charging-onl
   const idle=state(false);idle.data.ChargingStations[0].protocol='ocpp1.6';
   assert.equal(targetAllows(at(3),{id:9001},idle),true);
 });
+test('RBAC rules are generated from the gateway route list',async()=>{
+  const {rbacRules,ALL_ROUTES,COMMAND_ROLE}=await import('../rootfs/control-policy.mjs');
+  const {readFileSync}=await import('node:fs');
+  const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
+  const on=rbacRules(base,true)['1'];
+  // Every route the gateway accepts for scoped commands, on 2.1, 2.0.1 and 1.6.
+  for(const route of ALL_ROUTES) assert.ok(on[route].POST.includes(COMMAND_ROLE),route);
+  assert.equal(ALL_ROUTES.length,12);
+  // Nothing else gains the command role, and other roles keep their rules.
+  for(const [route,methods] of Object.entries(on))
+    for(const [method,roles] of Object.entries(methods))
+      if(roles.includes(COMMAND_ROLE)&&!ALL_ROUTES.includes(route))
+        assert.deepEqual(roles,base['1'][route][method],route);
+  assert.deepEqual(on['/ocpp/2.0.1/evdriver/requestStartTransaction'].POST,['lab-controller','lab-operator']);
+  assert.deepEqual(on['/ocpp/1.6/evdriver/remoteStartTransaction'].POST,['lab-controller']);
+  // Off: the command role holds no scoped route; operator rules remain.
+  const off=rbacRules(base,false)['1'];
+  for(const route of ALL_ROUTES) assert.ok(!(off[route]?.POST||[]).includes(COMMAND_ROLE),route);
+  assert.equal(off['/ocpp/1.6/evdriver/remoteStartTransaction'],undefined);
+  assert.deepEqual(off['/ocpp/2.1/smartcharging/setChargingProfile'].POST,['lab-operator']);
+  // Idempotent when re-applied to its own output, and the base is not mutated.
+  assert.deepEqual(rbacRules(rbacRules(base,true),true),rbacRules(base,true));
+  assert.ok(!('/ocpp/1.6/evdriver/remoteStartTransaction' in base['1']));
+});
