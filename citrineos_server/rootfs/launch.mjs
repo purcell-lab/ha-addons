@@ -4,7 +4,8 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION_PATTERN,PROTOCOL,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,validateCommand,TARGET_QUERY,targetAllows,commandStation,
+import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,
+  validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
   OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
@@ -25,10 +26,18 @@ export function validate(o) {
       || [o.database_password,o.broker_password,o.hasura_secret,o.api_token].includes(o.simulator_password)))
     throw new Error('A distinct simulator credential is required');
   if(o.simulator_enabled!==undefined && typeof o.simulator_enabled!=='boolean') throw new Error('Invalid simulator flag');
-  for(const flag of ['profile_simulator_enabled','command_control_enabled','open_admission_enabled'])
+  for(const flag of ['profile_simulator_enabled','command_control_enabled','open_admission_enabled','command_real_stations_enabled'])
     if(o[flag]!==undefined&&typeof o[flag]!=='boolean')throw new Error('Invalid control flag');
   if(o.profile_simulator_enabled&&!/^[a-f0-9]{32}$/.test(o.profile_simulator_password||''))throw new Error('Missing profile simulator credential');
-  if(o.command_station_id!==undefined&&!STATION_PATTERN.test(o.command_station_id))throw new Error('Command station must be a SIM-EV- identity');
+  if(o.command_station_id!==undefined&&!stationAllowed(o.command_station_id,o.command_real_stations_enabled))
+    throw new Error(o.command_real_stations_enabled?'Invalid command station identity':'Command station must be a SIM-EV- identity');
+  // A physical command station connects on the Plugfest listener, the only port the
+  // App can publish. The profile simulator would provision the same identity with
+  // the lab simulator credential on port 8081, so the two do not combine.
+  if(!STATION_PATTERN.test(commandStation(o))) {
+    if(!o.plugfest_enabled)throw new Error('A physical command station needs plugfest_enabled');
+    if(o.profile_simulator_enabled)throw new Error('A physical command station cannot use profile_simulator_enabled');
+  }
   if(o.command_control_enabled&&(!(o.profile_simulator_enabled||o.open_admission_enabled)||!/^[a-f0-9]{64}$/.test(o.command_token||'')
     ||[o.api_token,o.database_password,o.broker_password,o.hasura_secret].includes(o.command_token)))throw new Error('Distinct command credential required');
   validateOperator(o);
@@ -288,14 +297,15 @@ export async function main() {
       if(!publicHealth && !controller && !equalToken(req.headers.authorization,`Bearer ${o.api_token}`)) {
         res.writeHead(401);res.end('{"error":"Authentication required"}');return;
       }
-      const command=req.method==='POST'&&ROUTES.includes(url.pathname);
+      const command=req.method==='POST'&&ALL_ROUTES.includes(url.pathname);
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
       if(url.pathname==='/lab/control-policy') {
         res.end(JSON.stringify({station_id:station,can_control:controller,protocol:PROTOCOL,
-          commands:ROUTES,max_import_w:MAX_IMPORT_W,max_export_w:MAX_EXPORT_W,
+          commands:ROUTES,protocols:PROTOCOLS,commands_by_protocol:COMMANDS_BY_PROTOCOL,
+          max_import_w:MAX_IMPORT_W,max_export_w:MAX_EXPORT_W,
           max_profile_seconds:600,max_periods:10,automatic_control:false,
-          clear_requires_closed_transaction:true,real_devices_enabled:false,
+          clear_requires_closed_transaction:true,real_devices_enabled:o.command_real_stations_enabled===true,
           open_admission:o.open_admission_enabled===true}));return;
       }
       if(url.pathname==='/lab/status') {
@@ -316,7 +326,7 @@ export async function main() {
         body=Buffer.concat(chunks).toString();
         const parsed=JSON.parse(body);
         if(command) {
-          if(!validateCommand(url,parsed,station)){res.writeHead(400);res.end('{"error":"Command outside lab bounds"}');return;}
+          if(!validateCommand(url,parsed,station,o.command_real_stations_enabled===true)){res.writeHead(400);res.end('{"error":"Command outside lab bounds"}');return;}
           const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
             method:'POST',headers:{'Content-Type':'application/json',
               'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},

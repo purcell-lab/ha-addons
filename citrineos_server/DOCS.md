@@ -151,11 +151,65 @@ distinct `SIM-EV-` identity. The App's own generated Basic Auth header is
 ignored on this listener.
 
 `command_station_id` (default `SIM-EV-EVEREST-V2G-01`) selects the single
-station that scoped commands may target. It must be a `SIM-EV-` identity, and
-the existing gates still apply: observed `ocpp2.1`, online, tenant 1, exact
-active transaction and bounded profiles. Commands may now be enabled with
-either `profile_simulator_enabled` or `open_admission_enabled`; they still
-need the separate command credential.
+station that scoped commands may target. It must be a `SIM-EV-` identity
+unless `command_real_stations_enabled` is on (below). The existing gates
+still apply: online, tenant 1, exact active transaction and bounded profiles.
+Commands may be enabled with either `profile_simulator_enabled` or
+`open_admission_enabled`; they still need the separate command credential.
+
+Scoped commands speak OCPP 2.1 (`/ocpp/2.1/...`), OCPP 2.0.1
+(`/ocpp/2.0.1/...`) or OCPP 1.6 (`/ocpp/1.6/...`). The route's version must
+be the protocol the station negotiated; there is no fallback between
+versions. On 2.0.1 a profile period is charging-only (`limit`, optional
+`numberPhases`/`phaseToUse`): 2.0.1 has no `operationMode`, `setpoint` or
+`dischargeLimit`.
+
+OCPP 1.6 uses its own messages with the same bounds:
+
+| Command | Route | Payload |
+|---|---|---|
+| Start | `/ocpp/1.6/evdriver/remoteStartTransaction` | `{"connectorId": 1, "idTag": "C17E0001"}` |
+| Stop | `/ocpp/1.6/evdriver/remoteStopTransaction` | `{"transactionId": <integer>}` |
+| Profile | `/ocpp/1.6/smartcharging/setChargingProfile` | `connectorId` 1 and `csChargingProfiles`: a TxProfile on the active integer `transactionId`, one W schedule, periods of `startPeriod`, a whole-watt `limit` and optional `numberPhases` 1 or 3 |
+| Clear | `/ocpp/1.6/smartcharging/clearChargingProfile` | `{"id": <profile id>}`, after the transaction has closed |
+
+Many 1.6 chargers accept only amps (`ChargingScheduleAllowedChargingRateUnit`
+= `Current`). Those reject a W profile, and the HA integration reports the
+rejection; amp profiles are not enabled here. `/lab/control-policy`
+lists the routes per protocol (`protocols`, `commands_by_protocol`) and still
+reports the original 2.1 `protocol` and `commands` for older clients.
+
+### Physical command station (opt-in)
+
+`command_real_stations_enabled: true` (default `false`) lets
+`command_station_id` be any OCPP identity (up to 48 of
+`A-Z a-z 0-9 . _ ~ * + -`), so the HA bridge can limit a physical charger.
+It is still exactly one station, chosen in the options, and every other
+bound is unchanged: TxProfile only, an active transaction on that station
+is required, at most 600 s and 10 periods, 25 kW import and export, and
+clear only after the transaction has closed.
+
+- The station connects on the Plugfest listener (8083), so `plugfest_enabled`
+  is required: with a provisioned password in `plugfest_stations`, or with
+  `plugfest_open_admission` for no authentication.
+- `profile_simulator_enabled` cannot be on at the same time, because it
+  would provision the same identity with the lab simulator credential.
+- `/lab/control-policy` reports `real_devices_enabled: true`. CitrineOS-HA
+  0.3.4 and earlier refuse such a policy; use a version that supports
+  physical stations.
+- The station may use OCPP 2.1, 2.0.1 or 1.6. On 2.0.1 and 1.6 profiles are
+  charging-only.
+
+Before you command a real charger:
+
+- A profile ends 600 s after it starts. If HA stops sending, the charger
+  returns to its own default limit, so set a conservative default on the
+  charger itself (TxDefaultProfile or ChargingStationMaxProfile).
+- Watt limits on a single-phase charger need `numberPhases: 1`; libocpp-based
+  chargers assume 3 phases otherwise.
+- With `plugfest_open_admission`, anyone who can reach port 8083 can connect
+  as the command station's identity. Use a provisioned password for anything
+  but an isolated test network.
 
 ## Operator UI scope (opt-in)
 
@@ -184,9 +238,9 @@ charging stations on the venue network need to connect. `plugfest_enabled`
 
 - OCPP 2.1, 2.0.1 and 1.6, Security Profile 1 (Basic Auth over `ws://`),
   tenant 1. The server chooses the first of 2.1, 2.0.1, 1.6 that the station
-  offers. 1.6 stations use the same Basic Auth password. The HA integration,
-  scoped commands and Operator UI commands cover 2.0.1 and 2.1 only, so a
-  1.6 station is monitor-only here;
+  offers. 1.6 stations use the same Basic Auth password. Scoped commands
+  (see above) cover 2.1, 2.0.1 and 1.6; Operator UI commands cover 2.0.1
+  and 2.1 only;
 - only the identities in `plugfest_stations` are admitted, each with its own
   password; unknown stations and wrong passwords are refused at the
   WebSocket upgrade;
@@ -195,9 +249,9 @@ charging stations on the venue network need to connect. `plugfest_enabled`
   distinct from every other credential. An identity that a simulator option
   already provisions (`SIM-CITRINE-LAB-01` with `simulator_enabled`, the
   command station with `profile_simulator_enabled`) is refused. The scoped HA
-  command path only ever targets `command_station_id`, a `SIM-EV-` simulator,
-  so vendor stations are never its target. A `SIM-EV-` simulator may be
-  listed to rehearse the vendor path;
+  command path only ever targets `command_station_id`: a `SIM-EV-` simulator,
+  or a vendor station only when `command_real_stations_enabled` is on. A
+  `SIM-EV-` simulator may be listed to rehearse the vendor path;
 - stations are provisioned at startup (identity, password, Accepted boot);
   their EVSEs and connectors are created from their own status reports.
 - at every startup, Basic Auth passwords of stations that are no longer
@@ -215,8 +269,9 @@ Read this before enabling it:
   during test slots, and with passwords made for the event.
 - Do not expose port 8083 to the internet (no port forward); an online
   test partner needs a separate TLS (Security Profile 2) path.
-- Command and control of real stations is not provided by the HA path; use
-  the test partner's agreed procedure.
+- Command and control of a real station by the HA path needs
+  `command_real_stations_enabled` and that station as `command_station_id`;
+  otherwise use the test partner's agreed procedure.
 
 ### Open admission on 8083 (opt-in, unauthenticated)
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0
+
+- Scoped commands for a physical charger (opt-in): with
+  `command_real_stations_enabled`, `command_station_id` may be any OCPP
+  identity on the Plugfest listener (8083, provisioned password or
+  `plugfest_open_admission`). Still one configured station and the same
+  bounds. Needs `plugfest_enabled`; cannot be combined with
+  `profile_simulator_enabled`. `/lab/control-policy` then reports
+  `real_devices_enabled: true`.
+- Scoped commands also accept OCPP 2.0.1 routes (`/ocpp/2.0.1/...`) for a
+  station that negotiated 2.0.1, with charging-only periods. The route's
+  version must match the station's protocol. The policy adds `protocols` and
+  `commands_by_protocol`, and keeps `protocol`/`commands` (2.1) for older
+  clients.
+- Scoped commands also accept OCPP 1.6 routes for a 1.6 station:
+  `remoteStartTransaction`, `remoteStopTransaction` (integer transaction
+  ID), `setChargingProfile` (`csChargingProfiles`, whole-watt charging-only
+  periods) and `clearChargingProfile` by `id`.
+- Transaction IDs accept the OCPP identifierString characters
+  (`* - _ = : + | @ .`) that physical chargers use.
+
 ## 0.5.3
 
 - Scoped lab SetChargingProfile: the limit per period is now 25 kW for
