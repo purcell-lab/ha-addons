@@ -92,13 +92,22 @@ any purpose (`latest_profile` in `/api/profiles`; `latest_tx_profile` kept).
   Upstream EvseManager returns early when the minimum exceeds the maximum,
   and the simulated DC supply's default 1 A at 200 V made the minimum
   200 W. Fixed in 0.1.8 with a 0 A supply minimum; the acceptance run now
-  includes 0 W steps after charging and after discharging.
+  includes 0 W steps after charging and after discharging. Upstream fixed
+  the early return on everest-core `main` (EVerest/everest-core#2956, "deliver
+  0 A when the EV or power supply cannot follow a request", merged in #3013
+  on 2026-10-06; not in a release as of 2026.02.1). The same PR gives the
+  InfyPower driver a 0 A minimum export current, as this App now does.
 - A charging-only period after a discharge setpoint did not bound export:
   OCPP201 (2025.10.0) `set_external_limits` builds `schedule_import` and
   `schedule_setpoints` but never `schedule_export`. Seen in a CSIP-AUS lab
   run, where a 0 W charging-only limit left the EV exporting about 5 kW.
   Not fixed (needs an OCPP201 source patch); DOCS.md gives the
-  CentralSetpoint workaround.
+  CentralSetpoint workaround. Reported upstream as
+  EVerest/everest-core#2934 and fixed by #3064 (merged 2026-10-12) in the
+  new OCPPmulti module only; OCPP201 is deprecated from 2026.10.0 and was
+  not changed. Even in OCPPmulti, only an explicit `dischargeLimit` (0 to
+  block) becomes an export limit: a period without one still leaves the
+  export schedule empty.
 - A one-second 13.5 kW sample appeared at a direction change.
 - Re-plugging within about 4 s of unplug, while the previous TLS session
   was still closing, prevented a new discovery; the test waits 15 s.
