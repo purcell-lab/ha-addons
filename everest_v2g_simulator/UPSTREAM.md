@@ -44,10 +44,11 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
   (4.14 kW). Without the one-phase fallback, EnergyManager enforces 0 W for
   any charging target below it, even on this DC EVSE.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
-- EvManager `dc_max_voltage_limit` equal to `dc_target_voltage` and the DC
-  supply's `min_voltage` (380 V). In the ISO 15118-20 dynamic charge loop
-  EvseManager sets the supply to the EV's maximum voltage when charging
-  (default 900 V) and to the larger minimum when discharging.
+- EvManager `dc_max_voltage_limit` 382 V, 2 V above `dc_target_voltage`
+  and the DC supply's `min_voltage` (380 V). In the ISO 15118-20 dynamic
+  charge loop EvseManager sets the supply to the EV's maximum voltage when
+  charging (default 900 V) and to the larger minimum when discharging. The
+  two must differ (item 12).
 
 ## Local patches
 
@@ -132,6 +133,17 @@ VALIDATION.md:
     `get_all_composite_schedules`, which always includes EVSE 0, and warns
     each interval when EVSE 0 has no energy sink. There is no option to
     skip EVSE 0 (see item 3 for why it has no sink here).
+12. On a direct reversal (no 0 W step), EvseManager's `enforce_limits`
+    sets `is_actually_exporting_to_grid` and re-applies the previous target
+    current in the new direction, while the ISO 15118-20 dynamic loop
+    handler applies the new target from another thread. Both see the
+    supply's mode flag unchanged (two `Set mode` lines 0.3 ms apart), and
+    when the stale write lands last nothing corrects it: the handler sees
+    its target unchanged and `enforce_limits` sees no change in limits,
+    target voltage or measured voltage (over 1 V). With charge and
+    discharge at 380 V a +6 kW to -5 kW step stayed at -6 kW for the whole
+    period; with different voltages the next limits pass applies the new
+    target, as with upstream's 900 V default.
 
 ## Licences
 

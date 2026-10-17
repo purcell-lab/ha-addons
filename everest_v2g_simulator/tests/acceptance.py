@@ -5,7 +5,8 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
 
   v2g21      CSMS prefers 2.1 -> ocpp2.1; ISO 15118-20 DC_BPT session; a
              CentralSetpoint TxProfile charges then discharges (V2G export),
-             at 380 V both ways; after stop and unplug a fresh session,
+             at about 380 V both ways, including direct reversals between
+             charge and discharge; after stop and unplug a fresh session,
              started 75 s after plug-in, charges again
   fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit
   pinned201  App option ocpp_version 2.0.1; CSMS prefers 2.1 -> ocpp2.0.1
@@ -42,18 +43,20 @@ DATA = Path(os.environ.get("HA_EVEREST_DATA", "/data"))
 UI = "http://127.0.0.1:8000"
 STEP = int(os.environ.get("STEP_S", "20"))
 CPID = "SIM-EV-EVEREST-V2G-01"
-# Charge, stop, discharge (V2G export), stop, charge. Signed W: negative is
-# discharge. The 0 W steps failed before 0.1.8: the EV stayed at 6,000 W, and
-# after a discharge the previous magnitude reappeared as charging
-# (VALIDATION.md). The 20 kW steps exceed the limits before 0.1.9: 5 kW
-# discharge (EV 25 A at 200 V) and 11.04 / 22.08 kW from the simulated board.
-SETPOINTS_W = [6000, 0, -20000, 0, 20000]
+# Charge, stop, discharge (V2G export), stop, charge, then direct reversals
+# to discharge and back. Signed W: negative is discharge. The 0 W steps failed
+# before 0.1.8: the EV stayed at 6,000 W, and after a discharge the previous
+# magnitude reappeared as charging (VALIDATION.md). The 20 kW steps exceed
+# the limits before 0.1.9: 5 kW discharge (EV 25 A at 200 V) and 11.04 /
+# 22.08 kW from the simulated board. With equal charge and discharge
+# voltages a direct reversal kept the previous current (configure.py).
+SETPOINTS_W = [6000, 0, -20000, 0, 20000, -5000, 3000]
 RATING_KW = 25
 # 2.0.1 has no setpoints: one plain import limit below the rating.
 FALLBACK_LIMIT_W = 4000
 POWER_TOLERANCE = 0.03
-# Simulated battery voltage in both directions (configure.DC_VOLTAGE). Before
-# 0.1.10 charging ran at the EV's 900 V maximum (issue #70).
+# Simulated battery voltage (configure.DC_VOLTAGE; charging is 2 V above).
+# Before 0.1.10 charging ran at the EV's 900 V maximum (issue #70).
 DC_VOLTAGE = 380
 VOLTAGE_TOLERANCE = 0.05
 # Issue #33: before 0.1.10 the EV gave up about 60 s after plug-in.

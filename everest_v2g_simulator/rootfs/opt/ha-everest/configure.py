@@ -13,12 +13,19 @@ from urllib.parse import urlsplit
 
 DEFAULT_CPID = "SIM-EV-EVEREST-V2G-01"
 from netguard import EVCC_LINK, SECC_LINK  # noqa: E402  private veth pair
-# Simulated battery voltage: the EV's target and maximum, and the DC supply's
-# minimum. In the ISO 15118-20 dynamic charge loop EvseManager sets the
-# supply to the EV's maximum voltage when charging (EvManager default 900 V)
-# and to the larger of the EV and supply minimums when discharging (supply
-# default 200 V), so all three must be this value.
+# Simulated battery voltage: the EV's target and the DC supply's minimum. In
+# the ISO 15118-20 dynamic charge loop EvseManager sets the supply to the
+# larger of the EV and supply minimums when discharging (supply default
+# 200 V) and to the EV's maximum voltage when charging (EvManager default
+# 900 V, issue #70).
 DC_VOLTAGE = 380
+# The EV's maximum, so the charging voltage: 2 V above DC_VOLTAGE, not equal.
+# On a direct reversal (no 0 W step) EvseManager 2025.10.0 re-applies the
+# previous current in the new direction from its limits thread while the
+# charge loop applies the new one; when the stale write lands last, only a
+# change of target or measured voltage makes its next limits pass apply the
+# new target. With equal voltages a +6 kW to -5 kW step stayed at -6 kW.
+CHARGE_VOLTAGE = DC_VOLTAGE + 2
 GRID_VOLTAGE = 230
 # The simulated board (YetiSimulator) reported 32 A import and 16 A export per
 # phase (22.08 / 11.04 kW). patch_yeti.py raises both to 128 A at build time,
@@ -348,7 +355,7 @@ def everest_config(settings, data, pki_password):
                 "config_module": {
                     "connector_id": 1, "auto_enable": True, "auto_exec": False,
                     "dc_target_current": rating["dc_amps"], "dc_target_voltage": DC_VOLTAGE,
-                    "dc_max_voltage_limit": DC_VOLTAGE,
+                    "dc_max_voltage_limit": CHARGE_VOLTAGE,
                     "auto_exec_commands": ev_session(),
                 },
                 "connections": {

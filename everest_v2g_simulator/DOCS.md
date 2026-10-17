@@ -115,8 +115,9 @@ and power come only from the CSMS.
 
 Live readings refresh every second and show state, direction, signed power
 (negative is discharge), meter import and export energy, DC voltage and
-current, and the rated power. The simulated battery is at 380 V in both
-directions, so 20 kW is about 52.6 A (charging ran at 900 V before 0.1.10). Green means import (charging) and blue means
+current, and the rated power. The simulated battery is at 380 V when
+discharging and 382 V when charging, so 20 kW is about 52 A either way
+(charging ran at 900 V before 0.1.10; UPSTREAM.md explains the 2 V). Green means import (charging) and blue means
 export (discharge, V2G); every value also carries a +/- sign, an arrow icon
 and a text label, so colour is never the only cue. A bidirectional bar and a
 two-minute trend show power against the rated limit. The discovery self-test
