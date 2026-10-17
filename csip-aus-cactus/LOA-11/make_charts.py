@@ -41,7 +41,14 @@ RUNS = {
               "lock": None,
               "held": "2026-10-17T03:53:27.965Z",
               "sends_note": ("2026-10-17T13:57:12+10:00", "8 sends at 1 s (ODE ramp-down)")},
+    "74865": {"window": ("2026-10-17T05:41:30+00:00", "2026-10-17T05:55:20+00:00"),
+              "default_from": "2026-10-17T05:41:52.09+00:00",
+              "lock": None,
+              "held": "2026-10-17T15:45:13.04+10:00",
+              "sends_note": ("2026-10-17T15:44:54+10:00", "4 sends in 19 s (ODE ramp)"),
+              "charger": "SIM-EV-EVEREST-V2G-03, DC V2G simulator (11 kW), CentralSetpoint periods with no discharge"},
 }
+AC_CHARGER = "SIM-EV-EVEREST-G1, 3-phase 32 A AC (max about 22 kW)"
 
 
 def csip_controls(data):
@@ -188,7 +195,7 @@ def overview(run):
     controls, events, power, cfg = run["controls"], run["events"], run["power"], run["cfg"]
     t0, t1 = (ts(x) for x in cfg["window"])
     p = Plot(920, 440, f"LOA-11 run {run['name']}: CSIP-AUS import limit, OCPP TxProfile limit and charger power",
-             "SIM-EV-EVEREST-G1, 3-phase 32 A AC (max about 22 kW). Times AEST, 17 Oct 2026.")
+             f"{cfg.get('charger', AC_CHARGER)}. Times AEST, 17 Oct 2026.")
     left, right, top, bottom = 64, 900, 64, 380
     ymax = 30000
     sx = lambda t: left + (t - t0) / (t1 - t0) * (right - left)

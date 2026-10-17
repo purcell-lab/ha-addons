@@ -1,0 +1,388 @@
+{
+ "source": "EVerest DC V2G simulator OCPP message log (SIM-EV-EVEREST-V2G-03, /api/profiles), read after the run. The log keeps the last ten SetChargingProfile requests, so the profiles from 05:47:55 UTC onwards are captured in full (every one Accepted); earlier sends, including the start-up and DERC1 ramp, are in bridge-sends.csv with their period-0 limit and schedule signature. Periods are OCPP 2.1 CentralSetpoint with setpoint = limit and dischargeLimit 0.",
+ "profiles": [
+  {
+   "received": "2026-10-17T05:47:55.018Z",
+   "responded": "2026-10-17T05:47:55.191Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:47:53.781+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 25000,
+         "dischargeLimit": 0,
+         "setpoint": 25000,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 59,
+         "limit": 12000,
+         "dischargeLimit": 0,
+         "setpoint": 12000,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 179,
+         "limit": 7500,
+         "dischargeLimit": 0,
+         "setpoint": 7500,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 299,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:48:54.297Z",
+   "responded": "2026-10-17T05:48:54.520Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:48:52.915+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 12000,
+         "dischargeLimit": 0,
+         "setpoint": 12000,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 120,
+         "limit": 7500,
+         "dischargeLimit": 0,
+         "setpoint": 7500,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 240,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:49:55.077Z",
+   "responded": "2026-10-17T05:49:55.351Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:49:53.798+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 12000,
+         "dischargeLimit": 0,
+         "setpoint": 12000,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 59,
+         "limit": 7500,
+         "dischargeLimit": 0,
+         "setpoint": 7500,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 179,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:50:54.173Z",
+   "responded": "2026-10-17T05:50:54.457Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:50:52.879+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 7500,
+         "dischargeLimit": 0,
+         "setpoint": 7500,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 120,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:51:55.145Z",
+   "responded": "2026-10-17T05:51:55.398Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:51:53.856+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 7500,
+         "dischargeLimit": 0,
+         "setpoint": 7500,
+         "operationMode": "CentralSetpoint"
+        },
+        {
+         "startPeriod": 59,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:52:54.227Z",
+   "responded": "2026-10-17T05:52:54.426Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:52:52.969+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:53:55.146Z",
+   "responded": "2026-10-17T05:53:55.399Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:53:53.927+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:54:54.224Z",
+   "responded": "2026-10-17T05:54:54.355Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:54:53.002+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:55:55.217Z",
+   "responded": "2026-10-17T05:55:55.446Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:55:53.939+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "received": "2026-10-17T05:56:56.306Z",
+   "responded": "2026-10-17T05:56:56.533Z",
+   "reply": "Accepted",
+   "request": {
+    "evseId": 1,
+    "chargingProfile": {
+     "id": 9001,
+     "stackLevel": 1,
+     "chargingProfilePurpose": "TxProfile",
+     "chargingProfileKind": "Absolute",
+     "transactionId": "7e12d607-081b-40fa-a608-f63041afd8a3",
+     "chargingSchedule": [
+      {
+       "id": 9001,
+       "startSchedule": "2026-10-17T05:56:55.073+00:00",
+       "duration": 600,
+       "chargingRateUnit": "W",
+       "chargingSchedulePeriod": [
+        {
+         "startPeriod": 0,
+         "limit": 0,
+         "dischargeLimit": 0,
+         "setpoint": 0,
+         "operationMode": "CentralSetpoint"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
