@@ -62,6 +62,19 @@ CI step means (A) for the same schedule:
 - The demo build is coverage-instrumented and logs composite schedules
   every interval; both are handled in `app.py`.
 
+## 0.1.3: 3-phase watt limits applied in full (2026-10-17)
+
+On a 3-phase 32 A station, a watt TxProfile reached the EVSE as a third of
+its current: 25 kW gave 10.67 A per phase (the 22.08 kW station default
+binding), 15 kW gave 7.2 A, and 12 kW gave 5.8 A, below the 6 A minimum,
+so charging paused. That is W / (230 V x phases^2): EVerest 2025.10.0's
+EnergyManager handles a watt limit's phases twice. Single-phase was
+unaffected (1^2). OCPP201 now requests composite schedules in amps
+(`RequestCompositeScheduleUnit: A`), so libocpp converts watts to amps once,
+using each period's `numberPhases`, and the EnergyManager enforces a
+current. Observed on the Green during Cactus LOA-11 with the ODE bridge
+(purcell-lab/ha-addons#55).
+
 ## 0.1.2: one-second transaction samples (2026-10-17)
 
 `SampledDataTxUpdatedInterval` is 1 s (was 10 s), so CSMS-side MeterValues

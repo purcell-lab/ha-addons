@@ -85,6 +85,11 @@ assumes 3 phases when a period has no `numberPhases`, so a 7,360 W period
 becomes 10.67 A per phase, and anything below 4,140 W falls under the 6 A
 minimum and pauses charging. Amp-based profiles are not affected.
 
+**Watt profiles on a 3-phase station: set `numberPhases: 3`.** From 0.1.3
+EVerest takes its composite schedule in amps, so a 3-phase watt limit is
+applied in full (25 kW is 32 A per phase). Earlier versions applied a third
+of it, and limits below about 12.4 kW paused charging.
+
 Measured power is a few per cent below a watt limit because the simulated
 supply sits slightly below 230 V. The current follows the limit exactly.
 

@@ -227,7 +227,11 @@ def everest_config(settings, data):
                     "DeviceModelDatabasePath": store + "/ocpp201/device_model_storage.db",
                     "EverestDeviceModelDatabasePath": store + "/ocpp201/everest_device_model_storage.db",
                     "DeviceModelConfigPath": store + "/component_config",
-                    "RequestCompositeScheduleUnit": "W",
+                    # Amps, not watts: EVerest 2025.10.0's EnergyManager divides a
+                    # watt limit by the phase count twice on 3-phase AC (25 kW
+                    # gave 10.67 A, 15 kW 7.2 A). In amps libocpp converts once,
+                    # using the period's numberPhases (purcell-lab/ha-addons#55).
+                    "RequestCompositeScheduleUnit": "A",
                     "CompositeScheduleIntervalS": 10,
                 },
                 "connections": {
