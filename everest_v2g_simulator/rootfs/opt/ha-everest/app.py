@@ -30,6 +30,10 @@ SOURCE = PREFIX / "share/everest/modules/OCPP201/component_config"
 VERSION_LINE = re.compile(r"successfully connected to server with version: (ocpp[0-9.]+)")
 SDP_READY = "Starting SDP server"
 EV_STACK_STOPPED = "ha-everest: EV ISO 15118 stack stopped"
+# Josev after an ISO 15118 session that ended before charging: it starts no
+# new session in this plug-in, and EvManager refuses a new plug-in. The UI
+# service's watchdog re-plugs the EV (ui_server.Watchdog, issue #33).
+EV_GAVE_UP = "maximum number of SDP retry cycles"
 # libiso15118 v0.9.0 ignores discovery while a session exists; a session
 # whose EV left before it ended (for example unplugged while waiting for
 # authorisation) never ends. Only a restart clears it (UPSTREAM.md).
@@ -48,6 +52,14 @@ JSON_START = re.compile(r"\] ocpp:OCPP201\s*: \{$")
 # The demo build also prints certificate-chain debug lines (SHANKARI:).
 NOISY = ("Received OCPP charging schedule update", "About to publish composite charging schedules",
          "SHANKARI: ")
+# libocpp computes a station-level (EVSE 0) composite with every composite,
+# and OCPP201 warns every CompositeScheduleIntervalS that no EVSE 0 sink is
+# wired. That is deliberate (configure.py): EVSE 1's composite already
+# includes station-level profiles. Neither upstream module can skip EVSE 0
+# (EVerest 2025.10.0, libocpp v0.30.3), so only this warning is dropped
+# (issue #28). The same warning for EVSE 1 would still be logged.
+STATION_SINK_WARNING = re.compile(
+    r"ocpp:OCPP201\s*: Can not apply external limits! No evse energy sink configured for evse_id: 0$")
 
 
 def write_state(**values):
@@ -71,7 +83,8 @@ class LogFilter:
             return False
         if STAMP.match(line):
             self.in_json = bool(JSON_START.search(line))
-            return not self.in_json and not any(n in line for n in NOISY)
+            return (not self.in_json and not any(n in line for n in NOISY)
+                    and not STATION_SINK_WARNING.search(line))
         return not self.in_json
 
 
@@ -79,6 +92,7 @@ def pump(stream, prefix="", sdp_ready=None):
     """Forward EVerest output to the App log and record the negotiated version."""
     log_filter = LogFilter()
     restarts = 0
+    gave_up, gave_up_at = 0, 0.0
     blocked = False
     for raw in iter(stream.readline, ""):
         line = ANSI.sub("", raw.rstrip("\n"))
@@ -94,6 +108,9 @@ def pump(stream, prefix="", sdp_ready=None):
         elif EV_STACK_STOPPED in line:
             restarts += 1
             write_state(ev_stack_restarts=restarts, ev_stack_last_error=line[-300:])
+        elif EV_GAVE_UP in line and time.time() - gave_up_at > 2:  # once, not again in its traceback
+            gave_up, gave_up_at = gave_up + 1, time.time()
+            write_state(ev_gave_up_count=gave_up, ev_gave_up_at=gave_up_at, ev_gave_up_line=line[-300:])
         elif CHARGER_IGNORING in line and not blocked:
             blocked = True
             write_state(charger_sdp_blocked=True)
@@ -181,6 +198,8 @@ def run():
         "negotiated": None,
         "ha_control": settings["ha_control"],
         "ev_stack_restarts": 0,
+        "ev_gave_up_count": 0,
+        "ev_gave_up_at": None,
         "charger_sdp_blocked": False,
     }), mode=0o644)
     print("EVerest DC V2G test charger: " + (

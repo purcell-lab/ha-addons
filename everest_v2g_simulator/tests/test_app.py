@@ -318,6 +318,10 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(supply["config_implementation"]["main"]["min_voltage"], 380.0)
         ev = next(m for m in active.values() if m["module"] == "EvManager")["config_module"]
         self.assertEqual(ev["dc_target_voltage"], 380)
+        # Issue #70: charging stays at the EV's 900 V maximum (EvManager
+        # default). Equal charge and discharge voltages left power targets
+        # unapplied (UPSTREAM.md, upstream behaviour 12).
+        self.assertNotIn("dc_max_voltage_limit", ev)
         d20 = next(m for m in active.values() if m["module"] == "Evse15118D20")
         self.assertEqual(d20["config_module"]["device"], netguard.SECC_LINK)
         josev = next(m for m in active.values() if m["module"] == "PyEvJosev")["config_module"]
@@ -333,6 +337,10 @@ class GeneratedConfigTest(unittest.TestCase):
         ocpp = next(m for m in active.values() if m["module"] == "OCPP201")
         sinks = [c["module_id"] for c in ocpp["connections"]["evse_energy_sink"]]
         self.assertEqual(sinks, ["evse_manager_1_ocpp_sink"])
+        # Issue #28: no EVSE 0 sink (it capped targets at a third); every
+        # sink maps to EVSE 1, and the EVSE 0 warning is filtered (LogFilter).
+        self.assertEqual(active["evse_manager_1_ocpp_sink"]["mapping"], {"module": {"evse": 1}})
+        self.assertEqual(ocpp["config_module"]["CompositeScheduleIntervalS"], 10)
         for path in json.dumps(config).split('"'):
             if path.startswith("/") and "everest" in path and not path.startswith(("/data", "/opt/everest")):
                 self.fail(f"state outside /data: {path}")
@@ -553,6 +561,48 @@ class LogFilterTest(unittest.TestCase):
         kept = [line for line in lines if log_filter.keep(line)]
         self.assertEqual(kept, lines[4:7])
 
+    def test_drops_only_the_station_sink_warning(self):
+        # Issue #28: logged every 10 s because EVSE 0 deliberately has no sink.
+        import app
+        warning = ("2026-10-17 06:50:38.123456 [WARN] ocpp:OCPP201   : Can not apply external limits! "
+                   "No evse energy sink configured for evse_id: ")
+        log_filter = app.LogFilter()
+        self.assertFalse(log_filter.keep(warning + "0"))
+        self.assertTrue(log_filter.keep(warning + "1"))
+        self.assertTrue(log_filter.keep(warning + "01"))
+        self.assertTrue(log_filter.keep("2026-10-17 06:50:39.000000 [WARN] api:API        : "
+                                        "No evse energy sink configured for evse_id: 0"))
+
+
+class PumpTest(unittest.TestCase):
+    def run_pump(self, lines):
+        import app
+        import io
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(setattr, app, "RUN", app.RUN)
+        app.RUN = Path(tmp.name)
+        output = io.StringIO()
+        stdout, sys.stdout = sys.stdout, output
+        try:
+            app.pump(io.StringIO("".join(line + "\n" for line in lines)))
+        finally:
+            sys.stdout = stdout
+        return json.loads((app.RUN / "state.json").read_text()), output.getvalue()
+
+    def test_ev_giving_up_is_recorded_once(self):
+        # Issue #33: Josev logs the message and again at the end of its traceback.
+        line = ("2026-10-11 21:50:52.000000 [ERRO] iso15118_car:   : EVCC tried to initiate a "
+                "V2GCommunicationSession, but maximum number of SDP retry cycles (1) is now reached. "
+                "Shutting down high-level communication.")
+        state, output = self.run_pump([line, "Traceback (most recent call last):",
+                                       "SDPFailedError: EVCC tried to initiate a V2GCommunicationSession, "
+                                       "but maximum number of SDP retry cycles (1) is now reached."])
+        self.assertEqual(state["ev_gave_up_count"], 1)
+        self.assertGreater(state["ev_gave_up_at"], 0)
+        self.assertIn("SDP retry cycles", state["ev_gave_up_line"])
+        self.assertIn("maximum number of SDP retry cycles", output)  # still forwarded
+
 
 class FakeBus:
     def __init__(self):
@@ -642,6 +692,129 @@ class UiServerTest(unittest.TestCase):
         self.assertEqual(commands["plugin"], ("execute_charging_session", configure.ev_session()))
         self.assertTrue(commands["stop"][1].startswith("iso_stop_charging"))
         self.assertEqual(commands["unplug"], ("modify_charging_session", "unplug"))
+
+
+class WatchdogBus:
+    """Session state and power as EVerest's API reports them."""
+
+    def __init__(self, state="AuthRequired", power=0.0):
+        self.state, self.power = state, power
+        self.sent = []
+        self.last_command = None
+
+    def snapshot(self):
+        return {"session_info": {"value": {"state": self.state}, "age_s": 1.0},
+                "powermeter": {"value": {"power_W": {"total": self.power}}, "age_s": 1.0}}
+
+    def send(self, name, state, source="operator"):
+        self.sent.append((name, source))
+        self.last_command = {"command": name, "at": 1000.0, "source": source}
+        if name == "unplug":
+            self.state = "Unplugged"
+        elif name == "plugin":
+            self.state = "AuthRequired"
+        return True
+
+
+class WatchdogTest(unittest.TestCase):
+    """Issue #33: re-plug the EV after it gives up, never during a session."""
+
+    def setUp(self):
+        import ui_server
+        self.ui = ui_server
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(setattr, ui_server, "RUN", ui_server.RUN)
+        ui_server.RUN = Path(self.tmp.name)
+        self.now = 1000.0
+        self.slept = []
+
+    def gave_up(self, at):
+        (self.ui.RUN / "state.json").write_text(json.dumps({"ev_gave_up_at": at, "max_power_kw": 25}))
+
+    def watchdog(self, bus):
+        return self.ui.Watchdog(bus, sleep=self.slept.append, clock=lambda: self.now)
+
+    def test_decision(self):
+        decide = self.ui.recovery_decision
+        self.assertIsNone(decide(None, 0, "AuthRequired", 0, None, 0, 100))
+        self.assertIsNone(decide(90, 90, "AuthRequired", 0, None, 0, 100))  # already handled
+        self.assertEqual(decide(98, 0, "AuthRequired", 0, None, 0, 100), "wait")
+        self.assertEqual(decide(90, 0, "AuthRequired", 0, None, 0, 100), "recover")
+        self.assertEqual(decide(90, 0, "Preparing", None, None, 0, 100), "recover")
+        self.assertEqual(decide(90, 0, "Charging", -20000, None, 0, 100), "skip: power flowing")
+        self.assertEqual(decide(90, 0, "Charging", 6000, None, 0, 100), "skip: power flowing")
+        self.assertEqual(decide(90, 0, "Unplugged", 0, None, 0, 100), "skip: not plugged in")
+        self.assertEqual(decide(90, 0, None, 0, None, 0, 100), "skip: not plugged in")
+        self.assertEqual(decide(90, 0, "AuthRequired", 0, 88, 0, 100), "skip: operator command")
+        self.assertEqual(decide(90, 0, "AuthRequired", 0, 80, 0, 100), "recover")  # older command
+        self.assertTrue(decide(90, 0, "AuthRequired", 0, None, 3, 100).startswith("skip: retry limit"))
+
+    def test_recovers_by_unplug_then_plug_in(self):
+        bus = WatchdogBus()
+        watchdog = self.watchdog(bus)
+        self.assertIsNone(watchdog.tick())
+        self.gave_up(998.0)
+        self.assertEqual(watchdog.tick(), "wait")
+        self.assertEqual(watchdog.snapshot()["ev_session"], "gave_up")
+        self.assertEqual(bus.sent, [])
+        self.now = 1004.0
+        self.assertEqual(watchdog.tick(), "recover")
+        self.assertEqual(bus.sent, [("unplug", "watchdog"), ("plugin", "watchdog")])
+        self.assertIn(self.ui.RECOVERY_SETTLE_S, self.slept)
+        snap = watchdog.snapshot()
+        self.assertEqual(snap["ev_session"], "ok")
+        self.assertEqual(snap["recoveries"], 1)
+        self.assertEqual(snap["last_recovery"]["result"], "re-plugged")
+        self.assertIsNone(watchdog.tick())  # handled once only
+
+    def test_never_replugs_while_power_flows_or_after_operator(self):
+        bus = WatchdogBus("Charging", 20000.0)
+        watchdog = self.watchdog(bus)
+        self.gave_up(990.0)
+        self.assertEqual(watchdog.tick(), "skip: power flowing")
+        self.assertEqual(bus.sent, [])
+        self.assertEqual(watchdog.snapshot()["ev_session"], "ok")
+        bus = WatchdogBus()
+        bus.last_command = {"command": "unplug", "at": 991.0}  # operator, no source key
+        watchdog = self.watchdog(bus)
+        self.assertEqual(watchdog.tick(), "skip: operator command")
+        self.assertEqual(bus.sent, [])
+
+    def test_retry_limit_until_power_flows(self):
+        bus = WatchdogBus()
+        watchdog = self.watchdog(bus)
+        for attempt in range(self.ui.MAX_RECOVERIES):
+            self.gave_up(self.now)
+            self.now += 6
+            self.assertEqual(watchdog.tick(), "recover")
+            self.now += 60
+        self.gave_up(self.now)
+        self.now += 6
+        self.assertTrue(watchdog.tick().startswith("skip: retry limit"))
+        self.assertEqual(watchdog.snapshot()["ev_session"], "gave_up")
+        self.assertEqual(len(bus.sent), 2 * self.ui.MAX_RECOVERIES)
+        bus.power = 6000.0  # a working session resets the limit
+        watchdog.tick()
+        bus.power = 0.0
+        self.gave_up(self.now)
+        self.now += 6
+        self.assertEqual(watchdog.tick(), "recover")
+
+    def test_failed_unplug_is_reported(self):
+        bus = WatchdogBus()
+        bus.send = lambda name, state, source="operator": False
+        watchdog = self.watchdog(bus)
+        self.gave_up(990.0)
+        self.assertEqual(watchdog.tick(), "recover")
+        self.assertEqual(watchdog.snapshot()["ev_session"], "gave_up")
+        self.assertEqual(watchdog.snapshot()["last_recovery"]["result"], "failed: unplug not sent")
+
+    def test_status_reports_watchdog(self):
+        watchdog = self.watchdog(WatchdogBus())
+        body = self.ui.status(FakeBus(), watchdog)
+        self.assertEqual(body["ev_watchdog"], {"ev_session": "ok", "recoveries": 0, "last_recovery": None})
+        self.assertIsNone(self.ui.status(FakeBus())["ev_watchdog"])
 
 
 class PublishWorkflowTest(unittest.TestCase):

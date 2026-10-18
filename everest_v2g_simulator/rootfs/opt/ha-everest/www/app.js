@@ -63,6 +63,18 @@ function signedCell(row, v, unit) {
 
 function val(entry) { return entry && entry.age_s < 15 ? entry.value : null; }
 
+// EV watchdog (issue #33): the EV gave up its ISO 15118 session while plugged in.
+function showWatchdog(wd) {
+  const el = $("evwatch"), last = (wd && wd.last_recovery) || null;
+  const when = last ? new Date(last.at * 1000).toLocaleTimeString("en-AU") : "";
+  let text = "";
+  if (wd && wd.ev_session === "recovering") text = "The simulated EV gave up waiting. Unplugging and plugging it in again automatically.";
+  else if (wd && wd.ev_session === "gave_up") text = "The simulated EV gave up its ISO 15118 session while plugged in" + (last && last.result !== "re-plugged" ? " (" + last.result + ", " + when + ")" : "") + ". If this stays, unplug and plug in.";
+  else if (last) text = "Last EV watchdog action at " + when + ": " + last.result + ".";
+  el.textContent = text; el.hidden = !text;
+  el.className = wd && wd.ev_session !== "ok" ? "alert" : "note";
+}
+
 async function refreshStatus() {
   let s;
   try {
@@ -103,6 +115,7 @@ async function refreshStatus() {
   ]);
   drawPower(w, app.max_power_kw);
   announce(dir);
+  showWatchdog(s.ev_watchdog);
 
   const body = $("composite").tBodies[0]; body.replaceChildren();
   const cs = s.composite_schedule;

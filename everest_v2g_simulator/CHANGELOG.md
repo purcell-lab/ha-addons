@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.10
+
+- The acceptance run adds direct reversals between charge and discharge
+  (+20 kW to -5 kW to +3 kW), checks 380 V on every discharge step, and
+  checks that current times voltage gives the power. Charging still runs at
+  the simulated EV's 900 V maximum (#70): with charging at or near 380 V,
+  EvseManager left some power steps at the previous target (UPSTREAM.md,
+  upstream behaviour 12).
+- A start more than 60 s after plug-in now charges (#33). The simulated EV
+  gave up 60 s after asking for authorisation, started no new session in
+  that plug-in, and the transaction then ran at 0 W while a new plug-in was
+  refused. The EV now waits 190 s (build-time patch, UPSTREAM.md), and
+  the charger's own 3-minute limit applies. If the EV still gives up while
+  plugged in, a new EV watchdog unplugs and plugs it in again, never while
+  power flows and at most 3 times without a working session. The Status
+  page shows a notice; the HA status object adds `ev_session` and
+  `ev_last_recovery`. The acceptance run starts the second session 75 s
+  after plug-in, and the release gate adds a watchdog run.
+- The App log no longer shows `Can not apply external limits! No evse
+  energy sink configured for evse_id: 0` every 10 s (part of #28). EVSE 0
+  stays without a sink on purpose (its composite capped targets at a third
+  of the rating) and neither upstream module can skip it, so the App drops
+  only that line. The same warning for EVSE 1 would still show.
+
 ## 0.1.9
 
 - 25 kW in both directions (`max_power_kw` 3 to 25, default 25), at 380 V.
