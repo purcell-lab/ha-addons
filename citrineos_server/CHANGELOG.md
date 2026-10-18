@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.0
+
+Includes the unreleased 0.6.3 changes below.
+
+- Dynamic pricing (lab, opt-in): `price_commands_enabled` (default `false`,
+  needs `command_control_enabled`) and `price_currency` (default `AUD`). With
+  the command token:
+  - an OCPP 2.1 `setChargingProfile` may carry one `absolutePriceSchedule`
+    or `priceLevelSchedule` (bounded: 288 rule stacks or 100 levels, 48 h,
+    `price_currency`); every other profile bound is unchanged;
+  - `/ocpp/2.1|2.0.1/transactions/costUpdated` sends CostUpdated with
+    California Pricing `customData` (current and next price, text) for the
+    command station's active transaction;
+  - `/ocpp/2.1/transactions/setDefaultTariff` sends an energy-only tariff to
+    the command station or a provisioned Plugfest station online on 2.1, and
+    returns the station's reply or CALLERROR unchanged.
+  `/lab/control-policy` adds `price_commands` (`{"enabled": false}` when off);
+  existing keys are unchanged. CitrineOS's role rules grant the command role
+  the price routes only when both flags are on. With price commands on,
+  CitrineOS's own CostUpdated every 60 s (zero from its lab tariff) is moved
+  to about 24.8 days, so it no longer overwrites the price on the station.
+  See "Dynamic pricing (lab)" in the documentation.
+- A refused profile that carries a price schedule says why (flag off, not
+  OCPP 2.1, or outside the bounds).
+
 ## 0.6.3
 
 - Station replies no longer stop after a quick reconnect (#67). On the

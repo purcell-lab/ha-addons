@@ -168,6 +168,20 @@ def basic_auth_password(data, provisioned=""):
     return value
 
 
+# Device-model property keys (libocpp v0.30.3 component config) to values.
+PRICING = {
+    "TariffCostCtrlrAvailableTariff": True,  # Available[Tariff]
+    "TariffCostCtrlrEnabledTariff": True,  # Enabled[Tariff]
+    "TariffCostCtrlrAvailableCost": True,  # Available[Cost]
+    "TariffCostCtrlrEnabledCost": True,  # Enabled[Cost]
+    "TariffCostCtrlrCurrency": "AUD",
+    # Prices in $/kWh to 0.01 c (Amber publishes c/kWh to two decimals).
+    "NumberOfDecimalsForCostValues": 4,
+}
+# CustomImplementationEnabled[org.openchargealliance.costmsg]
+CALIFORNIA_PRICING = {"CustomImplementationCaliforniaPricingEnabled": True}
+
+
 def _set(doc, prop, value):
     attributes = doc["properties"][prop]["attributes"]
     for attribute in attributes:
@@ -254,6 +268,14 @@ def component_config(source, target, settings, password):
         _set(sampled, prop, ",".join(measurands))
     sampled_path.write_text(json.dumps(sampled, indent=2))
     edit("OCPPCommCtrlr", {"HeartbeatInterval": 60})
+    # Dynamic pricing: libocpp passes CostUpdated and TransactionEventResponse
+    # totalCost to EVerest (session_cost) only when Cost is available and
+    # enabled, and reads California Pricing customData (current and next
+    # price, price text) only with costmsg enabled. Available is ReadOnly, so
+    # it can only be set here. libocpp v0.30.3 still answers the OCPP 2.1
+    # tariff messages (SetDefaultTariff and others) NotImplemented.
+    edit("TariffCostCtrlr", PRICING)
+    edit("CustomizationCtrlr", CALIFORNIA_PRICING)
 
 
 def ev_session():

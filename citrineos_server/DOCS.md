@@ -265,6 +265,77 @@ Before you command a real charger:
   as the command station's identity. Use a provisioned password for anything
   but an isolated test network.
 
+## Dynamic pricing (lab)
+
+Off unless `price_commands_enabled: true` (default `false`; needs
+`command_control_enabled`). `price_currency` (default `AUD`, three capital
+letters) is the only currency the gateway accepts. Prices are information
+for the station: they never change the power bounds above. All three use the
+command token and `?identifier=<station>&tenantId=1`, like the scoped
+commands.
+
+| Feature | Route | Target |
+|---|---|---|
+| B: price schedule in a charging profile | the OCPP 2.1 `smartcharging/setChargingProfile` route | the command station |
+| C: CostUpdated | `/ocpp/2.1/transactions/costUpdated`, `/ocpp/2.0.1/transactions/costUpdated` | the command station, online on that version, with that active transaction |
+| D: SetDefaultTariff | `/ocpp/2.1/transactions/setDefaultTariff` | a `tariff_stations` entry online on OCPP 2.1 |
+
+- **B.** `chargingProfile.chargingSchedule[0]` may carry one of
+  `absolutePriceSchedule` or `priceLevelSchedule` (OCPP 2.1 only); every
+  other profile bound is unchanged. `absolutePriceSchedule`: `timeAnchor`,
+  `priceScheduleID`, `currency` = `price_currency`, `language` `en`,
+  `priceAlgorithm` `urn:iso:std:iso:15118:-20:PriceAlgorithm:1-Power`,
+  1 to 288 `priceRuleStacks` (`duration` > 0 s, 1 to 8 `priceRule` of
+  `energyFee` and `powerRangeStart` `{"value": 0, "exponent": 0}`), optional
+  `priceScheduleDescription` (160 characters), `minimumCost` and
+  `maximumCost`. A RationalNumber has an integer `value` from -32768 to 32767
+  and an `exponent` from -3 to 3. No tax, overstay or additional-service
+  rules. `priceLevelSchedule`: `timeAnchor`, `priceScheduleId`,
+  `numberOfPriceLevels` 1 to 10, 1 to 100 entries of `duration` > 0 s and
+  `priceLevel` below `numberOfPriceLevels`. Either schedule covers at most
+  48 h (172800 s). A refused priced profile says whether the flag, the OCPP
+  version or the bounds were the cause.
+- **C.** `{"totalCost": 0..10000, "transactionId": "<active>", "customData":
+  {"vendorId": "org.openchargealliance.costmsg", "chargingPrice": {"kWhPrice": n,
+  "hourPrice"?: n, "flatFee"?: n}, "nextPeriod"?: {"atTime": "<date-time>",
+  "chargingPrice": {"kWhPrice": n}}, "priceText"?: "<255 characters>"}}`
+  (California Pricing). Prices are AUD per kWh including GST, -5 to 20. The
+  reply is CitrineOS's dispatch confirmation, as for the scoped commands.
+- **D.** `{"evseId": n, "tariff": {...}}`: `tariffId` (up to 60 printable
+  characters, not `HA-LAB-ZERO`), `currency` = `price_currency`, optional
+  `description` (up to 3 of `{"format": "UTF8", "language": "en", "content":
+  "<255 characters>"}`), optional `validFrom`, and `energy` with 1 to 96
+  `prices` of `priceKwh` (excluding GST, -5 to 20) and optional `conditions`
+  (`startTimeOfDay`/`endTimeOfDay` `HH:MM`, `dayOfWeek`,
+  `validFromDate`/`validToDate` `YYYY-MM-DD`, `minPower`/`maxPower` in W,
+  negative for export), and optional `taxRates` `[{"type": "GST", "tax": 10}]`.
+  No charging-time, idle, fixed, reservation or minimum/maximum cost
+  components. `tariff_stations` is the command station plus every
+  `plugfest_stations` identity while `plugfest_enabled` is on; the `SIM-EV-`
+  rule does not apply, since a tariff is information, not control. The
+  gateway waits up to 8 s and returns the station's reply unchanged: the
+  SetDefaultTariffResponse (`{"status": "Accepted"}`, `Rejected`, ...) or, for a
+  CALLERROR, CitrineOS's error object (for example
+  `{"_errorCode": "NotImplemented", ...}`). 504 when the station does not
+  answer. CitrineOS stores an accepted tariff in its Tariffs table by
+  `tariffId`; connectors keep the lab tariff.
+
+`/lab/control-policy` reports `price_commands` (`{"enabled": false}` when
+off) with the currency, the limits, the routes and `tariff_stations`. The
+existing keys are unchanged. The command role in CitrineOS's role rules gets
+the three price routes only while both flags are on.
+
+CitrineOS itself sends a CostUpdated from its Tariffs table (zero for the lab
+tariff) every 60 s of a transaction, which would replace the price shown by
+C. With price commands on, the App sets CitrineOS's
+`transactions.costUpdatedInterval` to 2147483 s (about 24.8 days, the longest
+interval Node.js can schedule), so those messages stop in practice. Upstream
+requires either that interval or `sendCostUpdatedOnMeterValue`, which would
+put a zero `totalCost` into every TransactionEventResponse instead. CitrineOS
+still fills `totalCost` in the TransactionEventResponse that ends a
+transaction (zero with the lab tariff), and 0 for a 2.1 transaction cancelled
+before any energy was delivered.
+
 ## Operator UI scope (opt-in)
 
 For the **CitrineOS Operator UI** App. Off unless `operator_ui_enabled: true`.

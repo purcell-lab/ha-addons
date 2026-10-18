@@ -1,8 +1,8 @@
 import {createRequire} from 'node:module';
-import {commandStation} from './control-policy.mjs';
+import {commandStation,LAB_TARIFF} from './control-policy.mjs';
 const requireApp=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');
 const {Client}=createRequire(requireApp.resolve('@citrineos/dal'))('pg');
-export const LAB_TARIFF='HA-LAB-ZERO';
+export {LAB_TARIFF};
 export const LAB_LOCATION='Home Assistant lab';
 export async function seedSimulator(o) {
   // Parameterised, dedicated-lab-only bootstrap. No public API exposes SQL.

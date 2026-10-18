@@ -118,7 +118,8 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         return dt.datetime.now(dt.timezone.utc).isoformat()
 
     server_options.update(profile_simulator_enabled=True, profile_simulator_password=password,
-                          command_control_enabled=True, command_token=commander)
+                          command_control_enabled=True, command_token=commander,
+                          price_commands_enabled=True)
     p = temporary / "lab-server.json"
     p.write_text(json.dumps(server_options)); p.chmod(0o600)
     docker("cp", str(p), "lab-server:/data/options.json")
@@ -168,12 +169,18 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         start = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=8)
         periods = [{"startPeriod": i*step, "limit":11000, "dischargeLimit":-11000,
                     "setpoint": watts, "operationMode":"CentralSetpoint"} for i,watts in enumerate(targets)]
+        # B: the same CentralSetpoint profile carries the Amber import forecast.
         report["profile_dispatch"] = probe("profile", transaction_id=txid, periods=periods,
-            duration=180, start_at=start.isoformat())
+            duration=180, start_at=start.isoformat(), priced=True)
         event = until(lambda: (p if (p:=ui("/api/profiles").get("latest_tx_profile"))
                               and p["status"] == "Accepted" else None), "EVSE profile Accepted", 25)
         assert event["payload"]["chargingProfile"]["transactionId"] == txid
         assert event["payload"]["chargingProfile"]["chargingSchedule"][0]["chargingSchedulePeriod"] == periods
+        priced = event["payload"]["chargingProfile"]["chargingSchedule"][0].get("absolutePriceSchedule")
+        assert priced and priced["currency"] == "AUD" and priced["priceRuleStacks"], event
+        shown = ui("/api/profiles").get("price_schedules")
+        assert shown, "Status page shows no price schedule"
+        report["price_schedule_evidence"] = {"rule_stacks": len(priced["priceRuleStacks"]), "shown": shown}
         report["profile_evidence"] = event
         samples = []
         report["samples"] = samples
@@ -198,6 +205,19 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
             if not passed:
                 failures.append(f"{key} energy consistency failed")
         report["energy"] = energies
+        # C: CostUpdated with California Pricing shows the price at the station.
+        report["cost_dispatch"] = probe("cost", transaction_id=txid)
+        sent = report["cost_dispatch"]["body"]["customData"]
+        cost = until(lambda: (c if (c := (ui().get("session_cost") or {}).get("value")) and c.get("kwh_price") is not None
+                              and abs(c["kwh_price"] - sent["chargingPrice"]["kWhPrice"]) < 1e-3 else None),
+                     "Station shows the Amber price", 30)
+        assert abs(cost["next_kwh_price"] - sent["nextPeriod"]["chargingPrice"]["kWhPrice"]) < 1e-3, cost
+        assert cost["currency"] == "AUD", cost
+        report["cost_evidence"] = cost
+        # D: SetDefaultTariff. libocpp v0.30.3 answers NotImplemented; the reply is recorded.
+        tariff = probe("tariff")
+        report["tariff_evidence"] = tariff
+        assert tariff["dispatch"]["station_status"] == "CALLERROR NotImplemented", tariff
         report["client_meter"] = probe("meter")
         for key, expected in (("meter_transaction_id", txid), ("meter_fresh", True)):
             if report["client_meter"].get(key) != expected:

@@ -321,6 +321,66 @@ chain. The CSMS must answer GetCertificateStatus with a valid
 `status` field (for example `Failed`). libocpp 2025.10.0 aborts the station
 process on a reply without one.
 
+## Dynamic pricing
+
+The station shows prices; it never changes charging because of them. From
+0.1.11 the device model enables costs and tariffs in Australian dollars:
+
+| Device-model variable | Value |
+|---|---|
+| `TariffCostCtrlr` `Available` (instances `Tariff` and `Cost`) | `true` (ReadOnly, so set in the generated device model) |
+| `TariffCostCtrlr` `Enabled` (instances `Tariff` and `Cost`) | `true` |
+| `TariffCostCtrlr` `Currency` | `AUD` |
+| `TariffCostCtrlr` `NumberOfDecimalsForCostValues` | `4` |
+| `CustomizationCtrlr` `CustomImplementationEnabled` (instance `org.openchargealliance.costmsg`, California Pricing) | `true` |
+
+The device model is rebuilt on every start, so a CSMS SetVariables change
+to these lasts until the next restart.
+
+What works (libocpp v0.30.3, OCPP 2.1 and 2.0.1):
+
+- **CostUpdated** is accepted during a transaction. With California Pricing
+  `customData` (vendor `org.openchargealliance.costmsg`) the station also
+  reads the current and next-period prices and the price text. The
+  **Price** panel on the Status page shows the latest one: total cost,
+  current price per kWh (and per hour, if sent), next-period price and its
+  start time, the price text and the cost timestamp. Example:
+
+  ```json
+  {"totalCost": 1.23, "transactionId": "<transaction id>",
+   "customData": {"vendorId": "org.openchargealliance.costmsg", "state": "Charging",
+                  "chargingPrice": {"kWhPrice": 0.2512},
+                  "nextPeriod": {"atTime": "2026-10-18T05:30:00Z", "chargingPrice": {"kWhPrice": 0.31}},
+                  "priceText": "0.2512 AUD/kWh now, 0.31 AUD/kWh from 15:30"}}
+  ```
+
+  A `totalCost` in a TransactionEventResponse is shown the same way, and an
+  `updatedPersonalMessage` sent with it becomes the price text. Prices
+  are kept to 4 decimals and cut off, not rounded, beyond that (EVerest's
+  conversion).
+- **Price schedules in charging profiles** (`absolutePriceSchedule`,
+  `priceLevelSchedule`, ISO 15118-2 `salesTariff`) are accepted and stored
+  with the profile, but EVerest does not act on them. The **Price** panel
+  shows the first 6 intervals of the schedule in the last received
+  charging profile (start time in UTC, duration, energy price or price
+  level) and how many there are.
+- **OCPP 2.1 tariffs are not implemented.** libocpp v0.30.3 answers
+  SetDefaultTariff, GetTariffs, ClearTariffs and ChangeTransactionTariff
+  with the CALLERROR `NotImplemented`, whatever the device model says.
+
+**Recent pricing messages** on the Status page (and `pricing` in
+`/api/profiles`) lists the last ten CostUpdated and tariff requests with
+the station's reply: `Replied` for CostUpdated (its response has no
+status), `CallError` with the reason for the tariff messages. They are
+listed apart from the profile requests, so frequent cost updates never push
+a profile out of view. `/api/status` carries the parsed `session_cost`, and
+`/api/profiles` the `price_schedules` of the latest profile.
+
+Enabling Tariff and Cost does not change authorisation, transactions or
+smart charging: libocpp uses these variables only when it handles
+CostUpdated and the cost fields of a TransactionEventResponse, and passes
+the result to EVerest's session cost.
+
 ## Security boundaries
 
 The UI uses Home Assistant Ingress authentication. nginx on port 8099
