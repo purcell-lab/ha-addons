@@ -125,7 +125,7 @@ simulator only. All command controls remain off by default; Hasura remains
 read-only. Do not enable this draft until the full gateway, HA-client,
 local-fallback and Citrine/EVerest integration gates pass.
 
-See [the full Plugfest acceptance plan](../docs/citrine-plugfest-acceptance.md)
+See [the full Plugfest acceptance plan](https://github.com/purcell-lab/ocpp-plugfest/blob/main/plugfest-lab/ACCEPTANCE.md)
 for the proposed end-to-end scope, migration procedure and remaining work.
 The previous isolated/read-only instructions below describe the installed
 baseline, not proof that the new controlled profile is ready.
@@ -299,4 +299,4 @@ identity that is already connected, so use it only on an isolated test
 network, only while a host port is published, and switch it off again
 afterwards. The server logs a warning at start while it is on.
 
-See [the Plugfest runbook](../docs/plugfest-runbook.md).
+See [the Plugfest runbook](https://github.com/purcell-lab/ocpp-plugfest/blob/main/plugfest-lab/RUNBOOK.md).
