@@ -270,18 +270,26 @@ def check_energy(samples):
     rows = [s for s in samples if None not in s[1:4]]
     pos = neg = 0.0
     for a, b in zip(rows, rows[1:]):
-        area = (b[0] - a[0]) * (a[1] + b[1]) / 2 / 3600
+        dt = b[0] - a[0]
         if a[1] >= 0 and b[1] >= 0:
-            pos += area
+            pos += dt * (a[1] + b[1]) / 2 / 3600
         elif a[1] <= 0 and b[1] <= 0:
-            neg -= area
+            neg -= dt * (a[1] + b[1]) / 2 / 3600
+        else:
+            # A direct reversal: split the trapezoid at the linear zero crossing,
+            # so neither direction loses the energy of the crossing interval.
+            f = a[1] / (a[1] - b[1])
+            first, second = f * dt * a[1] / 2 / 3600, (1 - f) * dt * b[1] / 2 / 3600
+            pos += max(first, second)
+            neg -= min(first, second)
     imported = rows[-1][2] - rows[0][2]
     exported = rows[-1][3] - rows[0][3]
     result = {"import_metered": round(imported, 1), "import_integrated": round(pos, 1),
               "export_metered": round(exported, 1), "export_integrated": round(neg, 1)}
-    # Sign-change intervals are excluded from the integrals, hence the margin.
-    assert abs(imported - pos) <= max(5.0, 0.1 * pos), result
-    assert abs(exported - neg) <= max(5.0, 0.1 * neg), result
+    # 1 s polling under-samples ramps, hence the margin.
+    trace = [(round(s[0], 1), s[1], s[2], s[3]) for s in rows]
+    assert abs(imported - pos) <= max(5.0, 0.1 * pos), {**result, "trace": trace}
+    assert abs(exported - neg) <= max(5.0, 0.1 * neg), {**result, "trace": trace}
     return result
 
 
