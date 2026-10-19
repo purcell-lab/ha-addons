@@ -196,20 +196,24 @@ test('OCPP 1.6 routes: 1.6 payload shapes, integer transaction IDs, charging-onl
   assert.equal(targetAllows(at(3),{id:9001},idle),true);
 });
 test('RBAC rules are generated from the gateway route list',async()=>{
-  const {rbacRules,ALL_ROUTES,COMMAND_ROLE,CONFIG_UPSTREAM}=await import('../rootfs/control-policy.mjs');
+  const {rbacRules,ALL_ROUTES,COMMAND_ROLE,CONFIG_UPSTREAM,STATUS_ROUTES}=await import('../rootfs/control-policy.mjs');
   const {readFileSync}=await import('node:fs');
   const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
   const on=rbacRules(base,true)['1'];
   // Every route the gateway accepts for scoped commands, on 2.1, 2.0.1 and 1.6.
   for(const route of ALL_ROUTES) assert.ok(on[route].POST.includes(COMMAND_ROLE),route);
   assert.equal(ALL_ROUTES.length,12);
+  const status=Object.values(STATUS_ROUTES);
   // Nothing else gains the command role, and other roles keep their rules.
   for(const [route,methods] of Object.entries(on))
     for(const [method,roles] of Object.entries(methods))
-      if(roles.includes(COMMAND_ROLE)&&!ALL_ROUTES.includes(route)&&route!==CONFIG_UPSTREAM)
+      if(roles.includes(COMMAND_ROLE)&&!ALL_ROUTES.includes(route)&&route!==CONFIG_UPSTREAM&&!status.includes(route))
         assert.deepEqual(roles,base['1'][route][method],route);
   // Read-only station configuration (OCPP 1.6 GetConfiguration) for the command role only.
   assert.deepEqual(on[CONFIG_UPSTREAM],{POST:['lab-controller']});
+  // The gateway's own GetTransactionStatus (stale transactions); the Operator UI keeps its rule.
+  for(const route of status) assert.deepEqual(on[route].POST,['lab-controller','lab-operator'],route);
+  for(const route of status) assert.deepEqual(rbacRules(base,false)['1'][route].POST,['lab-operator'],route);
   assert.deepEqual(on['/ocpp/2.0.1/evdriver/requestStartTransaction'].POST,['lab-controller','lab-operator']);
   assert.deepEqual(on['/ocpp/1.6/evdriver/remoteStartTransaction'].POST,['lab-controller']);
   // Off: the command role holds no scoped route; operator rules remain.
@@ -464,4 +468,30 @@ test('RBAC grants the price routes to the command role only when both flags are 
   for(const route of PRICE_ROUTES) delete on[route];
   assert.deepEqual(on,plain);
   assert.deepEqual(rbacRules(rbacRules(base,true,true),true,false),rbacRules(base,true));
+});
+test('stale transactions: which station, which route, which transactions are due',async()=>{
+  const {reconcileTarget,reconcileDue,startRoute,STATUS_ROUTES,RECONCILE_EVERY_MS,ALL_ROUTES:routes}=
+    await import('../rootfs/control-policy.mjs');
+  const rows=(protocol='ocpp2.1',isOnline=true,tx=[{stationId:2,tenantId:1,transactionId:'test-123',isActive:true}])=>({data:{
+    ChargingStations:[{id:2,tenantId:1,ocppConnectionName:STATION,protocol,isOnline}],Transactions:tx}});
+  assert.deepEqual(reconcileTarget(rows(),STATION),
+    {protocol:'ocpp2.1',route:'/ocpp/2.1/transactions/getTransactionStatus',transactions:['test-123']});
+  assert.deepEqual(reconcileTarget(rows('ocpp2.0.1'),STATION).route,STATUS_ROUTES['ocpp2.0.1']);
+  assert.deepEqual(reconcileTarget(rows('ocpp2.1',true,[]),STATION).transactions,[]);
+  // Another station's transactions are not asked about.
+  assert.deepEqual(reconcileTarget(rows('ocpp2.1',true,[{stationId:3,tenantId:1,transactionId:'other',isActive:true}]),
+    STATION).transactions,[]);
+  // Offline, OCPP 1.6 (no GetTransactionStatus), another identity or a malformed row: nothing.
+  for(const r of [rows('ocpp2.1',false),rows('ocpp1.6'),rows('ocpp2.1',true,[{stationId:2,tenantId:2,transactionId:'x',isActive:true}]),
+    rows('ocpp2.1',true,[{stationId:2,tenantId:1,transactionId:'bad id',isActive:true}]),{data:{}},null])
+    assert.equal(reconcileTarget(r,STATION),null);
+  assert.equal(reconcileTarget(rows(),'SIM-EV-OTHER'),null);
+  const target={transactions:['a','b','c']}, now=1e9;
+  const checked=new Map([['a',now-1000],['b',now-RECONCILE_EVERY_MS]]);
+  assert.deepEqual(reconcileDue(target,now,checked),['b','c']);
+  assert.deepEqual(reconcileDue(target,now,checked,true),['a','b','c']);
+  assert.deepEqual(reconcileDue(null,now,checked,true),[]);
+  // Only the start route of each protocol triggers a check after a refusal.
+  assert.deepEqual(routes.filter(startRoute),['/ocpp/2.1/evdriver/requestStartTransaction',
+    '/ocpp/2.0.1/evdriver/requestStartTransaction','/ocpp/1.6/evdriver/remoteStartTransaction']);
 });

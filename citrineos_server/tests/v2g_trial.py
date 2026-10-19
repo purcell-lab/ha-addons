@@ -135,17 +135,19 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
     docker("create", "--name", "lab-client", "--network", "citrine-ci", "citrine-client:test")
     names.append("lab-client"); docker("start", "lab-client")
     assert probe("ping")["policy"] == "verified"
-    docker("create", "--name", "lab-v2g", "--network", "citrine-ci", "--cap-add", "NET_ADMIN",
-           "--memory", "1536m", "citrine-v2g:test")
-    names.append("lab-v2g")
     p = temporary / "lab-v2g.json"
     p.write_text(json.dumps({"csms_url": "ws://lab-server:8081", "charge_point_id": STATION,
         "ocpp_version": "2.1", "max_power_kw": 11, "acknowledge_test_isolation": True,
         "csms_basic_auth_password": password, "ha_control": False}))
-    p.chmod(0o600); docker("cp", str(p), "lab-v2g:/data/options.json")
-    docker("start", "lab-v2g")
-    txid = None
-    try:
+    p.chmod(0o600)
+    names.append("lab-v2g")
+
+    def station_up():
+        # A new container, as an App update creates: no state from before.
+        docker("create", "--name", "lab-v2g", "--network", "citrine-ci", "--cap-add", "NET_ADMIN",
+               "--memory", "1536m", "citrine-v2g:test")
+        docker("cp", str(p), "lab-v2g:/data/options.json")
+        docker("start", "lab-v2g")
         until(lambda: any(s["ocppConnectionName"] == STATION and s["protocol"] == "ocpp2.1"
                           and s["isOnline"] for s in rows()), "Native 2.1 registration")
         until(lambda: ui()["app"].get("negotiated") == "ocpp2.1", "EVSE observed 2.1")
@@ -154,6 +156,34 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         # session does not mean that this independent readiness test finished.
         until(lambda: discovery_ready(ui("/api/diagnostics?brief=1")),
               "Boot-time discovery self-test", 60)
+
+    def active(txid):
+        return any(t["transactionId"] == txid and t["isActive"] for t in transactions())
+
+    txid = None
+    try:
+        station_up()
+        # Stale transaction (the Green, 19 October 2026): a station recreated
+        # mid-session no longer has its transaction, CitrineOS kept it active
+        # and refused every later start. The gateway asks the station
+        # (GetTransactionStatus); upstream closes what is not ongoing there.
+        assert ui("/api/ev/plugin", "POST").get("sent")
+        until(lambda: reading()["state"] in ("AuthRequired", "Preparing"), "Plugged readiness (stale case)")
+        probe("start")
+        stale = until(lambda: next((t["transactionId"] for t in transactions() if t["isActive"]), None),
+                      "Stale case: CSMS active transaction")
+        docker("rm", "-f", "lab-v2g")
+        station_up()
+        commander_auth = {"Authorization": "Bearer " + commander}
+        status, policy = request("/lab/control-policy", extra=commander_auth)
+        assert status == 200 and policy["transaction_reconcile"]["route"] == "/lab/reconcile-transactions", policy
+        assert request("/lab/reconcile-transactions", body={})[0] == 403, "Reader must not reconcile"
+        # The watcher may already be checking (station online); the route shares that check.
+        status, reconciled = request("/lab/reconcile-transactions", body={}, extra=commander_auth)
+        assert status == 200, reconciled
+        until(lambda: not active(stale), "Stale transaction closed", 90)
+        report["stale_transaction"] = {"transaction_id": stale, "reconcile": reconciled,
+                                       "closed_at": stamp()}
         report["registered_at"] = stamp()
         assert ui("/api/ev/plugin", "POST").get("sent")
         until(lambda: reading()["state"] in ("AuthRequired", "Preparing"), "Plugged readiness")

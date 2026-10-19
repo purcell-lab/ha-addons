@@ -115,6 +115,22 @@ changed. A station or connector first seen after this start (open admission,
 Plugfest stations' connectors from their status reports) is covered at the
 next start and logs these lines until then.
 
+**Stale transactions.** CitrineOS keeps a transaction active until the
+station sends TransactionEvent Ended. A station that loses its transaction
+state (an App update recreates the simulator container mid-session) never
+does, and the gateway would then refuse every start. With
+`command_control_enabled` the gateway sends OCPP 2.x GetTransactionStatus for
+each transaction CitrineOS holds active for the command station: when the
+station comes online, every 5 minutes, and at once after it refuses a start
+for an active transaction (retry a few seconds later). Upstream closes a
+transaction the station reports not ongoing with no queued messages
+(`isActive` false; the end time stays empty). `POST
+/lab/reconcile-transactions` with the command token runs the check on demand
+and returns the station's answers and the transactions still active. The
+gateway log shows each check (`Transaction status check (...)`). OCPP 1.6 has
+no GetTransactionStatus, so a stale 1.6 transaction still needs the station's
+StopTransaction.
+
 Upstream log lines that remain and need no action:
 
 - `Active Transaction not found on charging station {} evse {} <station> 1`:

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.1
+
+- Stale transactions no longer block every start. A station that loses its
+  transaction state (on the Green, an EVerest App update recreated the V2G
+  simulator mid-session) never ends its transaction, so CitrineOS kept it
+  active and the gateway refused each later start as another active session.
+  With scoped commands on, the gateway now sends OCPP 2.x
+  GetTransactionStatus for each transaction CitrineOS holds active for the
+  command station: when the station comes online, every 5 minutes, and at
+  once after it refuses a start for an active transaction (the 409 then says
+  to retry). Upstream's response handler closes a transaction the station
+  reports not ongoing with no queued messages, and leaves an ongoing one as
+  it is. `POST /lab/reconcile-transactions` (command token) runs the check on
+  demand and returns each station answer and the transactions still active.
+  `/lab/control-policy` adds `transaction_reconcile`; existing keys are
+  unchanged. CitrineOS's role rules grant the command role the two
+  GetTransactionStatus routes, which callers cannot send through the gateway.
+  OCPP 1.6 has no equivalent, so 1.6 transactions are not checked. CI
+  recreates the V2G station mid-transaction and expects the stale
+  transaction closed before the charge/discharge trial.
+
 ## 0.7.0
 
 Includes the unreleased 0.6.3 changes below.
