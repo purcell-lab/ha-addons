@@ -112,6 +112,7 @@ async function refreshStatus() {
     ["DC voltage", fmt(v.DC, 1) + " V", "volt", "idle"],
     ["DC current", signed(i.DC, 1) + " A", "amp", it],
     ["Rated power", "\u00b1" + fmt(app.max_power_kw) + " kW", "gauge", "idle"],
+    ...priceChips(s.session_cost),
   ]);
   drawPower(w, app.max_power_kw);
   announce(dir);
@@ -135,7 +136,22 @@ async function refreshStatus() {
 // Dynamic pricing: session cost (CostUpdated / California Pricing) and the
 // price schedule of the last charging profile (information only).
 const money = (v, cur) => (typeof v === "number" && isFinite(v)) ? v.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + (cur ? " " + cur : "") : "–";
-const utc = (t) => t ? String(t).replace("T", " ").replace(/(\.\d+)?(Z|[+-]00:00)$/, "") : "–";
+// Times in the browser's time zone (AEDT at the Canberra Plugfest), with the zone shown.
+const local = (t, opts) => {
+  const d = t ? new Date(t) : null;
+  if (!d || isNaN(d)) return t ? String(t) : "–";
+  return d.toLocaleString("en-AU", { hour12: false, timeZoneName: "short", ...(opts || { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }) });
+};
+const clock = (t) => local(t, { hour: "2-digit", minute: "2-digit" });
+
+// Live-reading chips for the latest session cost: price now, and the next price with its start.
+function priceChips(entry) {
+  const p = entry && entry.value;
+  const cur = (p && p.currency) || "";
+  const now = p && p.kwh_price != null ? money(p.kwh_price, cur) + "/kWh" : "\u2013";
+  const next = p && p.next_kwh_price != null ? money(p.next_kwh_price) + (p.next_at ? " from " + clock(p.next_at) : "") : "\u2013";
+  return [["Price now", now, "price", "idle"], ["Next price", next, "price", "idle"]];
+}
 const duration = (s) => typeof s !== "number" ? "–" : s % 3600 === 0 ? fmt(s / 3600) + " h" : s % 60 === 0 ? fmt(s / 60) + " min" : fmt(s) + " s";
 
 function setGrid(el, items) {
@@ -155,9 +171,9 @@ function showPrice(entry) {
     ["Total cost", money(p.total_cost, cur)],
     ["Price now", p.kwh_price != null ? money(p.kwh_price, cur) + "/kWh" : "–"],
     ["Next price", p.next_kwh_price != null ? money(p.next_kwh_price, cur) + "/kWh" : "–"],
-    ["Next from (UTC)", utc(p.next_at)],
+    ["Next from", local(p.next_at)],
     ["Status", p.status || "–"],
-    ["Cost time (UTC)", utc(p.timestamp)],
+    ["Cost time", local(p.timestamp)],
   ];
   if (p.hour_price != null) items.splice(2, 0, ["Time price", money(p.hour_price, cur) + "/h"]);
   setGrid($("price"), items);
@@ -182,11 +198,11 @@ function showPriceSchedules(list) {
   $("schedmeta").textContent = list.map((s) => s.kind + (s.id != null ? " #" + s.id : "") +
     (s.description ? " “" + s.description + "”" : "") + ": " + s.count + " interval" + (s.count === 1 ? "" : "s") +
     (s.count > s.intervals.length ? ", first " + s.intervals.length + " shown" : "") +
-    (s.time_anchor ? ", time anchor " + s.time_anchor : "")).join("; ") +
+    (s.time_anchor ? ", time anchor " + local(s.time_anchor) : "")).join("; ") +
     ". Information only: EVerest stores the schedule but does not act on it.";
   for (const s of list) for (const it of s.intervals) {
     const row = body.insertRow();
-    cell(row, it.start ? utc(it.start) : "+" + duration(it.offset_s));
+    cell(row, it.start ? local(it.start) : "+" + duration(it.offset_s));
     cell(row, duration(it.duration_s), "num");
     cell(row, schedulePrice(s, it), "num");
   }
@@ -204,7 +220,7 @@ function showPricing(events) {
   const body = $("pricing").tBodies[0]; body.replaceChildren();
   for (const ev of events || []) {
     const row = body.insertRow();
-    cell(row, utc(ev.received));
+    cell(row, local(ev.received));
     cell(row, ev.status || "pending", "st-" + (ev.status || "pending"));
     cell(row, ev.action);
     cell(row, pricingDetail(ev));
@@ -227,7 +243,8 @@ async function refreshProfiles() {
     const reply = tx.status ? "Station reply: " + tx.status : "Station reply: not yet recorded";
     const cp = (tx.payload && tx.payload.chargingProfile) || {};
     const what = cp.chargingProfilePurpose ? cp.chargingProfilePurpose + " #" + cp.id + ", stack level " + cp.stackLevel + ". " : "";
-    $("txmeta").textContent = what + "Received " + tx.received + " (UTC), message " + tx.message_id + ". " + reply + ".";
+    const left = (tx.omitted || []).length ? " Shown without its " + tx.omitted.join(" and ") + " (" + fmt(tx.payload_bytes / 1024, 1) + " KiB in full); the price schedule is summarised in the Price panel." : "";
+    $("txmeta").textContent = what + "Received " + local(tx.received) + ", message " + tx.message_id + ". " + reply + "." + left;
     if (tx.payload) { lastJson = JSON.stringify(tx.payload, null, 2); $("txjson").textContent = lastJson; $("copy").disabled = false; }
     else { lastJson = ""; $("txjson").textContent = "Payload larger than 8 KiB (" + tx.payload_bytes + " bytes); see the App's OCPP message log."; $("copy").disabled = true; }
   } else { $("txmeta").textContent = "No charging profile received yet."; $("txjson").textContent = ""; $("copy").disabled = true; }
@@ -235,7 +252,7 @@ async function refreshProfiles() {
   for (const ev of d.recent || []) {
     const row = body.insertRow();
     const prof = (ev.payload && ev.payload.chargingProfile) || {};
-    cell(row, String(ev.received).replace("T", " ").replace(/\.\d+Z$/, ""));
+    cell(row, local(ev.received));
     cell(row, ev.status || "pending", "st-" + (ev.status || "pending"));
     cell(row, ev.action);
     cell(row, prof.chargingProfilePurpose || (ev.payload && ev.payload.chargingProfileCriteria ? "criteria" : "–"));

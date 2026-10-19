@@ -564,6 +564,35 @@ class OcppLogTest(unittest.TestCase):
         self.assertIsNone(event["payload"])
         self.assertGreater(event["payload_bytes"], 8192)
 
+    def test_oversized_priced_profile_shows_power_schedule(self):
+        # A 48 h OpenADR price schedule (288 stacks) makes the profile about 13 KiB.
+        stacks = [{"duration": 600, "priceRule": [{"energyFee": {"value": 969 + i, "exponent": -4},
+                                                   "powerRangeStart": {"value": 0, "exponent": 0}}]}
+                  for i in range(288)]
+        periods = [{"startPeriod": 0, "limit": 4500, "dischargeLimit": 0, "setpoint": 4500,
+                    "operationMode": "CentralSetpoint"}]
+        profile = {"evseId": 1, "chargingProfile": {
+            "id": 9001, "stackLevel": 1, "chargingProfilePurpose": "TxProfile", "chargingProfileKind": "Absolute",
+            "transactionId": "tx-1", "chargingSchedule": [{
+                "id": 9001, "chargingRateUnit": "W", "duration": 600, "chargingSchedulePeriod": periods,
+                "absolutePriceSchedule": {"timeAnchor": "2026-10-19T04:30:00Z", "priceScheduleID": 1,
+                                          "currency": "AUD", "language": "en",
+                                          "priceAlgorithm": "urn:iso:std:iso:15118:-20:PriceAlgorithm:1-Power",
+                                          "priceRuleStacks": stacks}}]}}
+        text = "2026-10-19T04:27:51.436Z: CentralSystem>ChargePoint  SetChargingProfile\n" + \
+            json.dumps([2, "big", "SetChargingProfile", profile])
+        event = ocpp_log.profile_events(text)[0]
+        self.assertGreater(event["payload_bytes"], 8192)
+        self.assertEqual(event["omitted"], ["absolutePriceSchedule"])
+        schedule = event["payload"]["chargingProfile"]["chargingSchedule"][0]
+        self.assertNotIn("absolutePriceSchedule", schedule)
+        self.assertEqual(schedule["chargingSchedulePeriod"], periods)
+        self.assertEqual(ocpp_log.latest_tx_profile([event])["message_id"], "big")
+        summary = ocpp_log.price_schedules(event)
+        self.assertEqual(summary[0]["count"], 288)
+        self.assertEqual(summary[0]["intervals"][0]["energy_fee"], 0.0969)
+        self.assertEqual(summary[0]["intervals"][1]["start"], "2026-10-19T04:40:00Z")
+
     def test_rotated_files_read_oldest_first(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)

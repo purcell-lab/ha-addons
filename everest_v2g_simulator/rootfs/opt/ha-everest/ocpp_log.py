@@ -19,6 +19,10 @@ PRICING_ACTIONS = ("CostUpdated", "SetDefaultTariff", "GetTariffs", "ClearTariff
                    "ChangeTransactionTariff")
 TRACKED = PROFILE_ACTIONS + PRICING_ACTIONS
 PRICE_INTERVALS = 6  # intervals of a price schedule shown on the Status page
+# Price information in a charging schedule. A 48 h absolutePriceSchedule is
+# over 8 KiB, so an oversized profile is shown with these left out (only the
+# power setpoint schedule) and they are summarised separately.
+PRICE_KEYS = ("absolutePriceSchedule", "priceLevelSchedule", "salesTariff")
 
 
 def frames(text):
@@ -75,7 +79,7 @@ def tracked_events(text, actions=TRACKED, limit=10):
                 "message_id": uid,
                 "action": frame[2],
                 "received": stamp,
-                "payload": payload if size <= MAX_PAYLOAD else None,
+                "payload": payload,
                 "payload_bytes": size,
                 "status": None,
                 "status_info": None,
@@ -93,7 +97,41 @@ def tracked_events(text, actions=TRACKED, limit=10):
                 entry["status"] = "CallError"
                 entry["status_info"] = {"reasonCode": frame[2] if len(frame) > 2 else None,
                                         "additionalInfo": frame[3] if len(frame) > 3 else None}
-    return [requests[uid] for uid in order[-limit:]][::-1]
+    return [_shown(requests[uid]) for uid in order[-limit:]][::-1]
+
+
+def _without_prices(payload):
+    """A SetChargingProfile payload with the price information left out of each
+    charging schedule, and the keys removed; None when there is nothing to remove."""
+    profile = payload.get("chargingProfile") if isinstance(payload, dict) else None
+    if not isinstance(profile, dict):
+        return None, []
+    removed, schedules = [], []
+    for schedule in _list(profile.get("chargingSchedule")):
+        if isinstance(schedule, dict):
+            removed += [k for k in PRICE_KEYS if k in schedule and k not in removed]
+            schedule = {k: v for k, v in schedule.items() if k not in PRICE_KEYS}
+        schedules.append(schedule)
+    if not removed:
+        return None, []
+    return {**payload, "chargingProfile": {**profile, "chargingSchedule": schedules}}, removed
+
+
+def _shown(entry):
+    """Finish an event for display. A SetChargingProfile keeps a summary of its
+    price schedules; a payload over MAX_PAYLOAD is shown without its price
+    information, or withheld if it is still too large."""
+    payload = entry["payload"]
+    if entry["action"] == "SetChargingProfile":
+        entry["price_schedules"] = price_schedules(entry)
+    entry["omitted"] = []
+    if entry["payload_bytes"] > MAX_PAYLOAD:
+        trimmed, removed = _without_prices(payload) if entry["action"] == "SetChargingProfile" else (None, [])
+        if trimmed is not None and len(json.dumps(trimmed)) <= MAX_PAYLOAD:
+            entry["payload"], entry["omitted"] = trimmed, removed
+        else:
+            entry["payload"] = None
+    return entry
 
 
 def profile_events(text, limit=10):
@@ -186,6 +224,8 @@ def price_schedules(event, limit=PRICE_INTERVALS):
     """Readable summary of the price information in a SetChargingProfile:
     OCPP 2.1 absolutePriceSchedule and priceLevelSchedule, and the ISO 15118-2
     salesTariff. libocpp stores these but does not act on them."""
+    if isinstance(event, dict) and "price_schedules" in event:
+        return event["price_schedules"]
     payload = (event or {}).get("payload") or {}
     profile = payload.get("chargingProfile") if isinstance(payload, dict) else None
     profile = profile if isinstance(profile, dict) else {}
