@@ -495,3 +495,77 @@ test('stale transactions: which station, which route, which transactions are due
   assert.deepEqual(routes.filter(startRoute),['/ocpp/2.1/evdriver/requestStartTransaction',
     '/ocpp/2.0.1/evdriver/requestStartTransaction','/ocpp/1.6/evdriver/remoteStartTransaction']);
 });
+test('RBAC grants the report role the two GetBaseReport routes only, and nothing else changes',async()=>{
+  const {rbacRules,REPORT_ROLE,REPORT_ROUTES,COMMAND_ROLE}=await import('../rootfs/control-policy.mjs');
+  const {readFileSync}=await import('node:fs');
+  const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
+  const routes=Object.values(REPORT_ROUTES);
+  assert.deepEqual(routes,['/ocpp/2.1/reporting/getBaseReport','/ocpp/2.0.1/reporting/getBaseReport']);
+  for(const commands of [false,true]) {
+    const on=rbacRules(base,commands,false,true)['1'], off=rbacRules(base,commands,false,false)['1'];
+    // The Operator UI keeps its rule; the command role never gets GetBaseReport.
+    for(const route of routes) {
+      assert.deepEqual(on[route].POST,[REPORT_ROLE,'lab-operator'],route);
+      assert.deepEqual(off[route].POST,['lab-operator'],route);
+      assert.ok(!on[route].POST.includes(COMMAND_ROLE),route);
+    }
+    for(const [route,methods] of Object.entries(on))
+      if(!routes.includes(route))assert.deepEqual(methods,off[route],route);
+    assert.equal(JSON.stringify(on).split(REPORT_ROLE).length-1,2);
+  }
+  assert.deepEqual(rbacRules(rbacRules(base,true,true,true),true,true,false),rbacRules(base,true,true));
+  assert.ok(!JSON.stringify(base).includes(REPORT_ROLE));
+});
+test('device model reports: once per online transition, OCPP 2.x only, rate-limited',async()=>{
+  const {reportState,reportsDue,reportDone,deviceModelReports,REPORT_ROUTES,REPORT_EVERY_MS,REPORT_PER_CYCLE,
+    REPORT_ATTEMPTS}=await import('../rootfs/control-policy.mjs');
+  assert.equal(deviceModelReports({}),true);
+  assert.equal(deviceModelReports({device_model_reports:true}),true);
+  assert.equal(deviceModelReports({device_model_reports:false}),false);
+  const row=(name,protocol='ocpp2.1',isOnline=true,tenantId=1)=>({id:1,tenantId,ocppConnectionName:name,protocol,isOnline});
+  const rows=(...r)=>({data:{ChargingStations:r}});
+  const state=reportState();
+  let now=1e9;
+  const due=r=>reportsDue(r,state,now).map(t=>t.identifier);
+  // Every listener's stations: simulators and Plugfest identities alike; never 1.6,
+  // offline, another tenant or an identity outside the OCPP pattern.
+  assert.deepEqual(reportsDue(rows(row('SIM-EV-EVEREST-V2G-03'),row('PF-EVSE-7','ocpp2.0.1'),row('PF-16','ocpp1.6'),
+    row('PF-OFF','ocpp2.1',false),row('PF-T2','ocpp2.1',true,2),row('bad/id')),state,now),[
+    {identifier:'SIM-EV-EVEREST-V2G-03',protocol:'ocpp2.1',route:REPORT_ROUTES['ocpp2.1']},
+    {identifier:'PF-EVSE-7',protocol:'ocpp2.0.1',route:REPORT_ROUTES['ocpp2.0.1']}]);
+  assert.equal(reportDone(state,'SIM-EV-EVEREST-V2G-03',{payload:{status:'Accepted'}},now),'Accepted');
+  assert.equal(reportDone(state,'PF-EVSE-7',{status:504,error:'x'},now),'no reply within 8 s');
+  // Still online: not asked again.
+  now+=30000;
+  assert.deepEqual(due(rows(row('SIM-EV-EVEREST-V2G-03'),row('PF-EVSE-7','ocpp2.0.1'))),[]);
+  // Offline and back within REPORT_EVERY_MS: not asked; after it: asked once.
+  assert.deepEqual(due(rows()),[]);
+  now+=60000;
+  assert.deepEqual(due(rows(row('SIM-EV-EVEREST-V2G-03'))),[]);
+  assert.deepEqual(due(rows()),[]);
+  now+=REPORT_EVERY_MS;
+  assert.deepEqual(due(rows(row('SIM-EV-EVEREST-V2G-03'))),['SIM-EV-EVEREST-V2G-03']);
+  assert.equal(reportDone(state,'SIM-EV-EVEREST-V2G-03',{payload:{status:'<script>'}},now),'unexpected reply');
+  // A request CitrineOS could not send is retried on later checks, REPORT_ATTEMPTS at most.
+  const s2=reportState();
+  for(let i=1;i<=REPORT_ATTEMPTS;i++) {
+    assert.deepEqual(reportsDue(rows(row('PF-1')),s2,now).map(t=>t.identifier),['PF-1']);
+    assert.match(reportDone(s2,'PF-1',{status:502,error:'not sent'},now),i<REPORT_ATTEMPTS?/retry/:/giving up/);
+  }
+  assert.deepEqual(reportsDue(rows(row('PF-1')),s2,now),[]);
+  // A pending station that goes offline is dropped.
+  const s3=reportState();
+  reportsDue(rows(row('PF-2')),s3,now);
+  assert.deepEqual(reportsDue(rows(),s3,now),[]);
+  assert.equal(s3.pending.size,0);
+  // At most REPORT_PER_CYCLE per check; the rest wait for the next one.
+  const s4=reportState(), many=Array.from({length:7},(_,i)=>row('PF-'+i));
+  const first=reportsDue(rows(...many),s4,now);
+  assert.equal(first.length,REPORT_PER_CYCLE);
+  for(const t of first)reportDone(s4,t.identifier,{payload:{status:'Accepted'}},now);
+  assert.deepEqual(reportsDue(rows(...many),s4,now).map(t=>t.identifier),['PF-3','PF-4','PF-5']);
+  // Malformed results change nothing.
+  for(const bad of [null,{data:{}},{data:{ChargingStations:'x'}},{errors:[{}]}])
+    assert.deepEqual(reportsDue(bad,s4,now),[]);
+  assert.equal(s4.online.size,7);
+});

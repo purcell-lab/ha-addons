@@ -111,9 +111,12 @@ def convert(upstream_dir):
                 perms.append({"role": ROLE, "permission": perm})
         if name in ha_reader:
             mine = ha_reader.pop(name)
-            for rel in mine.get("object_relationships", []):
-                names = {r["name"] for r in out.get("object_relationships", [])}
-                assert rel["name"] in names, f"{name}.{rel['name']} missing upstream"
+            # ha_reader relationships use upstream's names and definitions,
+            # so one GraphQL query works with either metadata file.
+            for kind in ("object_relationships", "array_relationships"):
+                theirs = {r["name"]: r for r in out.get(kind, [])}
+                for rel in mine.get(kind, []):
+                    assert theirs.get(rel["name"]) == rel, f"{name}.{rel['name']} differs from upstream"
             perms += mine["select_permissions"]
         if perms:
             out["select_permissions"] = perms
