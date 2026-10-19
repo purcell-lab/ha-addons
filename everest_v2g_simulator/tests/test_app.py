@@ -319,6 +319,46 @@ class GeneratedConfigTest(unittest.TestCase):
         _, target = self.build(dict(GOOD, ocpp_version="2.0.1"))
         self.assertEqual(value(target, "InternalCtrlr", "SupportedOcppVersions"), "ocpp2.0.1")
 
+    def test_power_rating_reported_per_station(self):
+        # EVerest builds EVSE 1 itself (board maxLimit, Actual only), so the
+        # rating goes on ChargingStation Power: MaxSet and MinSet are stored
+        # per station by CitrineOS.
+        for kw in (3, 11, 25):
+            _, target = self.build(dict(GOOD, max_power_kw=kw))
+            doc = json.loads((target / "standardized/ChargingStation.json").read_text())
+            power = doc["properties"]["ChargingStationPower"]
+            self.assertEqual(power["variable_name"], "Power")
+            self.assertNotIn("instance", power)
+            self.assertEqual(power["characteristics"], {"unit": "W", "dataType": "decimal",
+                             "minLimit": -kw * 1000, "maxLimit": kw * 1000, "supportsMonitoring": False})
+            self.assertEqual({a["type"]: (a["value"], a["mutability"]) for a in power["attributes"]},
+                             {"MaxSet": (kw * 1000, "ReadOnly"), "MinSet": (-kw * 1000, "ReadOnly")})
+            # The upstream properties stay as they are.
+            self.assertIsNone(value(target, "ChargingStation", "ChargingStationSupplyPhases"))
+        self.assertFalse((target / "custom").exists())
+
+    def test_power_rating_refuses_an_upstream_power_variable(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        source = component_fixture(Path(tmp.name) / "source")
+        path = source / "standardized/ChargingStation.json"
+        doc = json.loads(path.read_text())
+        doc["properties"]["ChargingStationPower"] = {"attributes": []}
+        path.write_text(json.dumps(doc))
+        with self.assertRaises(ValueError):
+            configure.component_config(source, Path(tmp.name) / "target", configure.validate(GOOD), "a" * 32)
+
+    def test_no_ev_charging_needs_wiring(self):
+        # Deliberate (DOCS.md, EV charging needs): CitrineOS v2.0.1 rejects
+        # DC_BPT NotifyEVChargingNeeds and libocpp then stops the OCPP 2.1
+        # transaction. Connecting the extensions would also need an EVSE mapping.
+        active = configure.everest_config(configure.validate(GOOD), Path("/data"), "b" * 24)["active_modules"]
+        self.assertNotIn("extensions_15118", active["ocpp"]["connections"])
+        self.assertNotIn("mapping", active["iso15118_charger"])
+        for module in active.values():
+            for targets in module.get("connections", {}).values():
+                self.assertNotIn("extensions", {t["implementation_id"] for t in targets})
+
     def test_disconnected_url_is_closed_loopback(self):
         _, target = self.build({"csms_url": ""})
         profile = json.loads(value(target, "InternalCtrlr", "NetworkConnectionProfiles"))[0]

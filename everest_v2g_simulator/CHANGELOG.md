@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.13
+
+- The device model reports the rating per station. EVerest 2025.10.0
+  builds EVSE 1 `Power` itself, with only an `Actual` attribute and a
+  `maxLimit` from the simulated board (88,320 W after the board patch), so a
+  CSMS could not learn `max_power_kw`, and the App cannot change that
+  component. `ChargingStation` now has `Power` with `MaxSet` = rating and
+  `MinSet` = minus the rating (discharge) in W, also as `maxLimit` and
+  `minLimit`. CitrineOS (0.7.2 asks for the report when the station comes
+  online) stores `MaxSet` and `MinSet` per station. See "Power rating in the
+  device model".
+- Documented why the station sends no NotifyEVChargingNeeds: OCPP201's
+  `extensions_15118` is not connected to the ISO 15118-20 module, on
+  purpose. CitrineOS v2.0.1 rejects ISO 15118-20 `DC_BPT` needs, and libocpp
+  then stops the OCPP 2.1 transaction. A test keeps it unconnected
+  (UPSTREAM.md items 13 and 14).
+
 ## 0.1.12
 
 - Status page times are local: the browser's time zone, with the zone shown
