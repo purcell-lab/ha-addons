@@ -18,6 +18,8 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   test -s /usr/share/doc/open-dynamic-export/ramp-tms.patch
   test -s /usr/share/doc/open-dynamic-export/influxdb-quiet.patch
   test -s /usr/share/doc/open-dynamic-export/stdout-log-level.patch
+  test -s /usr/share/doc/open-dynamic-export/default-control-merge.patch
+  grep -q opModEnergize /app/dist/sep2/helpers/derControls.js
   grep -q STDOUT_LOGLEVEL /app/dist/helpers/logger.js
   grep -q rampTmsToSeconds /app/dist/setpoints/csipAus/index.js
   grep -q "status(503)" /app/dist/app.js

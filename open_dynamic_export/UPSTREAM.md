@@ -11,7 +11,7 @@
 
 ## Changes to upstream
 
-Four patches are applied, in this order. Each must apply cleanly to the
+Five patches are applied, in this order. Each must apply cleanly to the
 pinned commit (the build runs `git apply --check`).
 
 ### `ingress.patch`
@@ -54,6 +54,18 @@ setting applies to the debug file under `./logs`, which this App keeps in
 `/tmp` inside the container. The patch reads the stdout level from
 `STDOUT_LOGLEVEL` (default `info`, as upstream). The launcher sets it from
 the `log_level` option, so `debug` also reaches the App log.
+
+### `default-control-merge.patch`
+
+Fixes the fallback to DefaultDERControls when no DERControl is active.
+v0.20.0 used the DefaultDERControl of the first program with the lowest
+primacy, even when it was empty. CSIP-AUS test GEN-10 creates five programs
+at the same primacy and gives only one of them a default, so ODE applied no
+limit instead of that default's 30 % export limit. The patch takes each
+control (import, export, generation and load limits, energise, connect,
+`rampTms`) from the highest-priority default that sets it, and `setGradW`
+from the first of those. Programs at equal primacy keep the server's order.
+It adds tests to `derControls.test.ts`. Not yet raised upstream.
 
 ## This App's own code
 

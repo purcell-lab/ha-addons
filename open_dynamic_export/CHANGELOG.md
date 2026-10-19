@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- CSIP-AUS default controls: when no control is active, each limit now
+  comes from the highest-priority DefaultDERControl that sets it. Before,
+  ODE used the first program at the lowest primacy even when its default
+  was empty, and so applied no limit. Cactus GEN-10 (primacy validation)
+  exposed it: five programs share one primacy and only one has a default
+  (`default-control-merge.patch`).
+
 ## 0.1.3
 
 - When the CSIP-AUS server answers 404 to DER updates (for example after a

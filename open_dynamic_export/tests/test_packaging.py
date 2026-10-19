@@ -13,6 +13,7 @@ PATCH = (ROOT / "ingress.patch").read_text()
 RAMP_PATCH = (ROOT / "ramp-tms.patch").read_text()
 INFLUX_PATCH = (ROOT / "influxdb-quiet.patch").read_text()
 LOG_PATCH = (ROOT / "stdout-log-level.patch").read_text()
+DEFAULT_PATCH = (ROOT / "default-control-merge.patch").read_text()
 PUBLISH = (REPO / ".github/workflows/ode-publish.yml").read_text()
 PR = (REPO / ".github/workflows/ode.yml").read_text()
 COMMIT = "bc807abbc4c58be3294257ee76f0348dc87c4945"  # upstream v0.20.0
@@ -48,7 +49,7 @@ class PinningTest(unittest.TestCase):
         self.assertNotIn("latest", DOCKERFILE)
 
     def test_patches_are_applied_in_order(self):
-        self.assertIn("for p in ingress ramp-tms influxdb-quiet stdout-log-level; do", DOCKERFILE)
+        self.assertIn("for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-merge; do", DOCKERFILE)
         self.assertIn('git apply --check "/tmp/$p.patch"', DOCKERFILE)
 
     def test_patch_is_applied_and_limited_to_ingress(self):
@@ -64,6 +65,12 @@ class PinningTest(unittest.TestCase):
                                  "src/setpoints/csipAus/index.ts"})
         # All four CSIP-AUS limits convert rampTms (hundredths of a second).
         self.assertEqual(len(re.findall(r"^-\s+rampTimeSeconds: opMod\w+\.rampTms,$", RAMP_PATCH, re.M)), 4)
+
+    def test_default_control_patch_only_touches_default_selection(self):
+        files = set(re.findall(r"^diff --git a/(\S+) ", DEFAULT_PATCH, re.M))
+        self.assertEqual(files, {"src/sep2/helpers/derControls.ts",
+                                 "src/sep2/helpers/derControls.test.ts"})
+        self.assertIn("CSIP-AUS GEN-10", DEFAULT_PATCH)
 
     def test_influxdb_patch_only_quietens_that_error(self):
         files = set(re.findall(r"^diff --git a/(\S+) ", INFLUX_PATCH, re.M))
