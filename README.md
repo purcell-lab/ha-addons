@@ -12,6 +12,13 @@ In the HA UI:
 2. Paste: `https://github.com/purcell-lab/ha-addons`
 3. Add → close → the new section "purcell-lab Home Assistant Add-ons" appears in the store.
 
+## OCPP Plugfest and CSIP-AUS testing
+
+The OCA Plugfest material (demonstration, runbook, acceptance plan, lab test
+records) and the Cactus CSIP-AUS test reports now live in
+[purcell-lab/ocpp-plugfest](https://github.com/purcell-lab/ocpp-plugfest).
+This repository keeps the packaged Apps they use.
+
 ## Add-ons in this repository
 
 ### citrineos_server

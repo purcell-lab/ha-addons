@@ -17,7 +17,7 @@ archive again on the next restart. Do not restore old transaction state onto a
 different CSMS. No real charger or BSV integration is included.
 
 The full demonstration scope and outstanding acceptance gates are in
-[`../docs/citrine-plugfest-acceptance.md`](../docs/citrine-plugfest-acceptance.md).
+[`ocpp-plugfest: plugfest-lab/ACCEPTANCE.md`](https://github.com/purcell-lab/ocpp-plugfest/blob/main/plugfest-lab/ACCEPTANCE.md).
 The new image must be published through the approved release workflow before
 installation. A staged manifest is not proof that its image is available.
 
