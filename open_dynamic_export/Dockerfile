@@ -1,7 +1,7 @@
 # Open Dynamic Export (MIT, https://github.com/longzheng/open-dynamic-export)
 # v0.20.0, built from the pinned upstream commit with this App's patches
-# (ingress, ramp-tms, influxdb-quiet, stdout-log-level) and run by this App's launcher
-# (rootfs/opt/ode-ha).
+# (ingress, ramp-tms, influxdb-quiet, stdout-log-level, default-control-merge) and run
+# by this App's launcher (rootfs/opt/ode-ha).
 # Built and published in GitHub Actions (ode-publish.yml); Home Assistant
 # pulls the prebuilt image rather than compiling on the host.
 ARG NODE_IMAGE=node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a
@@ -18,8 +18,9 @@ RUN git init -q . \
     && git checkout -q FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${ODE_COMMIT}"
 # Applied in order; each must apply cleanly to the pinned commit.
-COPY ingress.patch ramp-tms.patch influxdb-quiet.patch stdout-log-level.patch /tmp/
-RUN for p in ingress ramp-tms influxdb-quiet stdout-log-level; do \
+COPY ingress.patch ramp-tms.patch influxdb-quiet.patch stdout-log-level.patch \
+     default-control-merge.patch /tmp/
+RUN for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-merge; do \
         git apply --check "/tmp/$p.patch" && git apply "/tmp/$p.patch" || exit 1; \
     done \
     && corepack enable \
@@ -30,7 +31,7 @@ RUN for p in ingress ramp-tms influxdb-quiet stdout-log-level; do \
     && cp -a dist node_modules package.json /out/app/ \
     && cp LICENSE /out/usr/share/doc/open-dynamic-export/LICENSE \
     && cp /tmp/ingress.patch /tmp/ramp-tms.patch /tmp/influxdb-quiet.patch \
-          /tmp/stdout-log-level.patch \
+          /tmp/stdout-log-level.patch /tmp/default-control-merge.patch \
           /out/usr/share/doc/open-dynamic-export/ \
     && echo "${ODE_COMMIT}" > /out/usr/share/doc/open-dynamic-export/COMMIT
 

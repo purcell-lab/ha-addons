@@ -1,0 +1,205 @@
+diff --git a/src/sep2/helpers/derControls.test.ts b/src/sep2/helpers/derControls.test.ts
+index 43fe813..ca24b19 100644
+--- a/src/sep2/helpers/derControls.test.ts
++++ b/src/sep2/helpers/derControls.test.ts
+@@ -13,6 +13,9 @@ import {
+     sortMergedControlsDataByStartTimeAscending,
+ } from './derControls.js';
+ import type { MergedControlsData } from './derControls.js';
++import type { DefaultDERControl } from '../models/defaultDerControl.js';
++import type { FallbackControl } from './fallbackControl.js';
++import { randomUUID } from 'node:crypto';
+ 
+ const sep2Client = new SEP2Client({
+     host: 'http://example.com',
+@@ -147,3 +150,122 @@ describe('sortMergedControlsDataByStartTimeAscending', () => {
+         expect(result[0]?.control).toEqual(control2.control);
+     });
+ });
++
++describe('DerControlsHelper default control', () => {
++    function defaultControl(
++        derControlBase: DefaultDERControl['derControlBase'],
++        setGradW?: number,
++    ): DefaultDERControl {
++        return {
++            mRID: randomUUID(),
++            href: '/dderc',
++            subscribable: true,
++            version: 0,
++            derControlBase,
++            setGradW,
++        };
++    }
++
++    function fallbackFor(
++        programs: {
++            primacy: number;
++            defaultDerControl?: DefaultDERControl;
++        }[],
++    ) {
++        const derControlsHelper = new DerControlsHelper({
++            client: sep2Client,
++        });
++        let fallback: FallbackControl | undefined;
++        derControlsHelper.on('data', (data) => {
++            fallback = data.fallbackControl;
++        });
++
++        derControlsHelper.updateFsaData([
++            {
++                functionSetAssignments: generateMockFunctionSetAssignments({}),
++                derProgramList: programs.map(
++                    ({ primacy, defaultDerControl }) => ({
++                        program: generateMockDERProgram({ primacy }),
++                        defaultDerControl,
++                        derControls: [],
++                    }),
++                ),
++            },
++        ]);
++
++        return fallback;
++    }
++
++    it('skips an empty default at the same primacy (CSIP-AUS GEN-10)', () => {
++        const withValues = defaultControl(
++            {
++                opModImpLimW: { value: 0, multiplier: 0 },
++                opModExpLimW: { value: 3000, multiplier: 0 },
++            },
++            167,
++        );
++        const fallback = fallbackFor([
++            { primacy: 1, defaultDerControl: defaultControl({}) },
++            { primacy: 1, defaultDerControl: defaultControl({}) },
++            { primacy: 1, defaultDerControl: withValues },
++            {
++                primacy: 2,
++                defaultDerControl: defaultControl({
++                    opModImpLimW: { value: 0, multiplier: 0 },
++                    opModExpLimW: { value: 0, multiplier: 0 },
++                }),
++            },
++        ]);
++
++        expect(fallback?.type).toBe('default');
++        if (fallback?.type !== 'default') return;
++        expect(fallback.data.defaultControl.mRID).toBe(withValues.mRID);
++        expect(fallback.data.defaultControl.derControlBase).toEqual({
++            opModImpLimW: { value: 0, multiplier: 0 },
++            opModExpLimW: { value: 3000, multiplier: 0 },
++        });
++        expect(fallback.data.defaultControl.setGradW).toBe(167);
++    });
++
++    it('takes each control from the highest priority default that sets it', () => {
++        const fallback = fallbackFor([
++            {
++                primacy: 2,
++                defaultDerControl: defaultControl({
++                    opModImpLimW: { value: 5000, multiplier: 0 },
++                    opModExpLimW: { value: 2000, multiplier: 0 },
++                }),
++            },
++            {
++                primacy: 1,
++                defaultDerControl: defaultControl({
++                    opModExpLimW: { value: 5000, multiplier: 0 },
++                }),
++            },
++        ]);
++
++        expect(fallback?.type).toBe('default');
++        if (fallback?.type !== 'default') return;
++        expect(fallback.data.defaultControl.derControlBase).toEqual({
++            opModExpLimW: { value: 5000, multiplier: 0 },
++            opModImpLimW: { value: 5000, multiplier: 0 },
++        });
++    });
++
++    it('keeps the first default when none sets a control', () => {
++        const empty = defaultControl({});
++        const fallback = fallbackFor([
++            { primacy: 2, defaultDerControl: defaultControl({}) },
++            { primacy: 1, defaultDerControl: empty },
++        ]);
++
++        expect(fallback?.type).toBe('default');
++        if (fallback?.type !== 'default') return;
++        expect(fallback.data.defaultControl.mRID).toBe(empty.mRID);
++        expect(fallback.data.defaultControl.derControlBase).toEqual({});
++    });
++
++    it('is none without any default', () => {
++        expect(fallbackFor([{ primacy: 1 }])).toEqual({ type: 'none' });
++    });
++});
+diff --git a/src/sep2/helpers/derControls.ts b/src/sep2/helpers/derControls.ts
+index 43635f4..6938732 100644
+--- a/src/sep2/helpers/derControls.ts
++++ b/src/sep2/helpers/derControls.ts
+@@ -167,9 +167,62 @@ function getDefaultDerControl(
+         return { type: 'none' };
+     }
+ 
+-    return { type: 'default', data: firstDefaultDerControl };
++    // Several programs can share the lowest primacy, and a program's DefaultDERControl may set
++    // only some controls or none (CSIP-AUS GEN-10 has five programs at one primacy, and only one
++    // has a default). Take each control from the highest-priority default that sets it, so an
++    // empty default does not hide another program's values.
++    const derControlBase: DefaultDERControl['derControlBase'] = {};
++    let setGradW: number | undefined;
++    let setSoftGradW: number | undefined;
++    let source: MergedDefaultControlsData | undefined;
++
++    for (const data of sortedDefaultDerControl) {
++        const base = data.defaultControl.derControlBase;
++        let contributed = false;
++
++        for (const key of defaultControlKeys) {
++            if (derControlBase[key] === undefined && base[key] !== undefined) {
++                // oxlint-disable-next-line @typescript-eslint/no-explicit-any
++                (derControlBase as Record<string, any>)[key] = base[key];
++                contributed = true;
++            }
++        }
++
++        if (contributed) {
++            source ??= data;
++            setGradW ??= data.defaultControl.setGradW;
++            setSoftGradW ??= data.defaultControl.setSoftGradW;
++        }
++    }
++
++    if (!source) {
++        return { type: 'default', data: firstDefaultDerControl };
++    }
++
++    return {
++        type: 'default',
++        data: {
++            ...source,
++            defaultControl: {
++                ...source.defaultControl,
++                derControlBase,
++                setGradW,
++                setSoftGradW,
++            },
++        },
++    };
+ }
+ 
++const defaultControlKeys = [
++    'opModImpLimW',
++    'opModExpLimW',
++    'opModGenLimW',
++    'opModLoadLimW',
++    'opModEnergize',
++    'opModConnect',
++    'rampTms',
++] as const satisfies (keyof DefaultDERControl['derControlBase'])[];
++
+ function mapMergedControlsData({
+     fsaData,
+ }: {
