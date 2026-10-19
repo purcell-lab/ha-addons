@@ -314,6 +314,37 @@ VALIDATION.md. The App does not hide them.
   energy sink configured for evse_id: 0`; neither module can skip EVSE 0,
   so from 0.1.10 the App drops only that line from its log.
 
+### Power rating in the device model
+
+A CSMS learns the rating from GetBaseReport (CitrineOS-HA from 0.7.2 asks
+when the station comes online). EVerest 2025.10.0 builds the EVSE component
+itself: EVSE 1 `Power` reports only an `Actual` attribute and a `maxLimit`
+taken from the simulated board (128 A x 3 x 230 V = 88,320 W after the
+board patch), whatever `max_power_kw` is, and the App cannot change it. The
+App therefore adds `Power` to the `ChargingStation` component, from
+`max_power_kw`: `MaxSet` = rating in W (charging), `MinSet` = minus the
+rating (discharge, negative as in OCPP 2.1), and the same values as
+`maxLimit` and `minLimit`. Read the per-station `MaxSet`/`MinSet`
+attributes: CitrineOS v2.0.1 keeps a single `maxLimit` per variable name for
+all stations, and within this station's report EVSE `Power` (88,320 W)
+comes later and overwrites it.
+
+### EV charging needs
+
+The station sends no NotifyEVChargingNeeds, by design. EVerest's
+ISO 15118-20 module (Evse15118D20) publishes the EV's needs on its
+`extensions` interface, and OCPP201 sends them only when its
+`extensions_15118` requirement is connected to it (with an EVSE mapping on
+the ISO 15118 module); the App does not connect it. CitrineOS v2.0.1
+accepts charging needs only for AC with `acChargingParameters` or DC with
+`dcChargingParameters`. For ISO 15118-20 EVerest sends `DC_BPT` (or `DC`)
+with `v2xChargingParameters` only, so CitrineOS answers Rejected and stores
+nothing, and libocpp v0.30.3 on OCPP 2.1 then stops the transaction
+(`ReqEnergyTransferRejected`, K18.FR.23). On OCPP 2.0.1 the message is not
+valid 2.0.1. Connecting it would end every V2G session; it needs CitrineOS
+support for `v2xChargingParameters` first (UPSTREAM.md). The EV's
+discharge limits (Josev: 66 A, 25 kW) are therefore not reported over OCPP.
+
 ### CSMS requirements
 
 The station asks the CSMS for the certificate status of the ISO 15118
