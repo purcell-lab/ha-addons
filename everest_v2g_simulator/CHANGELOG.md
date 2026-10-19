@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.12
+
+- Status page times are local: the browser's time zone, with the zone shown
+  (AEDT at the Canberra Plugfest). Before, they were UTC. The API still
+  uses UTC.
+- **Live readings** has two price chips: price now (per kWh) and the next
+  price with its start time, from the latest session cost.
+- A charging profile over 8 KiB is shown without its price information
+  (`absolutePriceSchedule`, `priceLevelSchedule`, `salesTariff`), so the
+  power setpoint schedule stays readable. Before, the whole payload was
+  withheld, and with it the Price panel's schedule summary: a profile with a
+  48 h OpenADR price schedule from the CitrineOS-HA bridge is about 13 KiB.
+  The summary is now taken from the full payload. `/api/profiles` events
+  add `price_schedules` and `omitted`.
+
 ## 0.1.11
 
 - Dynamic pricing (DOCS.md, Dynamic pricing). The device model enables

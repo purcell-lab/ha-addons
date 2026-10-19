@@ -362,8 +362,11 @@ What works (libocpp v0.30.3, OCPP 2.1 and 2.0.1):
   `priceLevelSchedule`, ISO 15118-2 `salesTariff`) are accepted and stored
   with the profile, but EVerest does not act on them. The **Price** panel
   shows the first 6 intervals of the schedule in the last received
-  charging profile (start time in UTC, duration, energy price or price
-  level) and how many there are.
+  charging profile (start time, duration, energy price or price level) and
+  how many there are. A profile over 8 KiB (a 48 h price schedule is about
+  13 KiB) is shown under **Last received charging profile** without its
+  price information, so the power setpoint schedule stays readable; the
+  note above it names what was left out and the full size.
 - **OCPP 2.1 tariffs are not implemented.** libocpp v0.30.3 answers
   SetDefaultTariff, GetTariffs, ClearTariffs and ChangeTransactionTariff
   with the CALLERROR `NotImplemented`, whatever the device model says.
@@ -374,7 +377,13 @@ the station's reply: `Replied` for CostUpdated (its response has no
 status), `CallError` with the reason for the tariff messages. They are
 listed apart from the profile requests, so frequent cost updates never push
 a profile out of view. `/api/status` carries the parsed `session_cost`, and
-`/api/profiles` the `price_schedules` of the latest profile.
+`/api/profiles` the `price_schedules` of the latest profile. Each profile
+event also carries its own `price_schedules`, and `omitted` lists the price
+keys left out of an oversized `payload`.
+
+The **Live readings** show the price now and the next price with its start
+time. All times on the Status page are in the browser's time zone, with the
+zone shown (AEDT in Canberra in October); the API keeps UTC.
 
 Enabling Tariff and Cost does not change authorisation, transactions or
 smart charging: libocpp uses these variables only when it handles
