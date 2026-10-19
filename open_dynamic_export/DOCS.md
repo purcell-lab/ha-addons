@@ -65,6 +65,29 @@ folder under the configured names, then restart the App. They are copied
 into the App's private data directory (key mode 600). Without them,
 CSIP-AUS setpoints do not connect.
 
+### After a CSIP-AUS test session (for example Cactus) ends
+
+ODE does not stop by itself when the test server's session ends. It keeps
+polling and reporting to that server, which no longer knows the device, and
+uses some CPU doing so. You are in this state when the App log repeats:
+
+- `Error updating DER status` with `Request failed with status code 404`
+  (`"module":"DerHelper"`);
+- `Error: Missing mirrorUsagePoint or its href`;
+- at `log_level: debug`, `Creating MirrorUsagePoint` with the full request
+  body on every cycle.
+
+After a few such 404s the App adds one line, repeated at most hourly:
+`EndDevice/DER not found on the CSIP-AUS server (HTTP 404). The test
+session has probably ended; stop the App or remove csipAus from its
+configuration.`
+
+When the session ends, **stop the App**, or remove the `csipAus` setpoint
+from the configuration and restart it. Before the next session, put back
+the `csipAus` settings for that session and start the App again. Keep
+`log_level` at `info` except while diagnosing: `debug` prints CSIP-AUS
+request bodies, including device identifiers, to the App log.
+
 ## Access
 
 - **Ingress (default):** *Open Web UI* or the **Dynamic Export** sidebar

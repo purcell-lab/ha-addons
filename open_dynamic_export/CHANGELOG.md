@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3
+
+- When the CSIP-AUS server answers 404 to DER updates (for example after a
+  Cactus test session has ended), the App log now gets one line saying the
+  session has probably ended and the App should be stopped, at most once
+  an hour. ODE's own output is unchanged (issue #68).
+- Documentation: what to do when a CSIP-AUS test session ends, how to
+  recognise it, and why `log_level` should stay at `info` (`debug` prints
+  CSIP-AUS request bodies on every cycle).
+
 ## 0.1.2
 
 - `log_level` now also sets the App log level (`stdout-log-level.patch`).

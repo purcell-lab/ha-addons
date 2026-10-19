@@ -38,6 +38,17 @@
     <div class="tablewrap"><table id="composite"><thead><tr><th>Offset (s)</th><th>Limit</th><th>Phases</th></tr></thead><tbody></tbody></table></div>
   </section>
   <section>
+    <h2>Price</h2>
+    <p id="pricemeta" class="note">No session cost received yet. The CSMS sends it with CostUpdated (California Pricing customData) or TransactionEventResponse totalCost.</p>
+    <dl class="grid" id="price"></dl>
+    <p id="pricetext" class="note" hidden></p>
+    <h3>Price schedule in the last charging profile</h3>
+    <p id="schedmeta" class="note">No price schedule in the last charging profile.</p>
+    <div class="tablewrap"><table id="pricesched"><thead><tr><th>Start (UTC)</th><th>Duration</th><th>Price</th></tr></thead><tbody></tbody></table></div>
+    <h3>Recent pricing messages</h3>
+    <div class="tablewrap"><table id="pricing"><thead><tr><th>Received (UTC)</th><th>Reply</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
     <h2>Last received charging profile</h2>
     <p id="txmeta" class="note">No charging profile received yet.</p>
     <div class="controls"><button id="copy" disabled>Copy JSON</button></div>

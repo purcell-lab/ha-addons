@@ -4,6 +4,7 @@ Each entry is a header line followed by a pretty-printed OCPP-J frame:
     2026-10-10T07:13:33.909Z: CentralSystem>ChargePoint  SetChargingProfile
     [ 2, "id", "SetChargingProfile", {...} ]
 """
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -11,7 +12,13 @@ import re
 HEADER = re.compile(r"^(\d{4}-\d\d-\d\dT[0-9:.]+Z): (\w+)>(\w+)\s+(\w+)\s*$")
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PAYLOAD = 8 * 1024
-TRACKED = ("SetChargingProfile", "ClearChargingProfile")
+PROFILE_ACTIONS = ("SetChargingProfile", "ClearChargingProfile")
+# Dynamic pricing. libocpp v0.30.3 answers CostUpdated (2.0.1 and 2.1) and
+# replies NotImplemented (CALLERROR) to the OCPP 2.1 tariff messages.
+PRICING_ACTIONS = ("CostUpdated", "SetDefaultTariff", "GetTariffs", "ClearTariffs",
+                   "ChangeTransactionTariff")
+TRACKED = PROFILE_ACTIONS + PRICING_ACTIONS
+PRICE_INTERVALS = 6  # intervals of a price schedule shown on the Status page
 
 
 def frames(text):
@@ -55,11 +62,12 @@ def read_logs(directory):
     return "\n".join(reversed(chunks))
 
 
-def profile_events(text, limit=10):
-    """Latest CSMS profile requests, each paired with the station's reply."""
+def tracked_events(text, actions=TRACKED, limit=10):
+    """Latest CSMS requests of the given actions, each paired with the
+    station's reply (CALLRESULT, or CALLERROR such as NotImplemented)."""
     requests, order = {}, []
     for stamp, direction, action, frame in frames(text):
-        if direction == "csms" and len(frame) == 4 and frame[0] == 2 and frame[2] in TRACKED:
+        if direction == "csms" and len(frame) == 4 and frame[0] == 2 and frame[2] in actions:
             uid = frame[1]
             payload = frame[3]
             size = len(json.dumps(payload))
@@ -78,12 +86,25 @@ def profile_events(text, limit=10):
             entry = requests[frame[1]]
             entry["responded"] = stamp
             if frame[0] == 3 and isinstance(frame[2], dict):
-                entry["status"] = frame[2].get("status")
+                # CostUpdatedResponse and ClearTariffsResponse carry no status.
+                entry["status"] = frame[2].get("status") or "Replied"
                 entry["status_info"] = frame[2].get("statusInfo")
             else:
                 entry["status"] = "CallError"
-                entry["status_info"] = {"reasonCode": frame[2] if len(frame) > 2 else None}
+                entry["status_info"] = {"reasonCode": frame[2] if len(frame) > 2 else None,
+                                        "additionalInfo": frame[3] if len(frame) > 3 else None}
     return [requests[uid] for uid in order[-limit:]][::-1]
+
+
+def profile_events(text, limit=10):
+    """Latest SetChargingProfile and ClearChargingProfile requests."""
+    return tracked_events(text, PROFILE_ACTIONS, limit)
+
+
+def pricing_events(text, limit=10):
+    """Latest CostUpdated and OCPP 2.1 tariff requests, kept apart from the
+    profile list so frequent cost updates never push profiles out of it."""
+    return tracked_events(text, PRICING_ACTIONS, limit)
 
 
 def latest_profile(events):
@@ -99,3 +120,130 @@ def latest_tx_profile(events):
         if event["action"] == "SetChargingProfile" and profile.get("chargingProfilePurpose") == "TxProfile":
             return event
     return None
+
+
+def _list(value):
+    return value if isinstance(value, list) else []
+
+
+def _number(rational):
+    """OCPP 2.1 RationalNumber {value, exponent} as a float."""
+    if not isinstance(rational, dict) or not isinstance(rational.get("value"), (int, float)):
+        return None
+    exponent = rational.get("exponent", 0)
+    if not isinstance(exponent, int) or not -20 <= exponent <= 20:
+        return None
+    return round(rational["value"] * 10 ** exponent, max(0, -exponent))
+
+
+def _at(anchor, offset):
+    """UTC time `offset` seconds after an RFC 3339 anchor, or None."""
+    if not isinstance(anchor, str) or not isinstance(offset, (int, float)):
+        return None
+    try:
+        start = datetime.fromisoformat(anchor.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    return (start + timedelta(seconds=offset)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _intervals(entries, duration_of, describe, anchor, limit):
+    """First `limit` back-to-back intervals with their start offsets."""
+    shown, offset = [], 0
+    for entry in entries[:limit]:
+        if not isinstance(entry, dict):
+            break
+        duration = duration_of(entry)
+        item = {"offset_s": offset, "start": _at(anchor, offset), "duration_s": duration}
+        item.update(describe(entry))
+        shown.append(item)
+        offset += duration if isinstance(duration, (int, float)) else 0
+    return shown
+
+
+def _energy_fee(stack):
+    rules = _list(stack.get("priceRule"))
+    # The rule for the lowest power range is the plain energy price.
+    first = min((r for r in rules if isinstance(r, dict)),
+                key=lambda r: _number(r.get("powerRangeStart")) or 0, default={})
+    return {"energy_fee": _number(first.get("energyFee")), "rules": len(rules)}
+
+
+def _sales_entry(entry):
+    costs = [c for item in _list(entry.get("consumptionCost")) if isinstance(item, dict)
+             for c in _list(item.get("cost")) if isinstance(c, dict)]
+    first = costs[0] if costs else {}
+    amount = first.get("amount")
+    multiplier = first.get("amountMultiplier") or 0
+    if isinstance(amount, (int, float)) and isinstance(multiplier, int) and -20 <= multiplier <= 20:
+        amount = round(amount * 10 ** multiplier, max(0, -multiplier))
+    return {"price_level": entry.get("ePriceLevel"), "cost": amount, "cost_kind": first.get("costKind")}
+
+
+def price_schedules(event, limit=PRICE_INTERVALS):
+    """Readable summary of the price information in a SetChargingProfile:
+    OCPP 2.1 absolutePriceSchedule and priceLevelSchedule, and the ISO 15118-2
+    salesTariff. libocpp stores these but does not act on them."""
+    payload = (event or {}).get("payload") or {}
+    profile = payload.get("chargingProfile") if isinstance(payload, dict) else None
+    profile = profile if isinstance(profile, dict) else {}
+    found = []
+    for schedule in _list(profile.get("chargingSchedule")):
+        if not isinstance(schedule, dict):
+            continue
+        absolute = schedule.get("absolutePriceSchedule")
+        if isinstance(absolute, dict):
+            stacks = _list(absolute.get("priceRuleStacks"))
+            found.append({
+                "charging_schedule_id": schedule.get("id"),
+                "kind": "absolutePriceSchedule",
+                "id": absolute.get("priceScheduleID"),
+                "description": absolute.get("priceScheduleDescription"),
+                "time_anchor": absolute.get("timeAnchor"),
+                "currency": absolute.get("currency"),
+                "algorithm": absolute.get("priceAlgorithm"),
+                "count": len(stacks),
+                "intervals": _intervals(stacks, lambda e: e.get("duration"), _energy_fee,
+                                        absolute.get("timeAnchor"), limit),
+            })
+        levels = schedule.get("priceLevelSchedule")
+        if isinstance(levels, dict):
+            entries = _list(levels.get("priceLevelScheduleEntries"))
+            found.append({
+                "charging_schedule_id": schedule.get("id"),
+                "kind": "priceLevelSchedule",
+                "id": levels.get("priceScheduleId"),
+                "description": levels.get("priceScheduleDescription"),
+                "time_anchor": levels.get("timeAnchor"),
+                "number_of_price_levels": levels.get("numberOfPriceLevels"),
+                "count": len(entries),
+                "intervals": _intervals(entries, lambda e: e.get("duration"),
+                                        lambda e: {"price_level": e.get("priceLevel")},
+                                        levels.get("timeAnchor"), limit),
+            })
+        tariff = schedule.get("salesTariff")
+        if isinstance(tariff, dict):
+            entries = _list(tariff.get("salesTariffEntry"))
+            anchor = schedule.get("startSchedule")
+            shown = []
+            for entry in entries[:limit]:
+                if not isinstance(entry, dict):
+                    break
+                interval = entry.get("relativeTimeInterval") or {}
+                item = {"offset_s": interval.get("start"), "start": _at(anchor, interval.get("start")),
+                        "duration_s": interval.get("duration")}
+                item.update(_sales_entry(entry))
+                shown.append(item)
+            found.append({
+                "charging_schedule_id": schedule.get("id"),
+                "kind": "salesTariff",
+                "id": tariff.get("id"),
+                "description": tariff.get("salesTariffDescription"),
+                "time_anchor": anchor,
+                "number_of_price_levels": tariff.get("numEPriceLevels"),
+                "count": len(entries),
+                "intervals": shown,
+            })
+    return found

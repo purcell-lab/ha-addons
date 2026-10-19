@@ -25,6 +25,7 @@ header, main { max-width:980px; margin:0 auto; padding:16px; }
 .title { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
 h1 { font-size:1.35rem; margin:0; }
 h2 { font-size:1.05rem; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+h3 { font-size:.95rem; margin:14px 0 6px; }
 section { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; margin:0 0 14px; }
 
 /* Icons: inline SVG sprite, coloured with currentColor. */
@@ -40,6 +41,7 @@ section { background:var(--card); border:1px solid var(--line); border-radius:va
 .badge.bad { color:var(--bad); border-color:var(--bad); }
 .muted, .note { color:var(--muted); }
 .note { font-size:.88rem; margin:6px 0; }
+.alert { font-size:.88rem; margin:6px 0; padding:6px 10px; border:1px solid var(--warn); border-left-width:5px; border-radius:8px; color:var(--fg); }
 
 .controls { display:flex; flex-wrap:wrap; gap:8px; }
 button { font:inherit; display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:8px; border:1px solid var(--accent); background:transparent; color:var(--fg); cursor:pointer; min-height:40px; }
@@ -88,7 +90,7 @@ th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); 
 td.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
 .v-pos { color:var(--pos); font-weight:600; }
 .v-neg { color:var(--neg); font-weight:600; }
-.st-Accepted { color:var(--ok); } .st-Rejected, .st-CallError { color:var(--bad); }
+.st-Accepted, .st-Replied { color:var(--ok); } .st-Rejected, .st-CallError { color:var(--bad); }
 .tablewrap { overflow-x:auto; }
 td:first-child { white-space:nowrap; }
 

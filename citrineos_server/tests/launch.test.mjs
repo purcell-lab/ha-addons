@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validate,permitted,equalToken,buildListeners,upstreamExitCode} from '../rootfs/launch.mjs';
+import {validate,permitted,equalToken,buildListeners,upstreamExitCode,upstreamTransactions,COST_UPDATED_INTERVAL_OFF,
+  priceRequest,commandRejection} from '../rootfs/launch.mjs';
 import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS} from '../rootfs/control-policy.mjs';
 const good={mode:'isolated',database_host:'citrine-db',broker_host:'citrine-broker',hasura_host:'citrine-hasura',
   database_password:'a'.repeat(64),broker_password:'b'.repeat(64),hasura_secret:'c'.repeat(64),api_token:'d'.repeat(64)};
@@ -181,4 +182,56 @@ test('physical command station: explicit flag, Plugfest listener, no profile sim
   assert.throws(()=>validate({...real,command_real_stations_enabled:true,command_station_id:'a/b'}));
   // The flag alone changes nothing for a simulator command station.
   assert.doesNotThrow(()=>validate({...pf,command_real_stations_enabled:true,command_station_id:'SIM-EV-EVEREST-G1'}));
+});
+
+test('price commands: off by default, need scoped commands and an ISO currency',()=>{
+  const cmd={...good,open_admission_enabled:true,command_control_enabled:true,command_token:'e'.repeat(64)};
+  assert.doesNotThrow(()=>validate({...cmd,price_commands_enabled:true,price_currency:'AUD'}));
+  assert.doesNotThrow(()=>validate({...good,price_commands_enabled:false,price_currency:'AUD'}));
+  assert.throws(()=>validate({...good,price_commands_enabled:true}),/command_control_enabled/);
+  assert.throws(()=>validate({...cmd,price_commands_enabled:'yes'}));
+  for(const currency of ['aud','AU','AUDD','','A$D'])
+    assert.throws(()=>validate({...cmd,price_currency:currency}),/price_currency/,currency);
+});
+test('CitrineOS periodic CostUpdated is pushed out of reach only with price commands',()=>{
+  assert.deepEqual(upstreamTransactions({}),{});
+  assert.deepEqual(upstreamTransactions({price_commands_enabled:false}),{});
+  assert.deepEqual(upstreamTransactions({price_commands_enabled:true}),{TRANSACTIONS:{costUpdatedInterval:COST_UPDATED_INTERVAL_OFF}});
+  // Node runs a setInterval above 2^31-1 ms every millisecond instead.
+  assert.ok(COST_UPDATED_INTERVAL_OFF*1000<=2**31-1);
+  assert.ok((COST_UPDATED_INTERVAL_OFF+1)*1000>2**31-1);
+});
+test('price route gating: flag, command credential, listed station, bounds',()=>{
+  const u=s=>new URL(s,'http://lab');
+  const st='SIM-EV-EVEREST-V2G-01';
+  const on={price_commands_enabled:true,price_currency:'AUD',plugfest_enabled:true,
+    plugfest_stations:[{id:'EVX-AU-001',password:'Vendor-Pass-0001'}]};
+  const tariff={evseId:0,tariff:{tariffId:'amber-1',currency:'AUD',energy:{prices:[{priceKwh:0.2}]}}};
+  const cost={totalCost:0,transactionId:'tx-1',customData:{vendorId:'org.openchargealliance.costmsg',chargingPrice:{kWhPrice:0.2}}};
+  const D=id=>u(`/ocpp/2.1/transactions/setDefaultTariff?identifier=${id}&tenantId=1`);
+  const C=v=>u(`/ocpp/${v}/transactions/costUpdated?identifier=${st}&tenantId=1`);
+  assert.deepEqual(priceRequest({},D(st),true,tariff),{status:403,error:'Price commands are off (price_commands_enabled)'});
+  assert.equal(priceRequest({},C('2.1'),true,cost).status,403);
+  assert.deepEqual(priceRequest(on,D(st),false,tariff),{status:403,error:'Command credential required'});
+  assert.deepEqual(priceRequest(on,D(st),true,tariff),{target:st});
+  assert.deepEqual(priceRequest(on,D('EVX-AU-001'),true,tariff),{target:'EVX-AU-001'});
+  assert.equal(priceRequest(on,D('EVX-AU-002'),true,tariff).status,403);
+  assert.equal(priceRequest({...on,plugfest_enabled:false},D('EVX-AU-001'),true,tariff).status,403);
+  assert.equal(priceRequest(on,D(st),true,{...tariff,evseId:-1}).status,400);
+  assert.equal(priceRequest(on,D(st),true,undefined).status,400,'invalid JSON');
+  assert.deepEqual(priceRequest(on,C('2.1'),true,cost),{target:st});
+  assert.deepEqual(priceRequest(on,C('2.0.1'),true,cost),{target:st});
+  assert.equal(priceRequest(on,C('2.1'),false,cost).status,403);
+  assert.equal(priceRequest(on,u('/ocpp/2.1/transactions/costUpdated?identifier=EVX-AU-001&tenantId=1'),true,cost).status,400,
+    'CostUpdated goes to the command station only');
+  assert.equal(priceRequest(on,C('2.1'),true,{...cost,totalCost:-1}).status,400);
+});
+test('a refused profile with a price schedule says why',()=>{
+  const u=new URL('http://lab/ocpp/2.1/smartcharging/setChargingProfile');
+  const p={chargingProfile:{chargingSchedule:[{absolutePriceSchedule:{}}]}};
+  assert.equal(commandRejection(u,{},null),'Command outside lab bounds');
+  assert.equal(commandRejection(u,p,{enabled:false}),'Price schedules need price_commands_enabled');
+  assert.equal(commandRejection(new URL('http://lab/ocpp/2.0.1/smartcharging/setChargingProfile'),p,{enabled:true}),
+    'Price schedules need OCPP 2.1');
+  assert.equal(commandRejection(u,p,{enabled:true}),'Command or price schedule outside lab bounds');
 });

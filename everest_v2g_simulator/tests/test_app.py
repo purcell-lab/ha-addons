@@ -25,6 +25,36 @@ GOOD = {"csms_url": "ws://192.0.2.10:9300/ocpp", "charge_point_id": "SIM-EV-EVER
         "ocpp_version": "2.1", "max_power_kw": 11, "acknowledge_test_isolation": True}
 
 
+def pricing_docs():
+    """TariffCostCtrlr and CustomizationCtrlr shaped as in libocpp v0.30.3:
+    Available[*] ReadOnly without a value, Enabled[Cost] false, Currency EUR."""
+    def prop(name, instance=None, mutability="ReadWrite", **value):
+        attribute = {"type": "Actual", "mutability": mutability}
+        attribute.update(value)
+        entry = {"variable_name": name, "attributes": [attribute]}
+        if instance:
+            entry["instance"] = instance
+        return entry
+    tariff = {"name": "TariffCostCtrlr", "properties": {
+        "TariffCostCtrlrAvailableTariff": prop("Available", "Tariff", "ReadOnly"),
+        "TariffCostCtrlrAvailableCost": prop("Available", "Cost", "ReadOnly"),
+        "TariffCostCtrlrCurrency": prop("Currency", value="EUR"),
+        "TariffCostCtrlrEnabledTariff": prop("Enabled", "Tariff"),
+        "TariffCostCtrlrEnabledCost": prop("Enabled", "Cost", value=False),
+        "TariffFallbackMessage": prop("TariffFallbackMessage", value=""),
+        "TotalCostFallbackMessage": prop("TotalCostFallbackMessage", value=""),
+        "NumberOfDecimalsForCostValues": prop("NumberOfDecimalsForCostValues"),
+    }}
+    custom = {"name": "CustomizationCtrlr", "properties": {
+        "CustomImplementationEnabled": prop("CustomImplementationEnabled"),
+        "CustomImplementationCaliforniaPricingEnabled": prop(
+            "CustomImplementationEnabled", "org.openchargealliance.costmsg"),
+        "CustomImplementationMultiLanguageEnabled": prop(
+            "CustomImplementationEnabled", "org.openchargealliance.multilanguage"),
+    }}
+    return {"TariffCostCtrlr": tariff, "CustomizationCtrlr": custom}
+
+
 def component_fixture(directory):
     """Minimal standardized device-model files with the properties we edit."""
     def doc(*props):
@@ -48,6 +78,7 @@ def component_fixture(directory):
     }
     for event in ("Started", "Updated", "Ended"):
         files["SampledDataCtrlr"]["properties"]["SampledDataTx" + event + "Measurands"]["attributes"][0]["value"] = "Energy.Active.Import.Register,Current.Import,Voltage"
+    files.update(pricing_docs())
     for name, content in files.items():
         (std / f"{name}.json").write_text(json.dumps(content))
     return directory
@@ -318,6 +349,10 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(supply["config_implementation"]["main"]["min_voltage"], 380.0)
         ev = next(m for m in active.values() if m["module"] == "EvManager")["config_module"]
         self.assertEqual(ev["dc_target_voltage"], 380)
+        # Issue #70: charging stays at the EV's 900 V maximum (EvManager
+        # default). Equal charge and discharge voltages left power targets
+        # unapplied (UPSTREAM.md, upstream behaviour 12).
+        self.assertNotIn("dc_max_voltage_limit", ev)
         d20 = next(m for m in active.values() if m["module"] == "Evse15118D20")
         self.assertEqual(d20["config_module"]["device"], netguard.SECC_LINK)
         josev = next(m for m in active.values() if m["module"] == "PyEvJosev")["config_module"]
@@ -333,6 +368,10 @@ class GeneratedConfigTest(unittest.TestCase):
         ocpp = next(m for m in active.values() if m["module"] == "OCPP201")
         sinks = [c["module_id"] for c in ocpp["connections"]["evse_energy_sink"]]
         self.assertEqual(sinks, ["evse_manager_1_ocpp_sink"])
+        # Issue #28: no EVSE 0 sink (it capped targets at a third); every
+        # sink maps to EVSE 1, and the EVSE 0 warning is filtered (LogFilter).
+        self.assertEqual(active["evse_manager_1_ocpp_sink"]["mapping"], {"module": {"evse": 1}})
+        self.assertEqual(ocpp["config_module"]["CompositeScheduleIntervalS"], 10)
         for path in json.dumps(config).split('"'):
             if path.startswith("/") and "everest" in path and not path.startswith(("/data", "/opt/everest")):
                 self.fail(f"state outside /data: {path}")
@@ -553,6 +592,48 @@ class LogFilterTest(unittest.TestCase):
         kept = [line for line in lines if log_filter.keep(line)]
         self.assertEqual(kept, lines[4:7])
 
+    def test_drops_only_the_station_sink_warning(self):
+        # Issue #28: logged every 10 s because EVSE 0 deliberately has no sink.
+        import app
+        warning = ("2026-10-17 06:50:38.123456 [WARN] ocpp:OCPP201   : Can not apply external limits! "
+                   "No evse energy sink configured for evse_id: ")
+        log_filter = app.LogFilter()
+        self.assertFalse(log_filter.keep(warning + "0"))
+        self.assertTrue(log_filter.keep(warning + "1"))
+        self.assertTrue(log_filter.keep(warning + "01"))
+        self.assertTrue(log_filter.keep("2026-10-17 06:50:39.000000 [WARN] api:API        : "
+                                        "No evse energy sink configured for evse_id: 0"))
+
+
+class PumpTest(unittest.TestCase):
+    def run_pump(self, lines):
+        import app
+        import io
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(setattr, app, "RUN", app.RUN)
+        app.RUN = Path(tmp.name)
+        output = io.StringIO()
+        stdout, sys.stdout = sys.stdout, output
+        try:
+            app.pump(io.StringIO("".join(line + "\n" for line in lines)))
+        finally:
+            sys.stdout = stdout
+        return json.loads((app.RUN / "state.json").read_text()), output.getvalue()
+
+    def test_ev_giving_up_is_recorded_once(self):
+        # Issue #33: Josev logs the message and again at the end of its traceback.
+        line = ("2026-10-11 21:50:52.000000 [ERRO] iso15118_car:   : EVCC tried to initiate a "
+                "V2GCommunicationSession, but maximum number of SDP retry cycles (1) is now reached. "
+                "Shutting down high-level communication.")
+        state, output = self.run_pump([line, "Traceback (most recent call last):",
+                                       "SDPFailedError: EVCC tried to initiate a V2GCommunicationSession, "
+                                       "but maximum number of SDP retry cycles (1) is now reached."])
+        self.assertEqual(state["ev_gave_up_count"], 1)
+        self.assertGreater(state["ev_gave_up_at"], 0)
+        self.assertIn("SDP retry cycles", state["ev_gave_up_line"])
+        self.assertIn("maximum number of SDP retry cycles", output)  # still forwarded
+
 
 class FakeBus:
     def __init__(self):
@@ -642,6 +723,360 @@ class UiServerTest(unittest.TestCase):
         self.assertEqual(commands["plugin"], ("execute_charging_session", configure.ev_session()))
         self.assertTrue(commands["stop"][1].startswith("iso_stop_charging"))
         self.assertEqual(commands["unplug"], ("modify_charging_session", "unplug"))
+
+
+class WatchdogBus:
+    """Session state and power as EVerest's API reports them."""
+
+    def __init__(self, state="AuthRequired", power=0.0):
+        self.state, self.power = state, power
+        self.sent = []
+        self.last_command = None
+
+    def snapshot(self):
+        return {"session_info": {"value": {"state": self.state}, "age_s": 1.0},
+                "powermeter": {"value": {"power_W": {"total": self.power}}, "age_s": 1.0}}
+
+    def send(self, name, state, source="operator"):
+        self.sent.append((name, source))
+        self.last_command = {"command": name, "at": 1000.0, "source": source}
+        if name == "unplug":
+            self.state = "Unplugged"
+        elif name == "plugin":
+            self.state = "AuthRequired"
+        return True
+
+
+class WatchdogTest(unittest.TestCase):
+    """Issue #33: re-plug the EV after it gives up, never during a session."""
+
+    def setUp(self):
+        import ui_server
+        self.ui = ui_server
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(setattr, ui_server, "RUN", ui_server.RUN)
+        ui_server.RUN = Path(self.tmp.name)
+        self.now = 1000.0
+        self.slept = []
+
+    def gave_up(self, at):
+        (self.ui.RUN / "state.json").write_text(json.dumps({"ev_gave_up_at": at, "max_power_kw": 25}))
+
+    def watchdog(self, bus):
+        return self.ui.Watchdog(bus, sleep=self.slept.append, clock=lambda: self.now)
+
+    def test_decision(self):
+        decide = self.ui.recovery_decision
+        self.assertIsNone(decide(None, 0, "AuthRequired", 0, None, 0, 100))
+        self.assertIsNone(decide(90, 90, "AuthRequired", 0, None, 0, 100))  # already handled
+        self.assertEqual(decide(98, 0, "AuthRequired", 0, None, 0, 100), "wait")
+        self.assertEqual(decide(90, 0, "AuthRequired", 0, None, 0, 100), "recover")
+        self.assertEqual(decide(90, 0, "Preparing", None, None, 0, 100), "recover")
+        self.assertEqual(decide(90, 0, "Charging", -20000, None, 0, 100), "skip: power flowing")
+        self.assertEqual(decide(90, 0, "Charging", 6000, None, 0, 100), "skip: power flowing")
+        self.assertEqual(decide(90, 0, "Unplugged", 0, None, 0, 100), "skip: not plugged in")
+        self.assertEqual(decide(90, 0, None, 0, None, 0, 100), "skip: not plugged in")
+        self.assertEqual(decide(90, 0, "AuthRequired", 0, 88, 0, 100), "skip: operator command")
+        self.assertEqual(decide(90, 0, "AuthRequired", 0, 80, 0, 100), "recover")  # older command
+        self.assertTrue(decide(90, 0, "AuthRequired", 0, None, 3, 100).startswith("skip: retry limit"))
+
+    def test_recovers_by_unplug_then_plug_in(self):
+        bus = WatchdogBus()
+        watchdog = self.watchdog(bus)
+        self.assertIsNone(watchdog.tick())
+        self.gave_up(998.0)
+        self.assertEqual(watchdog.tick(), "wait")
+        self.assertEqual(watchdog.snapshot()["ev_session"], "gave_up")
+        self.assertEqual(bus.sent, [])
+        self.now = 1004.0
+        self.assertEqual(watchdog.tick(), "recover")
+        self.assertEqual(bus.sent, [("unplug", "watchdog"), ("plugin", "watchdog")])
+        self.assertIn(self.ui.RECOVERY_SETTLE_S, self.slept)
+        snap = watchdog.snapshot()
+        self.assertEqual(snap["ev_session"], "ok")
+        self.assertEqual(snap["recoveries"], 1)
+        self.assertEqual(snap["last_recovery"]["result"], "re-plugged")
+        self.assertIsNone(watchdog.tick())  # handled once only
+
+    def test_never_replugs_while_power_flows_or_after_operator(self):
+        bus = WatchdogBus("Charging", 20000.0)
+        watchdog = self.watchdog(bus)
+        self.gave_up(990.0)
+        self.assertEqual(watchdog.tick(), "skip: power flowing")
+        self.assertEqual(bus.sent, [])
+        self.assertEqual(watchdog.snapshot()["ev_session"], "ok")
+        bus = WatchdogBus()
+        bus.last_command = {"command": "unplug", "at": 991.0}  # operator, no source key
+        watchdog = self.watchdog(bus)
+        self.assertEqual(watchdog.tick(), "skip: operator command")
+        self.assertEqual(bus.sent, [])
+
+    def test_retry_limit_until_power_flows(self):
+        bus = WatchdogBus()
+        watchdog = self.watchdog(bus)
+        for attempt in range(self.ui.MAX_RECOVERIES):
+            self.gave_up(self.now)
+            self.now += 6
+            self.assertEqual(watchdog.tick(), "recover")
+            self.now += 60
+        self.gave_up(self.now)
+        self.now += 6
+        self.assertTrue(watchdog.tick().startswith("skip: retry limit"))
+        self.assertEqual(watchdog.snapshot()["ev_session"], "gave_up")
+        self.assertEqual(len(bus.sent), 2 * self.ui.MAX_RECOVERIES)
+        bus.power = 6000.0  # a working session resets the limit
+        watchdog.tick()
+        bus.power = 0.0
+        self.gave_up(self.now)
+        self.now += 6
+        self.assertEqual(watchdog.tick(), "recover")
+
+    def test_failed_unplug_is_reported(self):
+        bus = WatchdogBus()
+        bus.send = lambda name, state, source="operator": False
+        watchdog = self.watchdog(bus)
+        self.gave_up(990.0)
+        self.assertEqual(watchdog.tick(), "recover")
+        self.assertEqual(watchdog.snapshot()["ev_session"], "gave_up")
+        self.assertEqual(watchdog.snapshot()["last_recovery"]["result"], "failed: unplug not sent")
+
+    def test_status_reports_watchdog(self):
+        watchdog = self.watchdog(WatchdogBus())
+        body = self.ui.status(FakeBus(), watchdog)
+        self.assertEqual(body["ev_watchdog"], {"ev_session": "ok", "recoveries": 0, "last_recovery": None})
+        self.assertIsNone(self.ui.status(FakeBus())["ev_watchdog"])
+
+
+class DynamicPricingConfigTest(unittest.TestCase):
+    def test_tariff_and_cost_enabled_in_aud_with_california_pricing(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        source = component_fixture(Path(tmp.name) / "source")
+        target = Path(tmp.name) / "target"
+        configure.component_config(source, target, configure.validate(GOOD), "a" * 32)
+        for prop in ("TariffCostCtrlrAvailableTariff", "TariffCostCtrlrEnabledTariff",
+                     "TariffCostCtrlrAvailableCost", "TariffCostCtrlrEnabledCost"):
+            self.assertIs(value(target, "TariffCostCtrlr", prop), True, prop)
+        self.assertEqual(value(target, "TariffCostCtrlr", "TariffCostCtrlrCurrency"), "AUD")
+        self.assertEqual(value(target, "TariffCostCtrlr", "NumberOfDecimalsForCostValues"), 4)
+        self.assertIs(value(target, "CustomizationCtrlr", "CustomImplementationCaliforniaPricingEnabled"), True)
+        # Only California Pricing; the generic and multi-language switches stay upstream.
+        self.assertNotIn("value", json.loads((target / "standardized/CustomizationCtrlr.json").read_text())
+                         ["properties"]["CustomImplementationMultiLanguageEnabled"]["attributes"][0])
+        doc = json.loads((target / "standardized/TariffCostCtrlr.json").read_text())
+        # Available is ReadOnly (no SetVariables), so the file carries the value;
+        # the variable, instance and mutability stay as upstream defines them.
+        available = doc["properties"]["TariffCostCtrlrAvailableCost"]
+        self.assertEqual((available["variable_name"], available["instance"]), ("Available", "Cost"))
+        self.assertEqual(available["attributes"][0]["mutability"], "ReadOnly")
+        self.assertEqual(value(target, "TariffCostCtrlr", "TotalCostFallbackMessage"), "")
+
+
+PRICING_LOG = """2026-10-18T05:00:00.000Z: CentralSystem>ChargePoint  SetChargingProfile
+[2, "p-1", "SetChargingProfile", {"evseId": 1, "chargingProfile": {"id": 7, "chargingProfilePurpose": "TxProfile"}}]
+2026-10-18T05:00:00.100Z: ChargePoint>CentralSystem SetChargingProfileResponse
+[3, "p-1", {"status": "Accepted"}]
+2026-10-18T05:00:01.000Z: CentralSystem>ChargePoint  CostUpdated
+[
+  2,
+  "c-1",
+  "CostUpdated",
+  {"totalCost": 1.23, "transactionId": "tx-1", "customData": {"vendorId": "org.openchargealliance.costmsg",
+   "chargingPrice": {"kWhPrice": 0.2512}, "priceText": "0.2512 AUD/kWh"}}
+]
+2026-10-18T05:00:01.050Z: ChargePoint>CentralSystem CostUpdatedResponse
+[
+  3,
+  "c-1",
+  {}
+]
+2026-10-18T05:00:02.000Z: CentralSystem>ChargePoint  SetDefaultTariff
+[2, "t-1", "SetDefaultTariff", {"evseId": 0, "tariff": {"tariffId": "AMBER-1", "currency": "AUD"}}]
+2026-10-18T05:00:02.010Z: ChargePoint>CentralSystem Unknown
+[
+  4,
+  "t-1",
+  "NotImplemented",
+  "",
+  {}
+]
+2026-10-18T05:00:03.000Z: CentralSystem>ChargePoint  GetTariffs
+[2, "t-2", "GetTariffs", {"evseId": 0}]
+2026-10-18T05:00:03.010Z: ChargePoint>CentralSystem Unknown
+[4, "t-2", "NotImplemented", "", {}]
+2026-10-18T05:00:04.000Z: CentralSystem>ChargePoint  ClearTariffs
+[2, "t-3", "ClearTariffs", {}]
+2026-10-18T05:00:05.000Z: CentralSystem>ChargePoint  ChangeTransactionTariff
+[2, "t-4", "ChangeTransactionTariff", {"transactionId": "tx-1", "tariff": {"tariffId": "AMBER-2", "currency": "AUD"}}]
+2026-10-18T05:00:05.010Z: ChargePoint>CentralSystem Unknown
+[4, "t-4", "NotImplemented", "", {}]
+"""
+
+
+def priced_profile(schedule):
+    return {"payload": {"evseId": 1, "chargingProfile": {
+        "id": 8, "chargingProfilePurpose": "TxDefaultProfile",
+        "chargingSchedule": [dict({"id": 2, "chargingRateUnit": "W",
+                                   "chargingSchedulePeriod": [{"startPeriod": 0, "limit": 7000.0}]}, **schedule)]}}}
+
+
+class PricingLogTest(unittest.TestCase):
+    def test_pricing_messages_and_call_errors_tracked(self):
+        for action in ("CostUpdated", "SetDefaultTariff", "GetTariffs", "ClearTariffs",
+                       "ChangeTransactionTariff", "SetChargingProfile", "ClearChargingProfile"):
+            self.assertIn(action, ocpp_log.TRACKED)
+        events = ocpp_log.pricing_events(PRICING_LOG)
+        self.assertEqual([e["action"] for e in events],
+                         ["ChangeTransactionTariff", "ClearTariffs", "GetTariffs", "SetDefaultTariff", "CostUpdated"])
+        by_id = {e["message_id"]: e for e in events}
+        self.assertEqual(by_id["c-1"]["status"], "Replied")  # CostUpdatedResponse has no status
+        self.assertEqual(by_id["c-1"]["payload"]["customData"]["chargingPrice"]["kWhPrice"], 0.2512)
+        for uid in ("t-1", "t-2", "t-4"):
+            self.assertEqual(by_id[uid]["status"], "CallError")
+            self.assertEqual(by_id[uid]["status_info"]["reasonCode"], "NotImplemented")
+        self.assertIsNone(by_id["t-3"]["status"])  # no reply recorded yet
+        # Profiles are listed apart, so cost updates never push them out.
+        profiles = ocpp_log.profile_events(PRICING_LOG)
+        self.assertEqual([e["message_id"] for e in profiles], ["p-1"])
+        flood = PRICING_LOG + "".join(
+            f"2026-10-18T06:00:{i:02d}.000Z: CentralSystem>ChargePoint  CostUpdated\n"
+            f'[2, "f-{i}", "CostUpdated", {{"totalCost": {i}, "transactionId": "tx-1"}}]\n' for i in range(20))
+        self.assertEqual(ocpp_log.latest_profile(ocpp_log.profile_events(flood))["message_id"], "p-1")
+        self.assertEqual(len(ocpp_log.pricing_events(flood)), 10)
+
+    def test_absolute_price_schedule_summary(self):
+        stacks = [{"duration": 1800, "priceRule": [
+                       {"energyFee": {"value": 45, "exponent": -2}, "powerRangeStart": {"value": 7, "exponent": 0}},
+                       {"energyFee": {"value": 2512, "exponent": -4}, "powerRangeStart": {"value": 0, "exponent": 0}}]}
+                  ] + [{"duration": 1800, "priceRule": [{"energyFee": {"value": 30 + i, "exponent": -2},
+                                                         "powerRangeStart": {"value": 0, "exponent": 0}}]}
+                       for i in range(9)]
+        found = ocpp_log.price_schedules(priced_profile({"absolutePriceSchedule": {
+            "timeAnchor": "2026-10-18T05:00:00Z", "priceScheduleID": 3, "currency": "AUD", "language": "en",
+            "priceAlgorithm": "org.openchargealliance.costcalc", "priceScheduleDescription": "Amber import",
+            "priceRuleStacks": stacks}}))
+        self.assertEqual(len(found), 1)
+        summary = found[0]
+        self.assertEqual((summary["kind"], summary["id"], summary["currency"], summary["count"]),
+                         ("absolutePriceSchedule", 3, "AUD", 10))
+        self.assertEqual(len(summary["intervals"]), ocpp_log.PRICE_INTERVALS)
+        first, second = summary["intervals"][:2]
+        # The lowest power range is the plain energy price.
+        self.assertEqual((first["start"], first["duration_s"], first["energy_fee"], first["rules"]),
+                         ("2026-10-18T05:00:00Z", 1800, 0.2512, 2))
+        self.assertEqual((second["offset_s"], second["start"], second["energy_fee"]),
+                         (1800, "2026-10-18T05:30:00Z", 0.3))
+
+    def test_price_level_and_sales_tariff_summary(self):
+        levels = ocpp_log.price_schedules(priced_profile({"priceLevelSchedule": {
+            "timeAnchor": "2026-10-18T15:00:00+10:00", "priceScheduleId": 4, "numberOfPriceLevels": 5,
+            "priceLevelScheduleEntries": [{"duration": 300, "priceLevel": 1}, {"duration": 600, "priceLevel": 4}]}}))
+        self.assertEqual(levels[0]["kind"], "priceLevelSchedule")
+        self.assertEqual(levels[0]["number_of_price_levels"], 5)
+        self.assertEqual([(i["start"], i["price_level"]) for i in levels[0]["intervals"]],
+                         [("2026-10-18T05:00:00Z", 1), ("2026-10-18T05:05:00Z", 4)])
+        sales = ocpp_log.price_schedules(priced_profile({"startSchedule": "2026-10-18T05:00:00Z", "salesTariff": {
+            "id": 5, "numEPriceLevels": 3, "salesTariffEntry": [
+                {"relativeTimeInterval": {"start": 0, "duration": 900}, "ePriceLevel": 2,
+                 "consumptionCost": [{"startValue": 0, "cost": [{"costKind": "RelativePricePercentage",
+                                                                 "amount": 25, "amountMultiplier": -1}]}]}]}}))
+        self.assertEqual(sales[0]["kind"], "salesTariff")
+        self.assertEqual(sales[0]["intervals"][0]["start"], "2026-10-18T05:00:00Z")
+        self.assertEqual((sales[0]["intervals"][0]["price_level"], sales[0]["intervals"][0]["cost"]), (2, 2.5))
+
+    def test_no_or_malformed_price_information(self):
+        self.assertEqual(ocpp_log.price_schedules(None), [])
+        self.assertEqual(ocpp_log.price_schedules({"payload": None}), [])
+        self.assertEqual(ocpp_log.price_schedules(priced_profile({})), [])
+        broken = ocpp_log.price_schedules(priced_profile({"absolutePriceSchedule": {
+            "timeAnchor": "not a time", "priceRuleStacks": [{"duration": "x", "priceRule": "y"}, 5]}}))
+        self.assertEqual(broken[0]["count"], 2)
+        self.assertEqual(broken[0]["intervals"], [{"offset_s": 0, "start": None, "duration_s": "x",
+                                                   "energy_fee": None, "rules": 0}])
+        self.assertIsNone(ocpp_log._number({"value": 1, "exponent": 10 ** 6}))
+
+
+SESSION_COST = {
+    "session_id": "tx-1", "status": "Running", "currency": {"code": "AUD", "decimals": 4},
+    "cost_chunks": [{"cost": {"value": 12300}, "timestamp_to": "2026-10-18T05:00:01.000Z", "metervalue_to": 4200}],
+    "charging_price": [
+        {"category": "Energy", "price": {"currency": {"code": "AUD", "decimals": 4}, "value": {"value": 2512}}},
+        {"category": "Time", "price": {"currency": {"code": "AUD", "decimals": 4}, "value": {"value": 10000}}}],
+    "next_period": {"timestamp_from": "2026-10-18T05:30:00.000Z", "charging_price": [
+        {"category": "Energy", "price": {"currency": {"code": "AUD", "decimals": 4}, "value": {"value": 3100}}}]},
+    "message": [{"content": "0.2512 AUD/kWh"}, {"content": "0,2512 AUD/kWh", "language": "de"}],
+}
+
+
+class SessionCostTest(unittest.TestCase):
+    def setUp(self):
+        import ui_server
+        self.ui = ui_server
+
+    def test_topic_and_var_unwrapping(self):
+        self.assertEqual(self.ui.TOPICS[self.ui.SESSION_COST_TOPIC], "session_cost")
+        self.assertEqual(self.ui.SESSION_COST_TOPIC, "everest/modules/ocpp/impl/session_cost/var")
+        self.assertEqual(self.ui.unwrap_var({"name": "session_cost", "data": {"a": 1}}), ("session_cost", {"a": 1}))
+        self.assertEqual(self.ui.unwrap_var({"name": "tariff_message", "data": {}}), (None, None))
+        self.assertEqual(self.ui.unwrap_var("garbage"), (None, None))
+
+    def test_bus_stores_only_session_cost(self):
+        bus = self.ui.Bus()
+        message = type("Message", (), {})
+        for name in ("tariff_message", "session_cost"):
+            m = message()
+            m.topic = self.ui.SESSION_COST_TOPIC
+            m.payload = json.dumps({"name": name, "data": SESSION_COST if name == "session_cost" else {}}).encode()
+            bus.on_message(None, None, m)
+        self.assertEqual(bus.snapshot()["session_cost"]["value"], SESSION_COST)
+        self.assertEqual(set(bus.snapshot()), {"session_cost"})
+
+    def test_session_price_summary(self):
+        price = self.ui.session_price(SESSION_COST)
+        self.assertEqual(price["total_cost"], 1.23)
+        self.assertEqual(price["kwh_price"], 0.2512)
+        self.assertEqual(price["hour_price"], 1.0)
+        self.assertEqual(price["next_kwh_price"], 0.31)
+        self.assertEqual(price["next_at"], "2026-10-18T05:30:00.000Z")
+        self.assertEqual(price["currency"], "AUD")
+        self.assertEqual(price["text"], "0.2512 AUD/kWh / 0,2512 AUD/kWh")
+        self.assertEqual((price["timestamp"], price["meter_wh"], price["session_id"]),
+                         ("2026-10-18T05:00:01.000Z", 4200, "tx-1"))
+
+    def test_session_price_without_california_pricing(self):
+        # Plain CostUpdated (no customData): total cost only.
+        price = self.ui.session_price({"session_id": "tx-2", "status": "Running",
+                                       "currency": {"code": "AUD", "decimals": 4},
+                                       "cost_chunks": [{"cost": {"value": 5}}]})
+        self.assertEqual(price["total_cost"], 0.0005)
+        self.assertIsNone(price["kwh_price"])
+        self.assertIsNone(price["next_at"])
+        self.assertIsNone(price["text"])
+        self.assertIsNone(self.ui.session_price("garbage"))
+        self.assertIsNone(self.ui.session_price({"currency": {"decimals": 99}, "cost_chunks": [{"cost": {}}]})["total_cost"])
+
+    def test_status_and_profiles_carry_pricing(self):
+        class Bus:
+            last_command = None
+
+            def snapshot(self):
+                return {"session_cost": {"value": SESSION_COST, "age_s": 3.0}}
+        status = self.ui.status(Bus())
+        self.assertEqual(status["session_cost"]["value"]["kwh_price"], 0.2512)
+        self.assertEqual(status["session_cost"]["age_s"], 3.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            old = self.ui.LOGS
+            self.ui.LOGS = Path(tmp)
+            try:
+                (Path(tmp) / "libocpp_201.log").write_text(PRICING_LOG)
+                body = self.ui.profiles()
+            finally:
+                self.ui.LOGS = old
+        self.assertEqual(body["latest_profile"]["message_id"], "p-1")
+        self.assertEqual(body["price_schedules"], [])
+        self.assertEqual(body["pricing"][-1]["action"], "CostUpdated")
+        self.assertEqual(body["recent"][0]["action"], "SetChargingProfile")
 
 
 class PublishWorkflowTest(unittest.TestCase):

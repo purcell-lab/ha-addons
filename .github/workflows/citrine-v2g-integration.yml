@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: purcell-lab/CitrineOS-HA-Integration
-          ref: ab2642d9aec0a547e0559142f2b74275f85fe58d
+          ref: 2bb8fe3a3a56aaff4c3695464afa4ac316153e77
           path: citrine-client
           persist-credentials: false
       - name: Free disposable runner disk

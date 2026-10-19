@@ -177,3 +177,22 @@ Before live-host acceptance:
 Keep full 2.0.1 smart charging, V2G, authenticated/TLS OCPP, deterministic metering and fleet
 scenarios outside this baseline PR. See [UPSTREAM.md](UPSTREAM.md) for the
 pin, source distribution, licensing and exact upstream changes.
+
+## Connection troubleshooting
+
+Mongoose (the simulator's network library) has its own DNS client: it asks
+the first IPv4 `nameserver` in `/etc/resolv.conf` for an A record of the
+bare CSMS host name and connects to the first address in the answer. Other
+Apps resolve through libc instead. With a backend URL set, the App logs
+`Connection diagnostics:` lines at start, and each failed attempt logs
+`socket error peer <address>:<port>`. Compare:
+
+- `Mongoose connects to <address>` with the CSMS App's IP address (App
+  info, or `libc getaddrinfo`). A different or stale address points at DNS.
+- `TCP probe <address> port <port>`: `open` means the listener accepts
+  connections there; `ECONNREFUSED` means nothing listens on that port at
+  that address (listener disabled, or wrong address); `EHOSTUNREACH` or
+  `timeout` means the address is not reachable on the Supervisor network.
+- `Mongoose-style A query ... failed` means Mongoose cannot reach that
+  nameserver; its attempts then end in `DNS timeout` rather than
+  `socket error`.

@@ -11,7 +11,9 @@ CI network is internal) with the upstream `ws` client:
 - after the station is removed from the options and the server restarts,
   its old password is refused;
 - with plugfest_open_admission: an unknown identity without credentials
-  boots on 2.1, 2.0.1 and 1.6, and 2.1 is preferred.
+  boots on 2.1, 2.0.1 and 1.6, and 2.1 is preferred;
+- a station that drops its socket and reconnects at once, several times,
+  still gets replies to BootNotification and Heartbeat (#67).
 No real charger is contacted.
 """
 import json
@@ -61,6 +63,48 @@ console.log(JSON.stringify(x.open?{
   v16:await settle()||await attempt(x.id,x.password,['ocpp1.6']),
   preferred:await settle()||await attempt(x.id,x.password,all),
 }));
+"""
+
+
+# #67: EVerest drops its socket after "Pong not received from server!" and
+# reconnects at once. Upstream deregistered the old connection while the new
+# one registered, so the station's messages were stored but never answered.
+RECONNECT = r"""
+import {createRequire} from 'node:module';
+const r=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');
+const WebSocket=r(r.resolve('ws'));
+function connect(){
+  return new Promise(resolve=>{
+    const ws=new WebSocket('ws://127.0.0.1:8083/PF-RECONNECT-01',['ocpp2.1'],{handshakeTimeout:8000});
+    ws.once('open',()=>resolve(ws));
+    ws.once('unexpected-response',()=>resolve(null));
+    ws.once('error',()=>resolve(null));
+  });
+}
+// Upstream refuses the identity until the old slot is released: retry quickly.
+async function reconnect(){
+  for(let i=0;i<200;i++){const ws=await connect();if(ws)return ws;await new Promise(r=>setTimeout(r,50));}
+  throw new Error('reconnect refused');
+}
+function call(ws,id,action,payload){
+  return new Promise(resolve=>{
+    const on=m=>{const f=JSON.parse(m.toString());
+      if(f[1]===id&&(f[0]===3||f[0]===4)){clearTimeout(timer);ws.off('message',on);resolve(f[0]===3);}};
+    const timer=setTimeout(()=>{ws.off('message',on);resolve(false);},10000);
+    ws.on('message',on);
+    ws.send(JSON.stringify([2,id,action,payload]));
+  });
+}
+const boot={chargingStation:{model:'ci-probe',vendorName:'purcell-lab'},reason:'PowerUp'};
+const rounds=[];
+let ws=await reconnect();
+for(let round=0;round<9;round++){
+  rounds.push({boot:await call(ws,'b'+round,'BootNotification',boot),
+    heartbeat:await call(ws,'h'+round,'Heartbeat',{})});
+  ws.terminate();
+  if(round<8)ws=await reconnect();
+}
+console.log(JSON.stringify(rounds));
 """
 
 
@@ -136,7 +180,15 @@ def plugfest_trial(docker, request, server_options, values, tmp):
     for key, protocol in (("v21", "ocpp2.1"), ("v201", "ocpp2.0.1"), ("v16", "ocpp1.6"),
                           ("preferred", "ocpp2.1")):
         assert opened[key] == {"connected": True, "protocol": protocol, "boot": "Accepted"}, (key, opened[key])
+    r = subprocess.run(
+        ["docker", "exec", "-i", "lab-server", "node", "--input-type=module", "-e", RECONNECT],
+        text=True, capture_output=True, timeout=240)
+    if r.returncode:
+        raise AssertionError("Reconnect probe failed to run")
+    rounds = json.loads(r.stdout.strip().splitlines()[-1])
+    assert rounds == [{"boot": True, "heartbeat": True}] * 9, rounds
     print(json.dumps({"plugfest_listener": "passed", "accepted_boot": True,
                       "wrong_password_refused": True, "unknown_station_refused": True,
                       "ocpp16_boot": True, "ocpp21_preferred": True,
-                      "removed_station_revoked": True, "open_admission_all_versions": True}))
+                      "removed_station_revoked": True, "open_admission_all_versions": True,
+                      "reconnect_replies": True}))

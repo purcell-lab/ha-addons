@@ -1,9 +1,11 @@
 """Loopback-only Status UI, diagnostics and bounded EV-simulator controls.
 
-Reads EVerest's API module over the private MQTT bus and the libocpp message
-log. The only writes are three fixed car-simulator commands and the
-discovery self-test (two SDP requests on the private link); no OCPP message,
-configuration or charging profile can be sent from this UI.
+Reads EVerest's API module and the OCPP module's session cost over the
+private MQTT bus, and the libocpp message log. The only writes are three
+fixed car-simulator commands and the discovery self-test (two SDP requests
+on the private link); no OCPP message, configuration or charging profile
+can be sent from this UI. The EV watchdog
+uses the same unplug and plug-in commands.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -24,6 +26,7 @@ DATA = Path(os.environ.get("HA_EVEREST_DATA", "/data"))
 RUN = Path(os.environ.get("HA_EVEREST_RUN", "/run/ha-everest"))
 LOGS = DATA / "everest" / "ocpp_logs"
 EVSE = "evse_manager_1"
+SESSION_COST_TOPIC = "everest/modules/ocpp/impl/session_cost/var"
 TOPICS = {
     f"everest_api/{EVSE}/var/session_info": "session_info",
     f"everest_api/{EVSE}/var/powermeter": "powermeter",
@@ -31,6 +34,9 @@ TOPICS = {
     f"everest_api/{EVSE}/var/hardware_capabilities": "hardware_capabilities",
     "everest_api/ocpp/var/connection_status": "ocpp_connection",
     "everest_api/ocpp/var/charging_schedules": "charging_schedules",
+    # The OCPP201 module's session_cost implementation (framework topic, not
+    # the API module), wrapped as {"name": "session_cost", "data": <value>}.
+    SESSION_COST_TOPIC: "session_cost",
 }
 CARSIM = "everest_external/nodered/1/carsim/cmd/"
 CONTENT = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -75,6 +81,10 @@ class Bus:
             value = json.loads(message.payload.decode("utf-8"))
         except ValueError:
             value = message.payload.decode("utf-8", "replace")
+        if message.topic == SESSION_COST_TOPIC:
+            key, value = unwrap_var(value)
+            if key is None:
+                return
         with self.lock:
             self.values[key] = value
             self.updated[key] = time.time()
@@ -85,11 +95,78 @@ class Bus:
             return {k: {"value": v, "age_s": round(now - self.updated[k], 1)}
                     for k, v in self.values.items()}
 
-    def send(self, name, state):
+    def send(self, name, state, source="operator"):
         topic, payload = ev_commands(state)[name]
         info = self.client.publish(CARSIM + topic, payload, qos=1)
-        self.last_command = {"command": name, "at": time.time()}
+        self.last_command = {"command": name, "at": time.time(), "source": source}
         return info.rc == 0
+
+
+def unwrap_var(message):
+    """("session_cost", value) of an EVerest framework var message, or
+    (None, None) for any other var on that topic (tariff_message)."""
+    if isinstance(message, dict) and message.get("name") == "session_cost" and "data" in message:
+        return "session_cost", message["data"]
+    return None, None
+
+
+def _minor(amount, decimals):
+    """EVerest MoneyAmount {value} in minor units to a currency amount."""
+    value = amount.get("value") if isinstance(amount, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 12:
+        decimals = 2  # the type's default
+    return round(value / 10 ** decimals, decimals)
+
+
+def _prices(components):
+    """EVerest ChargingPriceComponent list to {category: amount}."""
+    prices = {}
+    for component in components if isinstance(components, list) else []:
+        if not isinstance(component, dict):
+            continue
+        price = component.get("price") or {}
+        currency = price.get("currency") or {}
+        prices[component.get("category") or "Other"] = _minor(price.get("value"), currency.get("decimals"))
+    return prices
+
+
+def session_price(cost):
+    """Readable summary of an EVerest SessionCost (OCPP201 publishes one for
+    each CostUpdated, and for a TransactionEventResponse with totalCost, when
+    TariffCostCtrlr Cost is enabled). California Pricing customData supplies
+    the current and next-period prices and the price text."""
+    if not isinstance(cost, dict):
+        return None
+    currency = cost.get("currency") or {}
+    decimals = currency.get("decimals")
+    chunks = [c for c in cost.get("cost_chunks") or [] if isinstance(c, dict)]
+    totals = [_minor(c.get("cost"), decimals) for c in chunks]
+    totals = [t for t in totals if t is not None]
+    last = chunks[-1] if chunks else {}
+    now = _prices(cost.get("charging_price"))
+    nxt = cost.get("next_period") if isinstance(cost.get("next_period"), dict) else {}
+    upcoming = _prices(nxt.get("charging_price"))
+    idle = (cost.get("idle_price") or {}).get("hour_price") or {}
+    messages = [m.get("content") for m in cost.get("message") or [] if isinstance(m, dict) and m.get("content")]
+    return {
+        "session_id": cost.get("session_id"),
+        "status": cost.get("status"),
+        "currency": currency.get("code"),
+        "total_cost": round(sum(totals), 12) if totals else None,
+        "kwh_price": now.get("Energy"),
+        "hour_price": now.get("Time"),
+        "flat_fee": now.get("FlatFee"),
+        "idle_hour_price": _minor(idle.get("value"), (idle.get("currency") or {}).get("decimals")),
+        "next_at": nxt.get("timestamp_from"),
+        "next_kwh_price": upcoming.get("Energy"),
+        "next_hour_price": upcoming.get("Time"),
+        "text": " / ".join(messages) or None,
+        "qr_code": cost.get("qr_code"),
+        "timestamp": last.get("timestamp_to"),
+        "meter_wh": last.get("metervalue_to"),
+    }
 
 
 def read_state():
@@ -99,7 +176,14 @@ def read_state():
         return {}
 
 
-def status(bus):
+def price_status(entry):
+    """Latest session cost with its age; kept until the next one arrives."""
+    if not entry:
+        return None
+    return {"value": session_price(entry.get("value")), "age_s": entry.get("age_s")}
+
+
+def status(bus, watchdog=None):
     data = bus.snapshot()
     schedules = (data.get("charging_schedules", {}).get("value") or {})
     if isinstance(schedules, dict):
@@ -111,7 +195,9 @@ def status(bus):
         "evse": {k: data.get(k) for k in ("session_info", "powermeter", "limits", "hardware_capabilities")},
         "ocpp_connection": data.get("ocpp_connection"),
         "composite_schedule": evse_schedules[0] if evse_schedules else None,
+        "session_cost": price_status(data.get("session_cost")),
         "last_command": bus.last_command,
+        "ev_watchdog": watchdog.snapshot() if watchdog else None,
         "server_time": time.time(),
     }
 
@@ -180,12 +266,135 @@ def diagnostics(brief=False):
 
 
 def profiles():
-    events = ocpp_log.profile_events(ocpp_log.read_logs(LOGS))
-    return {"latest_profile": ocpp_log.latest_profile(events),
-            "latest_tx_profile": ocpp_log.latest_tx_profile(events), "recent": events}
+    text = ocpp_log.read_logs(LOGS)
+    events = ocpp_log.profile_events(text)
+    latest = ocpp_log.latest_profile(events)
+    return {"latest_profile": latest,
+            "latest_tx_profile": ocpp_log.latest_tx_profile(events), "recent": events,
+            # Price information in the latest profile (stored by libocpp, not acted on).
+            "price_schedules": ocpp_log.price_schedules(latest),
+            # CostUpdated and OCPP 2.1 tariff requests with the station's replies.
+            "pricing": ocpp_log.pricing_events(text)}
 
 
-def make_handler(bus):
+# Issue #33: when the simulated EV's ISO 15118 session ends before charging
+# (for example at the charger's 3-minute limit for authorisation), Josev
+# starts no new session and EvManager refuses a new plug-in until the EV is
+# unplugged. app.py records Josev's give-up line (ev_gave_up_at); this
+# watchdog then does the manual recovery: unplug, wait, plug in. It never
+# acts while power flows, after an operator command or while unplugged.
+RECOVERY_GRACE_S = 5
+RECOVERY_SETTLE_S = 10
+RECOVERY_UNPLUG_S = 60
+MAX_RECOVERIES = 3
+POWER_FLOWING_W = 50
+NOT_PLUGGED = (None, "Unplugged", "Disabled")
+
+
+def recovery_decision(gave_up_at, handled_at, state, power, operator_at, attempts, now):
+    """What to do about the EV giving up: None (nothing new), "wait",
+    "recover" or "skip: <reason>"."""
+    if not isinstance(gave_up_at, (int, float)) or gave_up_at <= handled_at:
+        return None
+    if now - gave_up_at < RECOVERY_GRACE_S:
+        return "wait"  # an unplug in progress reaches session_info first
+    if isinstance(power, (int, float)) and abs(power) > POWER_FLOWING_W:
+        return "skip: power flowing"
+    if isinstance(operator_at, (int, float)) and operator_at >= gave_up_at - RECOVERY_GRACE_S:
+        return "skip: operator command"
+    if state in NOT_PLUGGED:
+        return "skip: not plugged in"
+    if attempts >= MAX_RECOVERIES:
+        return "skip: retry limit reached; unplug and plug in"
+    return "recover"
+
+
+class Watchdog:
+    """Re-plugs the simulated EV after it gives up (see recovery_decision)."""
+
+    def __init__(self, bus, sleep=time.sleep, clock=time.time):
+        self.bus, self.sleep, self.clock = bus, sleep, clock
+        self.handled_at = 0.0
+        self.attempts = 0
+        self.recoveries = 0
+        self.ev_session = "ok"
+        self.last_recovery = None
+
+    def snapshot(self):
+        return {"ev_session": self.ev_session, "recoveries": self.recoveries,
+                "last_recovery": self.last_recovery}
+
+    def reading(self):
+        data = self.bus.snapshot()
+        state = ((data.get("session_info") or {}).get("value") or {}).get("state")
+        meter = (data.get("powermeter") or {}).get("value") or {}
+        return state, (meter.get("power_W") or {}).get("total")
+
+    def tick(self):
+        now = self.clock()
+        state, power = self.reading()
+        command = self.bus.last_command or {}
+        operator_at = command.get("at") if command.get("source", "operator") == "operator" else None
+        if isinstance(power, (int, float)) and abs(power) > POWER_FLOWING_W:
+            self.attempts = 0  # a working session resets the retry limit
+        elif command.get("command") == "plugin" and operator_at and operator_at > self.handled_at:
+            self.attempts = 0
+        gave_up_at = read_state().get("ev_gave_up_at")
+        decision = recovery_decision(gave_up_at, self.handled_at, state, power,
+                                     operator_at, self.attempts, now)
+        if decision is None:
+            return None
+        if decision == "wait":
+            self.ev_session = "gave_up"
+            return decision
+        self.handled_at = gave_up_at
+        if decision == "recover":
+            self.attempts += 1
+            self.ev_session = "recovering"
+            print("EV watchdog: the simulated EV gave up its ISO 15118 session while plugged in; "
+                  f"unplugging and plugging in again (attempt {self.attempts} of {MAX_RECOVERIES}).",
+                  flush=True)
+            result = self.recover()
+            # Ignore anything the old EV stack logged during the recovery.
+            self.handled_at = max(gave_up_at, self.clock())
+            ok = result == "re-plugged"
+            self.recoveries += ok
+            self.ev_session = "ok" if ok else "gave_up"
+        else:
+            result = "skipped (" + decision[len("skip: "):] + ")"
+            self.ev_session = "gave_up" if "retry limit" in decision else "ok"
+        self.last_recovery = {"at": now, "result": result, "attempt": self.attempts}
+        print(f"EV watchdog: {result}.", flush=True)
+        return decision
+
+    def recover(self):
+        if not self.bus.send("unplug", read_state(), source="watchdog"):
+            return "failed: unplug not sent"
+        waited = 0.0
+        while self.reading()[0] != "Unplugged":
+            if waited >= RECOVERY_UNPLUG_S:
+                return "failed: still plugged in after unplug"
+            self.sleep(0.5)
+            waited += 0.5
+        # The EV's TLS session closes a few seconds after unplug.
+        self.sleep(RECOVERY_SETTLE_S)
+        with SelftestLock(SELFTEST_WAIT_S) as free:
+            if not free:
+                return "failed: discovery self-test still running"
+            if not self.bus.send("plugin", read_state(), source="watchdog"):
+                return "failed: plug-in not sent"
+        return "re-plugged"
+
+    def run(self, interval=1.0):
+        while True:
+            try:
+                self.tick()
+            except Exception as error:  # report, never stop the UI service
+                print(f"EV watchdog error ({type(error).__name__}: {error}).", flush=True)
+            self.sleep(interval)
+
+
+def make_handler(bus, watchdog=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ha-everest"
 
@@ -201,7 +410,7 @@ def make_handler(bus):
         def do_GET(self):
             path = self.path.split("?", 1)[0]
             if path == "/api/status":
-                return self.send_body(200, status(bus))
+                return self.send_body(200, status(bus, watchdog))
             if path == "/api/diagnostics":
                 return self.send_body(200, diagnostics(brief="brief=1" in self.path))
             if path == "/api/profiles":
@@ -254,7 +463,9 @@ def make_handler(bus):
 def main():
     bus = Bus()
     bus.start()
-    server = ThreadingHTTPServer(("127.0.0.1", 8000), make_handler(bus))
+    watchdog = Watchdog(bus)
+    threading.Thread(target=watchdog.run, daemon=True).start()
+    server = ThreadingHTTPServer(("127.0.0.1", 8000), make_handler(bus, watchdog))
     server.daemon_threads = True
     server.serve_forever()
 
