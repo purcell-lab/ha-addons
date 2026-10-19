@@ -37,6 +37,9 @@ class PackagingSafety(unittest.TestCase):
         self.assertFalse(lock["assessment"]["runtime_activation_allowed"])
         self.assertEqual(lock["assessment"]["status"], "blocked")
         self.assertFalse(lock["assessment"]["full_stack_verified"])
+        # The upstream reconnect race patch (#67) is applied and verified at build.
+        self.assertIn("RUN node /opt/citrine-ha/patch-reconnect.mjs \\\n"
+                      "    && node /opt/citrine-ha/patch-reconnect.mjs --check", docker)
 
     def test_dependencies_are_private_and_pinned(self):
         for app in ("citrineos_database", "citrineos_broker", "citrineos_hasura"):

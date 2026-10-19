@@ -4,9 +4,14 @@ Runs the real entrypoint (firewall, private veth link, test PKI, mosquitto,
 EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
 
   v2g21      CSMS prefers 2.1 -> ocpp2.1; ISO 15118-20 DC_BPT session; a
-             CentralSetpoint TxProfile charges then discharges (V2G export);
-             after stop and unplug a fresh session charges again
-  fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit
+             CentralSetpoint TxProfile charges then discharges (V2G export)
+             at 380 V, including direct reversals between charge and
+             discharge; after stop and unplug a fresh session,
+             started 75 s after plug-in, charges again; dynamic pricing
+             (CostUpdated with California Pricing on the Status page, a
+             price schedule shown, SetDefaultTariff answered NotImplemented)
+  fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit;
+             CostUpdated with California Pricing on the Status page
   pinned201  App option ocpp_version 2.0.1; CSMS prefers 2.1 -> ocpp2.0.1
   offline    Empty csms_url: no connection attempt leaves the host; the
              discovery self-test passes at start
@@ -15,9 +20,13 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
              plug-in, the patched module replaces that stack and a fresh
              EV stack completes discovery; unplugging before authorisation
              leaves the charger ignoring discovery, which the App reports
+  watchdog   No authorisation: after the charger's 3-minute limit the EV
+             gives up its session; the App re-plugs it, and a later start
+             still charges
 
 Each charging step compares mean measured DC power with the setpoint, and
-metered import and export energy with the integral of measured power.
+mean DC voltage with the simulated battery voltage, and metered import and
+export energy with the integral of measured power.
 """
 import asyncio
 import datetime as dt
@@ -37,16 +46,24 @@ DATA = Path(os.environ.get("HA_EVEREST_DATA", "/data"))
 UI = "http://127.0.0.1:8000"
 STEP = int(os.environ.get("STEP_S", "20"))
 CPID = "SIM-EV-EVEREST-V2G-01"
-# Charge, stop, discharge (V2G export), stop, charge. Signed W: negative is
-# discharge. The 0 W steps failed before 0.1.8: the EV stayed at 6,000 W, and
-# after a discharge the previous magnitude reappeared as charging
-# (VALIDATION.md). The 20 kW steps exceed the limits before 0.1.9: 5 kW
-# discharge (EV 25 A at 200 V) and 11.04 / 22.08 kW from the simulated board.
-SETPOINTS_W = [6000, 0, -20000, 0, 20000]
+# Charge, stop, discharge (V2G export), stop, charge, then direct reversals
+# to discharge and back. Signed W: negative is discharge. The 0 W steps failed
+# before 0.1.8: the EV stayed at 6,000 W, and after a discharge the previous
+# magnitude reappeared as charging (VALIDATION.md). The 20 kW steps exceed
+# the limits before 0.1.9: 5 kW discharge (EV 25 A at 200 V) and 11.04 /
+# 22.08 kW from the simulated board. The direct reversals (-5000, +3000)
+# guard against EvseManager's stale-target race (UPSTREAM.md, issue #70).
+SETPOINTS_W = [6000, 0, -20000, 0, 20000, -5000, 3000]
 RATING_KW = 25
 # 2.0.1 has no setpoints: one plain import limit below the rating.
 FALLBACK_LIMIT_W = 4000
 POWER_TOLERANCE = 0.03
+# Discharge voltage: the DC supply minimum (configure.DC_VOLTAGE). Charging
+# runs at the EV's 900 V maximum (issue #70, UPSTREAM.md).
+DC_VOLTAGE = 380
+VOLTAGE_TOLERANCE = 0.05
+# Issue #33: before 0.1.10 the EV gave up about 60 s after plug-in.
+LATE_START_S = 75
 
 
 def setpoint_period(offset, watts):
@@ -102,12 +119,83 @@ async def wait_for(predicate, timeout, interval=0.5, what="condition"):
     raise AssertionError(f"timed out waiting for {what}")
 
 
+# Dynamic pricing: CostUpdated with California Pricing customData reaches the
+# Status page; on OCPP 2.1 a profile's absolutePriceSchedule is shown
+# (information only) and SetDefaultTariff is answered NotImplemented
+# (libocpp v0.30.3). Prices are exact at NumberOfDecimalsForCostValues 4.
+PRICE_TEXT = "0.2512 AUD/kWh now, 0.31 AUD/kWh from the next half hour"
+
+
+def utc_text(when):
+    return when.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+async def pricing_checks(csms, txid, ocpp21, unit, limit, profile_id):
+    report = {}
+    later = dt.datetime.now(dt.timezone.utc).replace(microsecond=0) + dt.timedelta(minutes=30)
+    reply = await csms.call("CostUpdated", {"totalCost": 1.23, "transactionId": txid, "customData": {
+        "vendorId": "org.openchargealliance.costmsg", "state": "Charging",
+        "chargingPrice": {"kWhPrice": 0.2512},
+        "nextPeriod": {"atTime": utc_text(later), "chargingPrice": {"kWhPrice": 0.31}},
+        "priceText": PRICE_TEXT}})
+    assert reply[0] == 3, reply
+    price = await wait_for(lambda: (http("/api/status").get("session_cost") or {}).get("value"), 20,
+                           what="session cost on the Status page")
+    expected = {"currency": "AUD", "total_cost": 1.23, "kwh_price": 0.2512, "next_kwh_price": 0.31,
+                "text": PRICE_TEXT, "session_id": txid}
+    assert {k: price.get(k) for k in expected} == expected, price
+    assert price["next_at"] and price["next_at"].startswith(utc_text(later)[:16]), price
+    report["session_cost"] = price
+    expect_pricing = 1
+    if ocpp21:
+        stacks = [{"duration": 1800, "priceRule": [{"energyFee": {"value": 2512, "exponent": -4},
+                                                    "powerRangeStart": {"value": 0, "exponent": 0}}]},
+                  {"duration": 1800, "priceRule": [{"energyFee": {"value": 31, "exponent": -2},
+                                                    "powerRangeStart": {"value": 0, "exponent": 0}}]}]
+        profile = {"evseId": 1, "chargingProfile": {
+            "id": profile_id, "stackLevel": 0, "chargingProfilePurpose": "TxDefaultProfile",
+            "chargingProfileKind": "Relative",
+            "chargingSchedule": [{"id": 2, "chargingRateUnit": unit,
+                                  "chargingSchedulePeriod": [{"startPeriod": 0, "limit": limit}],
+                                  "absolutePriceSchedule": {
+                                      "timeAnchor": utc_text(later - dt.timedelta(minutes=30)),
+                                      "priceScheduleID": 1, "currency": "AUD", "language": "en",
+                                      "priceAlgorithm": "org.openchargealliance.costcalc",
+                                      "priceRuleStacks": stacks}}]}}
+        reply = await csms.call("SetChargingProfile", profile)
+        assert reply[2]["status"] == "Accepted", reply
+        shown = await wait_for(lambda: http("/api/profiles")["price_schedules"], 20,
+                               what="price schedule on the Status page")
+        assert shown[0]["kind"] == "absolutePriceSchedule" and shown[0]["count"] == 2, shown
+        assert [i["energy_fee"] for i in shown[0]["intervals"]] == [0.2512, 0.31], shown
+        report["price_schedule"] = shown[0]
+        reply = await csms.call("ClearChargingProfile", {"chargingProfileId": profile_id})
+        assert reply[2]["status"] == "Accepted", reply
+        reply = await csms.call("SetDefaultTariff", {"evseId": 0, "tariff": {
+            "tariffId": "AMBER-TEST", "currency": "AUD",
+            "energy": {"prices": [{"priceKwh": 0.2512}]}}})
+        assert reply[0] == 4 and reply[2] == "NotImplemented", reply
+        expect_pricing = 2
+    events = await wait_for(lambda: [e for e in http("/api/profiles")["pricing"] if e["status"]]
+                            if len([e for e in http("/api/profiles")["pricing"] if e["status"]]) >= expect_pricing
+                            else None, 20, what="pricing messages in the OCPP log view")
+    assert events[-1]["action"] == "CostUpdated" and events[-1]["status"] == "Replied", events
+    if ocpp21:
+        assert events[0]["action"] == "SetDefaultTariff", events
+        assert events[0]["status"] == "CallError", events
+        assert events[0]["status_info"]["reasonCode"] == "NotImplemented", events
+    report["pricing_log"] = [(e["action"], e["status"]) for e in events]
+    return report
+
+
 def reading():
     status = http("/api/status")
     pm = (status["evse"].get("powermeter") or {}).get("value") or {}
     si = (status["evse"].get("session_info") or {}).get("value") or {}
     return {
         "power": (pm.get("power_W") or {}).get("total"),
+        "voltage": (pm.get("voltage_V") or {}).get("DC"),
+        "current": (pm.get("current_A") or {}).get("DC"),
         "imported": (pm.get("energy_Wh_import") or {}).get("total"),
         "exported": (pm.get("energy_Wh_export") or {}).get("total"),
         "state": si.get("state"),
@@ -120,11 +208,19 @@ def iso_start(seconds=3):
     return start, start.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-async def start_session(csms, first=True):
+def check_meter(r):
+    """DC current times voltage gives the metered power."""
+    assert abs(r["current"] * r["voltage"] - r["power"]) <= max(100, 0.05 * abs(r["power"])), r
+    return {"W": round(r["power"]), "V": round(r["voltage"], 1), "A": round(r["current"], 2)}
+
+
+async def start_session(csms, first=True, start_delay_s=0):
     await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="idle EVSE")
     assert http("/api/ev/plugin", "POST")["sent"]
     await wait_for(lambda: reading()["state"] in ("AuthRequired", "Preparing"), 30,
                    what="plugged state")
+    # The EV waits for authorisation as long as the charger (3 minutes).
+    await asyncio.sleep(start_delay_s)
     reply = await csms.call("RequestStartTransaction", {
         "idToken": {"idToken": "SIM-TEST", "type": "Central"}, "evseId": 1, "remoteStartId": 7})
     assert reply[2]["status"] == "Accepted", reply
@@ -142,7 +238,8 @@ async def sample(t0, duration):
     samples = []
     while time.time() < t0 + duration:
         r = reading()
-        samples.append((time.time() - t0, r["power"], r["imported"], r["exported"], r["state"]))
+        samples.append((time.time() - t0, r["power"], r["imported"], r["exported"], r["state"],
+                        r["voltage"]))
         await asyncio.sleep(1)
     return samples
 
@@ -154,7 +251,15 @@ def check_steps(samples, targets):
         assert window, f"no samples for step {i}"
         mean_w = sum(s[1] for s in window) / len(window)
         ok = abs(mean_w - target) <= max(50, POWER_TOLERANCE * abs(target))
-        steps.append({"target_W": target, "mean_W": round(mean_w), "pass": ok})
+        step = {"target_W": target, "mean_W": round(mean_w)}
+        volts = [s[5] for s in window if s[5] is not None]
+        if target < 0:
+            # Discharge runs at the supply minimum, not its 200 V default.
+            mean_v = sum(volts) / len(volts) if volts else None
+            step["mean_V"] = round(mean_v, 1) if volts else None
+            ok = ok and volts and abs(mean_v - DC_VOLTAGE) <= VOLTAGE_TOLERANCE * DC_VOLTAGE
+        step["pass"] = bool(ok)
+        steps.append(step)
     trace = [(round(s[0]), s[1]) for s in samples]
     assert all(s["pass"] for s in steps), {"steps": steps, "trace": trace}
     return steps
@@ -165,18 +270,26 @@ def check_energy(samples):
     rows = [s for s in samples if None not in s[1:4]]
     pos = neg = 0.0
     for a, b in zip(rows, rows[1:]):
-        area = (b[0] - a[0]) * (a[1] + b[1]) / 2 / 3600
+        dt = b[0] - a[0]
         if a[1] >= 0 and b[1] >= 0:
-            pos += area
+            pos += dt * (a[1] + b[1]) / 2 / 3600
         elif a[1] <= 0 and b[1] <= 0:
-            neg -= area
+            neg -= dt * (a[1] + b[1]) / 2 / 3600
+        else:
+            # A direct reversal: split the trapezoid at the linear zero crossing,
+            # so neither direction loses the energy of the crossing interval.
+            f = a[1] / (a[1] - b[1])
+            first, second = f * dt * a[1] / 2 / 3600, (1 - f) * dt * b[1] / 2 / 3600
+            pos += max(first, second)
+            neg -= min(first, second)
     imported = rows[-1][2] - rows[0][2]
     exported = rows[-1][3] - rows[0][3]
     result = {"import_metered": round(imported, 1), "import_integrated": round(pos, 1),
               "export_metered": round(exported, 1), "export_integrated": round(neg, 1)}
-    # Sign-change intervals are excluded from the integrals, hence the margin.
-    assert abs(imported - pos) <= max(5.0, 0.1 * pos), result
-    assert abs(exported - neg) <= max(5.0, 0.1 * neg), result
+    # 1 s polling under-samples ramps, hence the margin.
+    trace = [(round(s[0], 1), s[1], s[2], s[3]) for s in rows]
+    assert abs(imported - pos) <= max(5.0, 0.1 * pos), {**result, "trace": trace}
+    assert abs(exported - neg) <= max(5.0, 0.1 * neg), {**result, "trace": trace}
     return result
 
 
@@ -230,10 +343,14 @@ async def v2g_scenario():
         tx = http("/api/profiles")["latest_tx_profile"]
         assert tx and tx["status"] == "Accepted", tx
         assert tx["payload"]["chargingProfile"]["chargingSchedule"][0]["chargingSchedulePeriod"] == periods
+        report["pricing"] = await pricing_checks(csms, txid, True, "W", RATING_KW * 1000.0, 210102)
         await finish(csms, txid)
-        # A new session after unplug charges normally (default limit).
-        txid = await start_session(csms, first=False)
-        report["second_session_W"] = reading()["power"]
+        # A new session after unplug charges normally (default limit), also
+        # when the start comes more than 60 s after plug-in (issue #33).
+        txid = await start_session(csms, first=False, start_delay_s=LATE_START_S)
+        report["second_session"] = check_meter(reading())
+        assert "maximum number of SDP retry cycles" not in log_text(app), "EV gave up waiting"
+        assert http("/api/status")["ev_watchdog"]["recoveries"] == 0
         await finish(csms, txid)
         report["result"] = "pass"
     finally:
@@ -246,6 +363,8 @@ async def v2g_scenario():
                      "Handshake complete!"):
         assert evidence in log, f"missing ISO 15118-20 evidence: {evidence}"
     report["iso15118_20"] = "DC_BPT over mutual TLS 1.3"
+    # Issue #28: the EVSE 0 warning is dropped; EVSE 1 has its sink.
+    assert "Can not apply external limits" not in log, "external limits warning in the App log"
     return report
 
 
@@ -268,6 +387,7 @@ async def fallback_scenario():
         samples = await sample(start.timestamp(), STEP)
         report["steps"] = check_steps(samples, [FALLBACK_LIMIT_W])
         assert all((s[1] or 0) >= -1 for s in samples), "2.0.1 fallback must not discharge"
+        report["pricing"] = await pricing_checks(csms, txid, False, "W", RATING_KW * 1000.0, 201102)
         await finish(csms, txid)
         report["result"] = "pass"
     finally:
@@ -375,6 +495,45 @@ async def recovery_scenario():
     return {"scenario": "recovery", "result": "pass"}
 
 
+async def watchdog_scenario():
+    csms = await MockCsms(accept=("ocpp2.1", "ocpp2.0.1"), port=9220).start()
+    app = App({"csms_url": "ws://127.0.0.1:9220", "charge_point_id": CPID, "ocpp_version": "2.1",
+               "max_power_kw": RATING_KW, "acknowledge_test_isolation": True})
+    app.start()
+    report = {"scenario": "watchdog"}
+    try:
+        await asyncio.wait_for(csms.boot.wait(), 120)
+        await wait_for(lambda: reading()["state"] == "Unplugged", 60, what="idle EVSE")
+        assert http("/api/ev/plugin", "POST")["sent"]
+        await wait_for(lambda: reading()["state"] in ("AuthRequired", "Preparing"), 30,
+                       what="plugged state")
+        # No authorisation: the charger fails the session after 3 minutes
+        # (libiso15118 EIM limit), and the EV starts no new one.
+        await wait_for(lambda: "maximum number of SDP retry cycles" in log_text(app), 240,
+                       interval=2, what="EV giving up")
+        await wait_for(lambda: http("/api/status")["ev_watchdog"]["recoveries"] == 1, 120,
+                       what="automatic re-plug")
+        report["watchdog"] = http("/api/status")["ev_watchdog"]
+        assert report["watchdog"]["last_recovery"]["result"] == "re-plugged", report
+        await wait_for(lambda: log_text(app).count("Received session setup with evccid") >= 2, 60,
+                       what="session setup by the re-plugged EV")
+        reply = await csms.call("RequestStartTransaction", {
+            "idToken": {"idToken": "SIM-TEST", "type": "Central"}, "evseId": 1, "remoteStartId": 8})
+        assert reply[2]["status"] == "Accepted", reply
+        await wait_for(lambda: reading()["state"] == "Charging" and (reading()["power"] or 0) > 1000,
+                       90, what="DC charging after the re-plug")
+        await asyncio.sleep(10)
+        report["charging"] = check_meter(reading())
+        started = [e for e in csms.calls("TransactionEvent") if e["eventType"] == "Started"]
+        await finish(csms, started[-1]["transactionInfo"]["transactionId"])
+        report["result"] = "pass"
+    finally:
+        report["app_exit"] = app.stop()
+        csms.server.close()
+    assert report["app_exit"] == 0, report
+    return report
+
+
 async def main(selected):
     results = []
     if "offline" in selected:
@@ -387,8 +546,10 @@ async def main(selected):
         results.append(await fallback_scenario())
     if "pinned201" in selected:
         results.append(await version_only_scenario("pinned201", "2.0.1", ("ocpp2.1", "ocpp2.0.1"), "ocpp2.0.1"))
+    if "watchdog" in selected:
+        results.append(await watchdog_scenario())
     print(json.dumps(results, indent=2), flush=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201"]))
+    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201", "watchdog"]))

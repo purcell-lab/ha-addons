@@ -4,10 +4,12 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rbacRules,
+import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rbacRules,routeProtocol,
   validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
   OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
-  CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult} from './control-policy.mjs';
+  CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult,
+  PRICE_ROUTES,DEFAULT_TARIFF_ROUTE,priceOptions,pricePolicy,tariffStations,hasPriceSchedule,
+  validateCostUpdated,costTargetAllows,tariffTarget,validateTariff,tariffTargetAllows} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -43,7 +45,24 @@ export function validate(o) {
     ||[o.api_token,o.database_password,o.broker_password,o.hasura_secret].includes(o.command_token)))throw new Error('Distinct command credential required');
   validateOperator(o);
   validatePlugfest(o);
+  validatePrice(o);
 }
+// Dynamic pricing (B/C/D) uses the command credential, so it needs scoped commands.
+export function validatePrice(o) {
+  if(o.price_commands_enabled!==undefined&&typeof o.price_commands_enabled!=='boolean')throw new Error('Invalid price flag');
+  if(o.price_currency!==undefined&&!/^[A-Z]{3}$/.test(o.price_currency))throw new Error('price_currency must be an ISO 4217 code such as AUD');
+  if(o.price_commands_enabled&&!o.command_control_enabled)throw new Error('price_commands_enabled needs command_control_enabled');
+}
+// CitrineOS sends its own CostUpdated (from its Tariffs table, zero for the
+// lab tariff) every costUpdatedInterval seconds of a transaction; that would
+// replace the price the gateway's CostUpdated shows. Upstream requires either
+// an interval or sendCostUpdatedOnMeterValue (which instead fills totalCost in
+// every TransactionEventResponse Updated), so with price commands the interval
+// is the largest Node setInterval accepts (2^31-1 ms, about 24.8 days; a longer
+// one would fire every millisecond).
+export const COST_UPDATED_INTERVAL_OFF=2147483;
+export const upstreamTransactions=o=>o.price_commands_enabled===true
+  ?{TRANSACTIONS:{costUpdatedInterval:COST_UPDATED_INTERVAL_OFF}}:{};
 // Operator UI App: a separate token for read-only Hasura access as
 // "operator_ro" and, optionally, the fixed operator command set.
 export function validateOperator(o) {
@@ -116,6 +135,30 @@ export function buildListeners(o) {
 // otherwise Supervisor reports the stopped App as "error" (#30). An upstream
 // exit the gateway did not ask for is always a failure.
 export function upstreamExitCode(shutting) { return shutting ? 0 : 1; }
+// Why the gateway refuses a scoped command: a price schedule is the likely cause when present.
+export function commandRejection(url,parsed,price) {
+  if(!hasPriceSchedule(parsed))return 'Command outside lab bounds';
+  if(price?.enabled!==true)return 'Price schedules need price_commands_enabled';
+  if(routeProtocol(url.pathname)!=='ocpp2.1')return 'Price schedules need OCPP 2.1';
+  return 'Command or price schedule outside lab bounds';
+}
+// The gateway's checks on a price route (C/D) before it reads station state:
+// {status,error} to refuse, or {target}, the station to observe and address.
+export function priceRequest(o,url,controller,parsed) {
+  const price=priceOptions(o);
+  if(!price.enabled)return {status:403,error:'Price commands are off (price_commands_enabled)'};
+  if(controller!==true)return {status:403,error:'Command credential required'};
+  if(url.pathname===DEFAULT_TARIFF_ROUTE) {
+    const target=tariffTarget(url,tariffStations(o),price);
+    if(!target)return {status:403,error:'SetDefaultTariff needs identifier=<a tariff_stations entry>&tenantId=1'};
+    if(!validateTariff(parsed,price))return {status:400,error:'Tariff outside lab bounds'};
+    return {target};
+  }
+  const station=commandStation(o);
+  if(!validateCostUpdated(url,parsed,station,o.command_real_stations_enabled===true,price))
+    return {status:400,error:'CostUpdated outside lab bounds'};
+  return {target:station};
+}
 export function permitted(method, path) {
   return (method === 'GET' && ['/health/ready','/commands/tariff','/lab/status','/lab/control-policy'].includes(path))
     || (method === 'POST' && path === '/v1/graphql');
@@ -169,7 +212,7 @@ export async function main() {
       // list while still root (the app folder is root-owned), readable by uid 1000.
       const rules=`${APP}/rbac-rules.json`;
       const base=JSON.parse(fs.readFileSync(`${here}/rbac-rules.json`,'utf8'));
-      fs.writeFileSync(rules,JSON.stringify(rbacRules(base,o.command_control_enabled===true)));
+      fs.writeFileSync(rules,JSON.stringify(rbacRules(base,o.command_control_enabled===true,o.price_commands_enabled===true)));
       fs.chmodSync(rules,0o644);
     }
     process.setgid(1000);process.setuid(1000);
@@ -183,6 +226,7 @@ export async function main() {
   fs.mkdirSync(`${DATA}/assets`,{recursive:true});
   const listeners=buildListeners(o);
   const station=commandStation(o);
+  const price=priceOptions(o), real=o.command_real_stations_enabled===true;
   fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
   const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
   const config={
@@ -193,7 +237,7 @@ export async function main() {
     FILEACCESS_LOCAL_DEFAULTFILEPATH:`${DATA}/assets`,
     AUTH:{localBypass:false,oidc:{jwksUri:'http://127.0.0.1:8091/jwks',issuer:'citrine-ha-lab',audience:'citrine-api'}},
     SWAGGER:{enabled:true,exposeMessage:true,exposeData:true,logoPath:`${APP}/dist/assets/logo.png`},
-    LOGLEVEL:4,INTEGRATIONS:{},
+    LOGLEVEL:4,INTEGRATIONS:{},...upstreamTransactions(o),
   };
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
   for(const [k,v] of Object.entries(config)) env['CITRINEOS_'+k]=JSON.stringify(v);
@@ -317,29 +361,68 @@ export async function main() {
     let parsed;
     try{parsed=JSON.parse(Buffer.concat(chunks).toString());}catch{res.writeHead(400);res.end('{"error":"Invalid JSON"}');return;}
     if(!validateConfigRequest(parsed)){res.writeHead(400);res.end('{"error":"Only the listed configuration keys can be read"}');return;}
-    const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
-      method:'POST',headers:{'Content-Type':'application/json',
-        'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
-      body:JSON.stringify({query:TARGET_QUERY,variables:{name:station}}),
-    });
-    if(!configTargetAllows(state,station)){
+    if(!configTargetAllows(await observe(station),station)){
       res.writeHead(409);res.end('{"error":"The command station must be online on OCPP 1.6"}');return;
     }
+    const payload=await callAndWait(res,CONFIG_UPSTREAM,station,{key:parsed.key});
+    if(payload)res.end(JSON.stringify({station_id:station,protocol:'ocpp1.6',...configResult(payload,parsed.key)}));
+  }
+  // Observed station protocol and active transactions, read as ha_reader.
+  function observe(name) {
+    return jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+      method:'POST',headers:{'Content-Type':'application/json',
+        'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
+      body:JSON.stringify({query:TARGET_QUERY,variables:{name}}),
+    });
+  }
+  // Sends one request with a one-time loopback callback and returns the
+  // station's reply (a CALLRESULT payload or CitrineOS's CALLERROR object), or
+  // answers the caller itself (502 not sent, 504 no reply in 8 s) and returns null.
+  async function callAndWait(res,upstream,identifier,body) {
     const nonce=crypto.randomUUID();
     const reply=new Promise(resolve=>replies.set(nonce,resolve));
     try {
-      const q=new URLSearchParams({identifier:station,tenantId:'1',callbackUrl:`http://127.0.0.1:8092/callback/${nonce}`});
-      const r=await fetch(`http://127.0.0.1:8088${CONFIG_UPSTREAM}?${q}`,{method:'POST',redirect:'error',
-        body:JSON.stringify({key:parsed.key}),signal:AbortSignal.timeout(4000),
+      const q=new URLSearchParams({identifier,tenantId:'1',callbackUrl:`http://127.0.0.1:8092/callback/${nonce}`});
+      const r=await fetch(`http://127.0.0.1:8088${upstream}?${q}`,{method:'POST',redirect:'error',
+        body:JSON.stringify(body),signal:AbortSignal.timeout(4000),
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
       const sent=await r.json().catch(()=>null);
       if(!r.ok||!Array.isArray(sent)||!sent.every(x=>x?.success===true)){
-        res.writeHead(502);res.end('{"error":"CitrineOS did not send the request"}');return;
+        res.writeHead(502);res.end('{"error":"CitrineOS did not send the request"}');return null;
       }
       const payload=await Promise.race([reply,delay(8000).then(()=>null)]);
-      if(!payload){res.writeHead(504);res.end('{"error":"Station did not answer within 8 s"}');return;}
-      res.end(JSON.stringify({station_id:station,protocol:'ocpp1.6',...configResult(payload,parsed.key)}));
+      if(!payload){res.writeHead(504);res.end('{"error":"Station did not answer within 8 s"}');return null;}
+      return payload;
     } finally {replies.delete(nonce);}
+  }
+  // Dynamic pricing (price_commands_enabled): C CostUpdated to the command
+  // station, D SetDefaultTariff to a listed station. B rides on setChargingProfile.
+  async function priceCommand(req,res,url,controller) {
+    let size=0;const chunks=[];
+    for await(const c of req) {size+=c.length;if(size>65536){res.writeHead(413);res.end('{}');return;}chunks.push(c);}
+    const body=Buffer.concat(chunks).toString();
+    let parsed;
+    try{parsed=JSON.parse(body);}catch{parsed=undefined;}
+    const check=priceRequest(o,url,controller,parsed);
+    if(check.error){res.writeHead(check.status);res.end(JSON.stringify({error:check.error}));return;}
+    const target=check.target;
+    if(url.pathname===DEFAULT_TARIFF_ROUTE) {
+      if(!tariffTargetAllows(await observe(target),target)){
+        res.writeHead(409);res.end('{"error":"The station must be online on OCPP 2.1"}');return;
+      }
+      console.log(`SetDefaultTariff ${parsed.tariff.tariffId} to ${target}.`);
+      // The station's SetDefaultTariffResponse, or the CALLERROR (for example
+      // NotImplemented) as CitrineOS reports it, unchanged.
+      const payload=await callAndWait(res,DEFAULT_TARIFF_ROUTE,target,parsed);
+      if(payload)res.end(JSON.stringify(payload));
+      return;
+    }
+    if(!costTargetAllows(url,parsed,await observe(target),target)){
+      res.writeHead(409);res.end('{"error":"The command station must be online on this OCPP version with this active transaction"}');return;
+    }
+    const r=await fetch('http://127.0.0.1:8088'+url.pathname+url.search,{method:'POST',body,redirect:'error',
+      signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
+    res.writeHead(r.status);res.end(await r.text());
   }
   const gateway=http.createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
@@ -354,6 +437,7 @@ export async function main() {
         res.writeHead(401);res.end('{"error":"Authentication required"}');return;
       }
       if(url.pathname===CONFIG_ROUTE) {await stationConfiguration(req,res,controller);return;}
+      if(req.method==='POST'&&PRICE_ROUTES.includes(url.pathname)) {await priceCommand(req,res,url,controller);return;}
       const command=req.method==='POST'&&ALL_ROUTES.includes(url.pathname);
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
@@ -364,7 +448,7 @@ export async function main() {
           max_profile_seconds:600,max_periods:10,automatic_control:false,
           station_configuration:{route:CONFIG_ROUTE,protocols:['ocpp1.6'],keys:CONFIG_KEYS},
           clear_requires_closed_transaction:true,real_devices_enabled:o.command_real_stations_enabled===true,
-          open_admission:o.open_admission_enabled===true}));return;
+          open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o)}));return;
       }
       if(url.pathname==='/lab/status') {
         res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:listeners.length,
@@ -384,7 +468,9 @@ export async function main() {
         body=Buffer.concat(chunks).toString();
         const parsed=JSON.parse(body);
         if(command) {
-          if(!validateCommand(url,parsed,station,o.command_real_stations_enabled===true)){res.writeHead(400);res.end('{"error":"Command outside lab bounds"}');return;}
+          if(!validateCommand(url,parsed,station,real,price)){
+            res.writeHead(400);res.end(JSON.stringify({error:commandRejection(url,parsed,price)}));return;
+          }
           const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
             method:'POST',headers:{'Content-Type':'application/json',
               'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},

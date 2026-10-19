@@ -108,7 +108,8 @@ and power come only from the CSMS.
 
 - **Plug in**: the EV runs SLAC, opens the ISO 15118-20 TLS session, offers
   DC_BPT and waits for authorisation. Start the transaction from the CSMS
-  with RequestStartTransaction. Cable check and pre-charge take about 15 s.
+  with RequestStartTransaction within 3 minutes (60 s before 0.1.10).
+  Cable check and pre-charge take about 15 s.
 - **EV stop session**: the EV ends the ISO 15118 session and unplugs.
 - **Unplug now**: immediate unplug, which ends any transaction.
 
@@ -133,6 +134,22 @@ logs `ha-everest: EV ISO 15118 stack stopped (replaced by a new plug-in)`;
 other EV stack errors are logged the same way and the next plug-in
 retries. The Status page and the HA
 status object count these restarts as `ev_stack_restarts`.
+
+**EV watchdog.** If the EV's ISO 15118 session ends before charging, the
+EV gives up for the rest of that plug-in and logs `maximum number of SDP
+retry cycles (1) is now reached`; the charger keeps the connector in
+`Preparing` at 0 W and a new plug-in is refused. The usual cause is no
+authorisation within 3 minutes: the charger (libiso15118) then fails the
+session. 5 s after that line the App unplugs the EV, waits 10 s and plugs
+it in again, as you would by hand, so a later RequestStartTransaction
+still charges. It logs `EV watchdog: ...` and never acts while power flows,
+while unplugged, or when an EV command from the UI or HA came at about the
+same time. After 3
+re-plugs without a session that delivers power it stops and asks for a
+manual unplug and plug-in. A transaction that had already started ends
+with the unplug; start a new one. The Status page shows a notice, and the
+status object reports `ev_session` (`ok`, `gave_up` or `recovering`) and
+`ev_last_recovery`.
 
 ## Discovery diagnostics
 
@@ -195,7 +212,8 @@ the Ingress UI. It opens no port and adds no inbound path.
 - **Status object** `sensor.<charge_point_id>_v2g_app` (for example
   `sensor.sim_ev_everest_v2g_01_v2g_app`): EVSE state as the state, with
   attributes for the negotiated OCPP version, direction, power, energy,
-  `ev_stack_restarts` and the last self-test summary. Refreshed every
+  `ev_stack_restarts`, `ev_session`, `ev_last_recovery` and the last
+  self-test summary. Refreshed every
   30 s and after each command. It is a plain state object, not a
   registered entity, and disappears from the state list after an HA
   restart until the bridge republishes it.
@@ -291,7 +309,10 @@ VALIDATION.md. The App does not hide them.
   EVSE 0 composite as per-phase shares, and EVerest 2025.10.0 reads the L1
   share as the total, which capped every target at a third of the rating.
   The App therefore applies OCPP limits through EVSE 1, whose composite
-  already includes station-level profiles.
+  already includes station-level profiles. OCPP201 still computes the EVSE 0
+  composite every 10 s and warns `Can not apply external limits! No evse
+  energy sink configured for evse_id: 0`; neither module can skip EVSE 0,
+  so from 0.1.10 the App drops only that line from its log.
 
 ### CSMS requirements
 
@@ -299,6 +320,66 @@ The station asks the CSMS for the certificate status of the ISO 15118
 chain. The CSMS must answer GetCertificateStatus with a valid
 `status` field (for example `Failed`). libocpp 2025.10.0 aborts the station
 process on a reply without one.
+
+## Dynamic pricing
+
+The station shows prices; it never changes charging because of them. From
+0.1.11 the device model enables costs and tariffs in Australian dollars:
+
+| Device-model variable | Value |
+|---|---|
+| `TariffCostCtrlr` `Available` (instances `Tariff` and `Cost`) | `true` (ReadOnly, so set in the generated device model) |
+| `TariffCostCtrlr` `Enabled` (instances `Tariff` and `Cost`) | `true` |
+| `TariffCostCtrlr` `Currency` | `AUD` |
+| `TariffCostCtrlr` `NumberOfDecimalsForCostValues` | `4` |
+| `CustomizationCtrlr` `CustomImplementationEnabled` (instance `org.openchargealliance.costmsg`, California Pricing) | `true` |
+
+The device model is rebuilt on every start, so a CSMS SetVariables change
+to these lasts until the next restart.
+
+What works (libocpp v0.30.3, OCPP 2.1 and 2.0.1):
+
+- **CostUpdated** is accepted during a transaction. With California Pricing
+  `customData` (vendor `org.openchargealliance.costmsg`) the station also
+  reads the current and next-period prices and the price text. The
+  **Price** panel on the Status page shows the latest one: total cost,
+  current price per kWh (and per hour, if sent), next-period price and its
+  start time, the price text and the cost timestamp. Example:
+
+  ```json
+  {"totalCost": 1.23, "transactionId": "<transaction id>",
+   "customData": {"vendorId": "org.openchargealliance.costmsg", "state": "Charging",
+                  "chargingPrice": {"kWhPrice": 0.2512},
+                  "nextPeriod": {"atTime": "2026-10-18T05:30:00Z", "chargingPrice": {"kWhPrice": 0.31}},
+                  "priceText": "0.2512 AUD/kWh now, 0.31 AUD/kWh from 15:30"}}
+  ```
+
+  A `totalCost` in a TransactionEventResponse is shown the same way, and an
+  `updatedPersonalMessage` sent with it becomes the price text. Prices
+  are kept to 4 decimals and cut off, not rounded, beyond that (EVerest's
+  conversion).
+- **Price schedules in charging profiles** (`absolutePriceSchedule`,
+  `priceLevelSchedule`, ISO 15118-2 `salesTariff`) are accepted and stored
+  with the profile, but EVerest does not act on them. The **Price** panel
+  shows the first 6 intervals of the schedule in the last received
+  charging profile (start time in UTC, duration, energy price or price
+  level) and how many there are.
+- **OCPP 2.1 tariffs are not implemented.** libocpp v0.30.3 answers
+  SetDefaultTariff, GetTariffs, ClearTariffs and ChangeTransactionTariff
+  with the CALLERROR `NotImplemented`, whatever the device model says.
+
+**Recent pricing messages** on the Status page (and `pricing` in
+`/api/profiles`) lists the last ten CostUpdated and tariff requests with
+the station's reply: `Replied` for CostUpdated (its response has no
+status), `CallError` with the reason for the tariff messages. They are
+listed apart from the profile requests, so frequent cost updates never push
+a profile out of view. `/api/status` carries the parsed `session_cost`, and
+`/api/profiles` the `price_schedules` of the latest profile.
+
+Enabling Tariff and Cost does not change authorisation, transactions or
+smart charging: libocpp uses these variables only when it handles
+CostUpdated and the cost fields of a TransactionEventResponse, and passes
+the result to EVerest's session cost.
 
 ## Security boundaries
 

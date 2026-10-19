@@ -10,7 +10,9 @@ an offline container. Scenarios:
 
 The charging scenarios check one stepped single-phase TxProfile against
 measured EVSE power and energy, zero-power pause without ending the
-transaction, the Status-page profile record, remote stop and unplug.
+transaction, the Status-page profile record, dynamic pricing (CostUpdated
+with California Pricing on the Status page; on 2.1 a price schedule shown
+and SetDefaultTariff answered NotImplemented), remote stop and unplug.
 """
 import asyncio
 import datetime as dt
@@ -78,6 +80,75 @@ async def wait_for(predicate, timeout, interval=0.5, what="condition"):
             pass
         await asyncio.sleep(interval)
     raise AssertionError(f"timed out waiting for {what}")
+
+
+# Dynamic pricing: CostUpdated with California Pricing customData reaches the
+# Status page; on OCPP 2.1 a profile's absolutePriceSchedule is shown
+# (information only) and SetDefaultTariff is answered NotImplemented
+# (libocpp v0.30.3). Prices are exact at NumberOfDecimalsForCostValues 4.
+PRICE_TEXT = "0.2512 AUD/kWh now, 0.31 AUD/kWh from the next half hour"
+
+
+def utc_text(when):
+    return when.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+async def pricing_checks(csms, txid, ocpp21, unit, limit, profile_id):
+    report = {}
+    later = dt.datetime.now(dt.timezone.utc).replace(microsecond=0) + dt.timedelta(minutes=30)
+    reply = await csms.call("CostUpdated", {"totalCost": 1.23, "transactionId": txid, "customData": {
+        "vendorId": "org.openchargealliance.costmsg", "state": "Charging",
+        "chargingPrice": {"kWhPrice": 0.2512},
+        "nextPeriod": {"atTime": utc_text(later), "chargingPrice": {"kWhPrice": 0.31}},
+        "priceText": PRICE_TEXT}})
+    assert reply[0] == 3, reply
+    price = await wait_for(lambda: (http("/api/status").get("session_cost") or {}).get("value"), 20,
+                           what="session cost on the Status page")
+    expected = {"currency": "AUD", "total_cost": 1.23, "kwh_price": 0.2512, "next_kwh_price": 0.31,
+                "text": PRICE_TEXT, "session_id": txid}
+    assert {k: price.get(k) for k in expected} == expected, price
+    assert price["next_at"] and price["next_at"].startswith(utc_text(later)[:16]), price
+    report["session_cost"] = price
+    expect_pricing = 1
+    if ocpp21:
+        stacks = [{"duration": 1800, "priceRule": [{"energyFee": {"value": 2512, "exponent": -4},
+                                                    "powerRangeStart": {"value": 0, "exponent": 0}}]},
+                  {"duration": 1800, "priceRule": [{"energyFee": {"value": 31, "exponent": -2},
+                                                    "powerRangeStart": {"value": 0, "exponent": 0}}]}]
+        profile = {"evseId": 1, "chargingProfile": {
+            "id": profile_id, "stackLevel": 0, "chargingProfilePurpose": "TxDefaultProfile",
+            "chargingProfileKind": "Relative",
+            "chargingSchedule": [{"id": 2, "chargingRateUnit": unit,
+                                  "chargingSchedulePeriod": [{"startPeriod": 0, "limit": limit}],
+                                  "absolutePriceSchedule": {
+                                      "timeAnchor": utc_text(later - dt.timedelta(minutes=30)),
+                                      "priceScheduleID": 1, "currency": "AUD", "language": "en",
+                                      "priceAlgorithm": "org.openchargealliance.costcalc",
+                                      "priceRuleStacks": stacks}}]}}
+        reply = await csms.call("SetChargingProfile", profile)
+        assert reply[2]["status"] == "Accepted", reply
+        shown = await wait_for(lambda: http("/api/profiles")["price_schedules"], 20,
+                               what="price schedule on the Status page")
+        assert shown[0]["kind"] == "absolutePriceSchedule" and shown[0]["count"] == 2, shown
+        assert [i["energy_fee"] for i in shown[0]["intervals"]] == [0.2512, 0.31], shown
+        report["price_schedule"] = shown[0]
+        reply = await csms.call("ClearChargingProfile", {"chargingProfileId": profile_id})
+        assert reply[2]["status"] == "Accepted", reply
+        reply = await csms.call("SetDefaultTariff", {"evseId": 0, "tariff": {
+            "tariffId": "AMBER-TEST", "currency": "AUD",
+            "energy": {"prices": [{"priceKwh": 0.2512}]}}})
+        assert reply[0] == 4 and reply[2] == "NotImplemented", reply
+        expect_pricing = 2
+    events = await wait_for(lambda: [e for e in http("/api/profiles")["pricing"] if e["status"]]
+                            if len([e for e in http("/api/profiles")["pricing"] if e["status"]]) >= expect_pricing
+                            else None, 20, what="pricing messages in the OCPP log view")
+    assert events[-1]["action"] == "CostUpdated" and events[-1]["status"] == "Replied", events
+    if ocpp21:
+        assert events[0]["action"] == "SetDefaultTariff", events
+        assert events[0]["status"] == "CallError", events
+        assert events[0]["status_info"]["reasonCode"] == "NotImplemented", events
+    report["pricing_log"] = [(e["action"], e["status"]) for e in events]
+    return report
 
 
 def reading():
@@ -171,6 +242,8 @@ async def charging_scenario(name, app_version, csms_accept, expect):
         assert tx and tx["status"] == "Accepted", tx
         assert tx["payload"]["chargingProfile"]["id"] == 160601
         assert tx["payload"]["chargingProfile"]["chargingSchedule"][0]["chargingSchedulePeriod"] == periods
+
+        report["pricing"] = await pricing_checks(csms, txid, expect == "ocpp2.1", "A", 32.0, 160602)
 
         reply = await csms.call("RequestStopTransaction", {"transactionId": txid})
         assert reply[2]["status"] == "Accepted", reply
