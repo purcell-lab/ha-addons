@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.3
+
+- Home Assistant can learn each station's power rating. CitrineOS stores a
+  station's device model only from NotifyReport, and upstream asks for one
+  only on a Pending boot, so stations accepted at once never reported EVSE
+  `Power` (on the Green the V2G station had six device-model rows, OCPP 1.6
+  stations none). New option `device_model_reports` (default `true`): when an
+  OCPP 2.1 or 2.0.1 station of tenant 1 comes online on any listener,
+  including Plugfest 8083, the gateway sends it one GetBaseReport
+  `FullInventory` (`/ocpp/2.1|2.0.1/reporting/getBaseReport`, the station's
+  protocol). At most three stations per 30 s check, not again within
+  10 minutes of the last request; never OCPP 1.6. The requests use a new
+  internal role, `lab-reporter`, which CitrineOS's role rules permit on
+  these two routes only; callers cannot send them, and command and Operator
+  UI permissions are unchanged. `/lab/status` adds `device_model_reports`.
+- `ha_reader` can read `VariableAttributes`, `Variables` and
+  `VariableCharacteristics` for rating variables only (`Power` and the
+  discharge power names in the documentation; never a password, secret or
+  key variable), `Components`, and `ChargingNeeds`, with upstream's
+  relationship names. The Operator UI schema carries the same `ha_reader`
+  permissions; `build_operator_metadata.py` now checks that each `ha_reader`
+  relationship matches upstream's exactly. See "Device model and charging
+  needs" for the columns and the upstream limits: one `maxLimit` per
+  variable for all stations, and no rows for ISO 15118-20 `DC_BPT` charging
+  needs, which CitrineOS v2.0.1 rejects.
+
 ## 0.7.2
 
 - Six more Plugfest listeners, on ports 8100 to 8105, so each charging

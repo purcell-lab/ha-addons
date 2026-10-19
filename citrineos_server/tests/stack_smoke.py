@@ -79,6 +79,12 @@ try:
     status,data=request("/v1/graphql",body={"query":query,"variables":{"tenantId":1}})
     assert status==200 and not data.get("errors"),data
     assert all(data["data"][key]==[] for key in ("ChargingStations","Connectors","Transactions")),data
+    # Device model and charging needs (ha_reader): the schema and relationships apply.
+    query = (ROOT/"citrineos_server/tests/device-model.graphql").read_text()
+    status,data=request("/v1/graphql",body={"query":query})
+    assert status==200 and not data.get("errors"),data
+    _,bad=request("/v1/graphql",body={"query":"query { VariableAttributes { mutability } }"})
+    assert bad.get("errors"),bad
     _,bad=request("/v1/graphql",body={"query":"mutation { delete_ChargingStations(where: {}) { affected_rows } }"})
     assert bad.get("errors"),bad
     _,bad=request("/v1/graphql",body={"query":"query { ChargingStations { basicAuthPassword } }"})
@@ -135,6 +141,14 @@ try:
         docker("start","lab-simulator")
         from simulator_trial import trial
         trial(docker,request,simulator_password)
+        # The 2.0.1 simulator is asked for its device model once online; no
+        # secret variable is ever readable, whatever it reported.
+        status,data=request("/v1/graphql",body={"query":
+            'query { Variables(where: {name: {_ilike: "%password%"}}) { id } '
+            'VariableAttributes { Variable { name } } }'})
+        assert status==200 and data["data"]["Variables"]==[],data
+        assert all(a["Variable"]["name"]=="Power" or "discharge" in a["Variable"]["name"].lower()
+                   for a in data["data"]["VariableAttributes"]),data
     if os.environ.get("TEST_PLUGFEST")=="1":
         from plugfest_probe import plugfest_trial
         plugfest_trial(docker, request, options[-1], values, TMP)

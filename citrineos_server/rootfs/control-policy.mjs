@@ -35,16 +35,21 @@ export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
 // ALL_ROUTES, the read-only configuration route and the transaction status
 // routes (STATUS_ROUTES, sent only by the gateway itself) when scoped commands
 // are enabled, plus the price routes (PRICE_ROUTES) when price commands are enabled too.
+// The report role (REPORT_ROLE) gets exactly the two GetBaseReport routes
+// when device model reports are on; no other role changes there.
 export const COMMAND_ROLE='lab-controller';
-export function rbacRules(base,commandsEnabled,priceEnabled=false) {
+export function rbacRules(base,commandsEnabled,priceEnabled=false,reportsEnabled=false) {
   const rules=JSON.parse(JSON.stringify(base));
   const tenant=rules['1'];
-  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...PRICE_ROUTES]) {
-    const roles=(tenant[route]?.POST||[]).filter(r=>r!==COMMAND_ROLE);
-    if(commandsEnabled===true&&(!PRICE_ROUTES.includes(route)||priceEnabled===true)) roles.unshift(COMMAND_ROLE);
+  const grant=(route,role,on)=>{
+    const roles=(tenant[route]?.POST||[]).filter(r=>r!==role);
+    if(on) roles.unshift(role);
     if(roles.length) tenant[route]={...tenant[route],POST:roles};
     else if(tenant[route]) { delete tenant[route].POST; if(!Object.keys(tenant[route]).length) delete tenant[route]; }
-  }
+  };
+  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...PRICE_ROUTES])
+    grant(route,COMMAND_ROLE,commandsEnabled===true&&(!PRICE_ROUTES.includes(route)||priceEnabled===true));
+  for(const route of Object.values(REPORT_ROUTES)) grant(route,REPORT_ROLE,reportsEnabled===true);
   return rules;
 }
 // The OCPP version a command route speaks, e.g. 'ocpp2.0.1'; null if not a lab route.
@@ -230,6 +235,72 @@ export function reconcileTarget(result,station=STATION) {
 export function reconcileDue(target,now,checked,cameOnline=false) {
   if(!target)return [];
   return target.transactions.filter(id=>cameOnline||!checked.has(id)||now-checked.get(id)>=RECONCILE_EVERY_MS);
+}
+
+// Device model reports (option device_model_reports, default on). CitrineOS
+// stores a station's device model only from NotifyReport, which a station
+// sends when asked: upstream asks with GetBaseReport only on a Pending boot,
+// so stations it accepts at once never report their EVSE Power rating. When
+// an OCPP 2.1 or 2.0.1 station of tenant 1 comes online (any listener), the
+// gateway sends it one GetBaseReport FullInventory, a read-only request,
+// with the internal role REPORT_ROLE, which CitrineOS permits on these two
+// routes only. Callers cannot send them through the gateway. OCPP 1.6 has
+// no device model. Rate limit: a station that comes online again within
+// REPORT_EVERY_MS of its last report is not asked again, at most
+// REPORT_PER_CYCLE stations are asked per 30 s check, and a request
+// CitrineOS could not send is retried on REPORT_ATTEMPTS checks at most.
+export const REPORT_ROLE='lab-reporter';
+export const REPORT_ROUTES={
+  'ocpp2.1':'/ocpp/2.1/reporting/getBaseReport',
+  'ocpp2.0.1':'/ocpp/2.0.1/reporting/getBaseReport',
+};
+export const REPORT_EVERY_MS=600000;
+export const REPORT_PER_CYCLE=3;
+export const REPORT_ATTEMPTS=3;
+export const REPORT_STATUSES=['Accepted','Rejected','NotSupported','EmptyResultSet'];
+export const deviceModelReports=o=>o.device_model_reports!==false;
+export const REPORT_STATIONS_QUERY=`query DeviceModelStations {
+  ChargingStations(where: {tenantId: {_eq: 1}}, limit: 501) {
+    id tenantId ocppConnectionName protocol isOnline
+  }
+}`;
+// state: {online: Set of identities, pending: Map identity -> failed sends,
+// last: Map identity -> time of the last report request}.
+export const reportState=()=>({online:new Set(),pending:new Map(),last:new Map()});
+// Updates state from the station rows and returns the requests to send now,
+// [{identifier, protocol, route}]. Malformed results change nothing.
+export function reportsDue(result,state,now) {
+  const rows=result?.data?.ChargingStations;
+  if(!Array.isArray(rows)||rows.length>500)return [];
+  const online=new Map();
+  for(const s of rows) {
+    if(s&&s.tenantId===1&&s.isOnline===true&&REPORT_ROUTES[s.protocol]
+      &&typeof s.ocppConnectionName==='string'&&OPERATOR_IDENTITY.test(s.ocppConnectionName))
+      online.set(s.ocppConnectionName,s.protocol);
+  }
+  for(const id of online.keys()) {
+    if(state.online.has(id))continue;
+    const last=state.last.get(id);
+    if(last===undefined||now-last>=REPORT_EVERY_MS)state.pending.set(id,0);
+  }
+  for(const id of state.pending.keys()) if(!online.has(id))state.pending.delete(id);
+  state.online=new Set(online.keys());
+  return [...state.pending.keys()].slice(0,REPORT_PER_CYCLE)
+    .map(id=>({identifier:id,protocol:online.get(id),route:REPORT_ROUTES[online.get(id)]}));
+}
+// Records one send. reply is call()'s result: {payload} or {status,error};
+// 502 means CitrineOS did not send it. Returns the station's status, or
+// the reason, for the log.
+export function reportDone(state,id,reply,now) {
+  if(reply?.status===502) {
+    const failed=(state.pending.get(id)??0)+1;
+    if(failed>=REPORT_ATTEMPTS)state.pending.delete(id);else state.pending.set(id,failed);
+    return failed>=REPORT_ATTEMPTS?'not sent, giving up':'not sent, will retry';
+  }
+  state.pending.delete(id);
+  state.last.set(id,now);
+  if(!reply?.payload)return 'no reply within 8 s';
+  return REPORT_STATUSES.includes(reply.payload.status)?reply.payload.status:'unexpected reply';
 }
 
 // Read-only station configuration for the command station (OCPP 1.6

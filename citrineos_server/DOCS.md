@@ -45,8 +45,10 @@ readiness check. All other supported routes require `Authorization: Bearer TOKEN
 - `GET /commands/tariff?tenantId=1`: authenticated, tenant-scoped upstream read.
 - `POST /v1/graphql`: Hasura discovery through role `ha_reader`, fixed tenant 1.
 
-Other paths and methods are denied. GraphQL has no mutation permissions; its four
-tables expose only the staged HA client's explicit discovery fields. Caller
+Other paths and methods are denied. GraphQL has no mutation permissions; its
+tables expose only the HA client's explicit discovery fields, and the device
+model tables only power-rating variables (see "Device model and charging
+needs"). Caller
 authentication, role and tenant headers are never forwarded to dependencies.
 
 The upstream API binds loopback port 8088 and uses its actual OIDC/JWT provider,
@@ -140,6 +142,68 @@ Upstream log lines that remain and need no action:
   passed to defaults option of findOrCreate` on each SetChargingProfile.
 - `MaxListenersExceededWarning: 11 connected listeners added to
   [RabbitMQConnectionManager]` at start: one listener per upstream module.
+
+## Device model and charging needs
+
+Home Assistant reads each station's power rating from CitrineOS's device
+model, and per session the EV's needs, through role `ha_reader`.
+
+**Device model reports** (option `device_model_reports`, default `true`).
+CitrineOS stores a station's device model only from NotifyReport, which a
+station sends when asked. Upstream v2.0.1 asks (GetBaseReport) only when it
+answers a BootNotification Pending, so stations it accepts at once never
+report, and EVSE `Power` stayed unknown. When any OCPP 2.1 or 2.0.1 station
+of tenant 1 comes online, on any listener including Plugfest 8083, the
+gateway sends it one GetBaseReport `FullInventory` through upstream
+(`/ocpp/2.1/reporting/getBaseReport` or `/ocpp/2.0.1/reporting/getBaseReport`,
+matching the station's protocol). GetBaseReport is a read-only request; the
+station answers with NotifyReport messages that CitrineOS stores. The check
+runs every 30 s beside startup, at most three stations per check. A station
+that comes online again within 10 minutes of its last request is not asked
+again; a request CitrineOS could not send is retried on up to three checks.
+OCPP 1.6 stations are never asked (no device model). The gateway log shows
+`Device model report requested from <identity> (<protocol>): <status>.`
+The requests use the internal role `lab-reporter`, which CitrineOS's role
+rules permit on exactly these two routes; callers cannot send them through
+the gateway, and no command or Operator UI permission changes. Set
+`device_model_reports: false` to send none.
+
+**Tables for `ha_reader`** (tenant 1, read-only, at most 501 rows):
+
+| Table | Columns | Rows |
+|---|---|---|
+| `VariableAttributes` | `id stationId evseDatabaseId componentId variableId type value updatedAt` | rating variables only |
+| `Variables` | `id name instance` | rating variables only |
+| `VariableCharacteristics` | `id variableId maxLimit minLimit unit` | rating variables only |
+| `Components` | `id name instance evseDatabaseId` | all |
+| `ChargingNeeds` | `id evseId transactionDatabaseId acChargingParameters dcChargingParameters requestedEnergyTransfer departureTime createdAt updatedAt` | all |
+
+Rating variables are those named `Power`, `DischargePower`,
+`MaxDischargePower`, `PowerDischarge` or `V2XMaxDischargePower`, or matching
+`%discharge%power%` (case-insensitive); any name containing `password`,
+`secret` or `key` is excluded as in the Operator UI scope, so
+`BasicAuthPassword` is never readable. Object relationships use upstream's
+names: `VariableAttributes.Variable`, `.Component`, `.ChargingStation`;
+`Variables.VariableCharacteristic`; `VariableCharacteristics.Variable`;
+`ChargingNeeds.Evse`, `.Transaction`. `VariableAttributes.evseDatabaseId`
+refers to upstream's `EvseTypes` (the device-model EVSE), which `ha_reader`
+cannot read; use the `Component` (name `EVSE`) instead.
+
+Upstream data model limits, which the App does not change:
+
+- CitrineOS keeps one `Variables` row per name and instance, and one
+  `VariableCharacteristics` row per variable, for all stations. `maxLimit`
+  of `Power` is therefore whatever the station that reported last sent.
+  Per-station values are `VariableAttributes` rows (`stationId`, `type`
+  `Actual`, `MaxSet` or `MinSet`), when the station reports them.
+- `ChargingNeeds` rows come only from NotifyEVChargingNeeds that CitrineOS
+  accepts: AC with `acChargingParameters` or `DC` with
+  `dcChargingParameters` during an active transaction. ISO 15118-20
+  bidirectional needs (`DC_BPT`, `v2xChargingParameters`) are answered
+  Rejected and not stored; the table has no column for them. When it
+  accepts, CitrineOS itself sends the station a TxProfile computed from the
+  EV's maxima (not bounded by the lab policy). A physical ISO 15118-2 station
+  on the Plugfest listener can get such a profile.
 
 ## Deliberate limits
 

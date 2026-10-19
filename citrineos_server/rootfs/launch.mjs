@@ -10,7 +10,8 @@ import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_I
   CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult,
   PRICE_ROUTES,DEFAULT_TARIFF_ROUTE,priceOptions,pricePolicy,tariffStations,hasPriceSchedule,
   validateCostUpdated,costTargetAllows,tariffTarget,validateTariff,tariffTargetAllows,
-  startRoute,RECONCILE_ROUTE,RECONCILE_EVERY_MS,reconcileTarget,reconcileDue} from './control-policy.mjs';
+  startRoute,RECONCILE_ROUTE,RECONCILE_EVERY_MS,reconcileTarget,reconcileDue,
+  REPORT_ROLE,REPORT_STATIONS_QUERY,deviceModelReports,reportState,reportsDue,reportDone} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -30,7 +31,7 @@ export function validate(o) {
       || [o.database_password,o.broker_password,o.hasura_secret,o.api_token].includes(o.simulator_password)))
     throw new Error('A distinct simulator credential is required');
   if(o.simulator_enabled!==undefined && typeof o.simulator_enabled!=='boolean') throw new Error('Invalid simulator flag');
-  for(const flag of ['profile_simulator_enabled','command_control_enabled','open_admission_enabled','command_real_stations_enabled'])
+  for(const flag of ['profile_simulator_enabled','command_control_enabled','open_admission_enabled','command_real_stations_enabled','device_model_reports'])
     if(o[flag]!==undefined&&typeof o[flag]!=='boolean')throw new Error('Invalid control flag');
   if(o.profile_simulator_enabled&&!/^[a-f0-9]{32}$/.test(o.profile_simulator_password||''))throw new Error('Missing profile simulator credential');
   if(o.command_station_id!==undefined&&!stationAllowed(o.command_station_id,o.command_real_stations_enabled))
@@ -223,7 +224,8 @@ export async function main() {
       // list while still root (the app folder is root-owned), readable by uid 1000.
       const rules=`${APP}/rbac-rules.json`;
       const base=JSON.parse(fs.readFileSync(`${here}/rbac-rules.json`,'utf8'));
-      fs.writeFileSync(rules,JSON.stringify(rbacRules(base,o.command_control_enabled===true,o.price_commands_enabled===true)));
+      fs.writeFileSync(rules,JSON.stringify(rbacRules(base,o.command_control_enabled===true,o.price_commands_enabled===true,
+        deviceModelReports(o))));
       fs.chmodSync(rules,0o644);
     }
     process.setgid(1000);process.setuid(1000);
@@ -388,15 +390,16 @@ export async function main() {
   }
   // Sends one request with a one-time loopback callback. Returns {payload}, the
   // station's reply (a CALLRESULT payload or CitrineOS's CALLERROR object), or
-  // {status,error}: 502 not sent, 504 no reply in 8 s.
-  async function call(upstream,identifier,body) {
+  // {status,error}: 502 not sent, 504 no reply in 8 s. role: the internal JWT
+  // role (signer.token), the command role by default.
+  async function call(upstream,identifier,body,role=true) {
     const nonce=crypto.randomUUID();
     const reply=new Promise(resolve=>replies.set(nonce,resolve));
     try {
       const q=new URLSearchParams({identifier,tenantId:'1',callbackUrl:`http://127.0.0.1:8092/callback/${nonce}`});
       const r=await fetch(`${UPSTREAM}${upstream}?${q}`,{method:'POST',redirect:'error',
         body:JSON.stringify(body),signal:AbortSignal.timeout(4000),
-        headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(role)}`}});
       const sent=await r.json().catch(()=>null);
       if(!r.ok||!Array.isArray(sent)||!sent.every(x=>x?.success===true))
         return {status:502,error:'CitrineOS did not send the request'};
@@ -516,7 +519,8 @@ export async function main() {
           plugfest_open_admission:o.plugfest_enabled===true&&o.plugfest_open_admission===true,
           plugfest_protocols:o.plugfest_enabled?PLUGFEST_PROTOCOLS:[],
           read_only:!controller,operator_ui:o.operator_ui_enabled===true,
-          operator_commands:o.operator_ui_enabled===true&&o.operator_commands_enabled===true}));return;
+          operator_commands:o.operator_ui_enabled===true&&o.operator_commands_enabled===true,
+          device_model_reports:deviceModelReports(o)}));return;
       }
       let target,headers={},body;
       if(url.pathname==='/v1/graphql'||command) {
@@ -583,6 +587,30 @@ export async function main() {
       } catch {}
     };
     setInterval(watch,30000).unref();watch();
+  }
+  // Device model reports (control-policy.mjs): every 30 s, one GetBaseReport
+  // to each OCPP 2.x station that has come online since the last check.
+  // Runs beside startup, never before it; one check at a time.
+  if(deviceModelReports(o)) {
+    const reports=reportState();
+    let reporting=false;
+    const watchReports=async()=>{
+      if(reporting)return;
+      reporting=true;
+      try {
+        const result=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+          method:'POST',headers:{'Content-Type':'application/json',
+            'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
+          body:JSON.stringify({query:REPORT_STATIONS_QUERY}),
+        });
+        for(const t of reportsDue(result,reports,Date.now())) {
+          const r=await call(t.route,t.identifier,
+            {requestId:crypto.randomInt(1,2147483647),reportBase:'FullInventory'},REPORT_ROLE);
+          console.log(`Device model report requested from ${t.identifier} (${t.protocol}): ${reportDone(reports,t.identifier,r,Date.now())}.`);
+        }
+      } catch {} finally {reporting=false;}
+    };
+    setInterval(watchReports,30000).unref();watchReports();
   }
   console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
   if(o.plugfest_enabled&&o.plugfest_open_admission)

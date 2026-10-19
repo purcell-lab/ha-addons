@@ -107,13 +107,50 @@ class PackagingSafety(unittest.TestCase):
     def test_metadata_has_no_write_permissions_or_sensitive_columns(self):
         metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())
         tables = metadata["sources"][0]["tables"]
-        self.assertEqual(len(tables), 7)
+        self.assertEqual(len(tables), 12)
+        tenant = {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}
         for table in tables:
             self.assertFalse(set(table) & {"insert_permissions", "update_permissions", "delete_permissions"})
+            self.assertEqual(len(table["select_permissions"]), 1)
             p = table["select_permissions"][0]["permission"]
-            self.assertEqual(p["filter"], {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}})
+            # Tenant scope first; the device model tables add the variable allow-list.
+            self.assertIn(p["filter"], (tenant, {"_and": [tenant, *p["filter"].get("_and", [])[1:]]}))
             self.assertLessEqual(p["limit"], 501)
             self.assertNotIn("*", p["columns"])
+
+    def test_device_model_and_charging_needs_for_ha_reader(self):
+        """The Home Assistant contract (DOCS.md, Device model and charging needs)."""
+        metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())
+        tables = {t["table"]["name"]: t for t in metadata["sources"][0]["tables"]}
+        def perm(name):
+            return tables[name]["select_permissions"][0]["permission"]
+        def rels(name):
+            return sorted(r["name"] for r in tables[name].get("object_relationships", []))
+        self.assertEqual(perm("VariableAttributes")["columns"],
+                         ["id", "stationId", "evseDatabaseId", "componentId", "variableId", "type", "value", "updatedAt"])
+        self.assertEqual(perm("Components")["columns"], ["id", "name", "instance", "evseDatabaseId"])
+        self.assertEqual(perm("Variables")["columns"], ["id", "name", "instance"])
+        self.assertEqual(perm("VariableCharacteristics")["columns"], ["id", "variableId", "maxLimit", "minLimit", "unit"])
+        self.assertEqual(perm("ChargingNeeds")["columns"],
+                         ["id", "evseId", "transactionDatabaseId", "acChargingParameters", "dcChargingParameters",
+                          "requestedEnergyTransfer", "departureTime", "createdAt", "updatedAt"])
+        self.assertEqual(rels("VariableAttributes"), ["ChargingStation", "Component", "Variable"])
+        self.assertEqual(rels("Variables"), ["VariableCharacteristic"])
+        self.assertEqual(rels("VariableCharacteristics"), ["Variable"])
+        self.assertEqual(rels("ChargingNeeds"), ["Evse", "Transaction"])
+        allowed = ["Power", "DischargePower", "MaxDischargePower", "PowerDischarge", "V2XMaxDischargePower"]
+        names = {"_or": [{"name": {"_in": allowed}}, {"name": {"_ilike": "%discharge%power%"}}]}
+        secret = {"_or": [{"name": {"_ilike": "%password%"}}, {"name": {"_ilike": "%secret%"}},
+                          {"name": {"_ilike": "%key%"}}]}
+        tenant = {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}
+        # Only rating variables, never a password, secret or key variable
+        # (BasicAuthPassword), whatever the allow-list becomes.
+        self.assertEqual(perm("Variables")["filter"], {"_and": [tenant, names, {"_not": secret}]})
+        for name in ("VariableAttributes", "VariableCharacteristics"):
+            self.assertEqual(perm(name)["filter"],
+                             {"_and": [tenant, {"Variable": names}, {"_not": {"Variable": secret}}]}, name)
+        for name in ("Components", "ChargingNeeds"):
+            self.assertEqual(perm(name)["filter"], tenant, name)
 
 
 if __name__ == "__main__":
