@@ -8,6 +8,9 @@ import {
     resolveConfig,
     environment,
     prepare,
+    sessionWatch,
+    lineSplitter,
+    SESSION_HINT,
 } from '../rootfs/opt/ode-ha/run.mjs';
 
 const GOOD = {
@@ -95,4 +98,39 @@ test('prepare writes config and copies certificates privately', () => {
     assert.equal(fs.readFileSync(path.join(ode, 'sep2-key.pem'), 'utf8'), 'KEY');
     assert.equal(fs.statSync(path.join(ode, 'sep2-key.pem')).mode & 0o777, 0o600);
     assert.equal(fs.statSync(path.join(ode, 'config.json')).mode & 0o777, 0o600);
+});
+
+const DER_404 = '[12:00:00.000] ERROR: Error updating DER status {"module":"DerHelper","message":"Request failed with status code 404"}';
+
+test('session-ended hint after repeated DER 404s, at most hourly', () => {
+    let t = 0;
+    const watch = sessionWatch({ now: () => t });
+    assert.equal(watch(DER_404), null);
+    assert.equal(watch('INFO: Sending DER status {"module":"DerHelper"}'), null);
+    assert.equal(watch(DER_404), null);
+    assert.equal(watch(DER_404), SESSION_HINT);
+    t += 60000;
+    assert.equal(watch(DER_404), null);
+    t += 3600000;
+    assert.equal(watch(DER_404), SESSION_HINT);
+});
+
+test('other 404s and errors do not hint', () => {
+    const watch = sessionWatch({ threshold: 1 });
+    for (const line of [
+        'ERROR: Error updating DER status {"module":"DerHelper","message":"Request failed with status code 500"}',
+        'ERROR: Request failed {"module":"InfluxDB","message":"Request failed with status code 404"}',
+        'INFO: Sending DER status {"module":"DerHelper"}',
+    ]) {
+        assert.equal(watch(line), null, line);
+    }
+    assert.match(SESSION_HINT, /stop the App/);
+});
+
+test('line splitter joins lines across chunks', () => {
+    const split = lineSplitter();
+    assert.deepEqual(split('first\nsec'), ['first']);
+    assert.deepEqual(split('ond\nthird'), ['second']);
+    assert.deepEqual(split('\n'), ['third']);
+    assert.deepEqual(split(''), []);
 });

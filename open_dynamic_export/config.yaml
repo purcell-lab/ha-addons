@@ -1,5 +1,5 @@
 name: Open Dynamic Export
-version: "0.1.2"
+version: "0.1.3"
 slug: open_dynamic_export
 description: Dynamic export control and solar curtailment (CSIP-AUS, fixed and zero export), Open Dynamic Export v0.20.0 pinned.
 url: https://github.com/purcell-lab/ha-addons/tree/main/open_dynamic_export
