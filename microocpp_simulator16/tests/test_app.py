@@ -1,11 +1,14 @@
 import json
 from pathlib import Path
+import socket
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import configure, lab_dns_url, validate
+from app import (configure, connection_diagnostics, lab_dns_url,
+                 mongoose_a_query, parse_dns_answers, validate)
 
 
 class OptionsTest(unittest.TestCase):
@@ -136,6 +139,69 @@ class OptionsTest(unittest.TestCase):
         self.assertEqual(lab_dns_url("# x\nnameserver fd00::1\nnameserver 172.30.32.3\n"
                                      "nameserver 1.1.1.1\n"), "udp://172.30.32.3:53")
         self.assertIsNone(lab_dns_url("nameserver ::1\nnameserver bogus\n"))
+
+
+class ConnectionDiagnosticsTest(unittest.TestCase):
+    """#31: log what Mongoose resolves and whether that address accepts TCP."""
+
+    def test_query_is_byte_for_byte_mongoose_mg_dns_send(self):
+        # Captured from the pinned mo_simulator resolving ws://fake-csms:8082.
+        self.assertEqual(mongoose_a_query("fake-csms").hex(),
+                         "0001010000010000000000000966616b652d63736d730000010001")
+
+    def test_parse_answers_in_order_with_cname_and_aaaa(self):
+        query = mongoose_a_query("csms")
+        reply = bytearray(query)
+        reply[2:4] = b"\x81\x80"
+        reply[6:8] = (3).to_bytes(2, "big")
+        reply += b"\xc0\x0c\x00\x05\x00\x01\x00\x00\x00\x0a\x00\x02\xc0\x0c"
+        reply += b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x0a\x00\x04" + bytes([172, 30, 33, 8])
+        reply += b"\xc0\x0c\x00\x1c\x00\x01\x00\x00\x00\x0a\x00\x10" + bytes(15) + b"\x01"
+        self.assertEqual(parse_dns_answers(bytes(reply)),
+                         (0, [("type5", ""), ("A", "172.30.33.8"), ("AAAA", "::1")]))
+        with self.assertRaises(ValueError):
+            parse_dns_answers(bytes(reply[:-3]))
+
+    def _fake_dns(self, answer):
+        server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        server.bind(("127.0.0.1", 0))
+        self.addCleanup(server.close)
+
+        def serve():
+            query, peer = server.recvfrom(512)
+            reply = bytearray(query)
+            reply[2:4] = b"\x81\x80"
+            reply[6:8] = b"\x00\x01"
+            reply += b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x0a\x00\x04" + socket.inet_aton(answer)
+            server.sendto(bytes(reply), peer)
+
+        threading.Thread(target=serve, daemon=True).start()
+        return f"udp://127.0.0.1:{server.getsockname()[1]}"
+
+    def test_reports_mongoose_answer_and_tcp_probe(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        self.addCleanup(listener.close)
+        port = listener.getsockname()[1]
+        dns = self._fake_dns("127.0.0.1")
+        lines = connection_diagnostics(f"ws://csms.invalid:{port}",
+                                       "nameserver 127.0.0.11\n", dns)
+        self.assertTrue(all(line.startswith("Connection diagnostics: ") for line in lines))
+        self.assertIn("resolv.conf nameservers: 127.0.0.11; Mongoose DNS: " + dns, lines[0])
+        self.assertIn("libc getaddrinfo csms.invalid: failed", lines[1])
+        self.assertIn("answers A 127.0.0.1; Mongoose connects to 127.0.0.1", lines[2])
+        self.assertTrue(lines[3].endswith(f"TCP probe 127.0.0.1 port {port}: open"))
+
+    def test_reports_refused_port_for_literal_address(self):
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        lines = connection_diagnostics(f"ws://127.0.0.1:{port}", "", None)
+        self.assertIn("nameservers: none", lines[0])
+        self.assertIn("is an address; no DNS lookup", lines[1])
+        self.assertTrue(lines[2].endswith("ECONNREFUSED"))
 
 
 if __name__ == "__main__":

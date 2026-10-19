@@ -134,3 +134,22 @@ select the JSON for manual copying. All content is rendered as text.
 The endpoint is GET-only at `/api/connector/{1|2}/txprofile` behind the existing
 Home Assistant Ingress boundary. No extra port, network permission or HA access
 is introduced. This feature applies only to the OCPP 1.6 App.
+
+## Connection troubleshooting
+
+Mongoose (the simulator's network library) has its own DNS client: it asks
+the first IPv4 `nameserver` in `/etc/resolv.conf` for an A record of the
+bare CSMS host name and connects to the first address in the answer. Other
+Apps resolve through libc instead. With a backend URL set, the App logs
+`Connection diagnostics:` lines at start, and each failed attempt logs
+`socket error peer <address>:<port>`. Compare:
+
+- `Mongoose connects to <address>` with the CSMS App's IP address (App
+  info, or `libc getaddrinfo`). A different or stale address points at DNS.
+- `TCP probe <address> port <port>`: `open` means the listener accepts
+  connections there; `ECONNREFUSED` means nothing listens on that port at
+  that address (listener disabled, or wrong address); `EHOSTUNREACH` or
+  `timeout` means the address is not reachable on the Supervisor network.
+- `Mongoose-style A query ... failed` means Mongoose cannot reach that
+  nameserver; its attempts then end in `DNS timeout` rather than
+  `socket error`.
