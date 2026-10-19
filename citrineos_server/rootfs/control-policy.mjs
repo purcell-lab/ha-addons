@@ -32,13 +32,14 @@ export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
 // accepted 2.0.1 and 1.6 routes at the gateway but CitrineOS refused them).
 // Starts from the shipped rules (reader and Operator UI roles unchanged),
 // removes the command role from every scoped route, then grants it exactly
-// ALL_ROUTES and the read-only configuration route when scoped commands are enabled,
-// plus the price routes (PRICE_ROUTES) when price commands are enabled too.
+// ALL_ROUTES, the read-only configuration route and the transaction status
+// routes (STATUS_ROUTES, sent only by the gateway itself) when scoped commands
+// are enabled, plus the price routes (PRICE_ROUTES) when price commands are enabled too.
 export const COMMAND_ROLE='lab-controller';
 export function rbacRules(base,commandsEnabled,priceEnabled=false) {
   const rules=JSON.parse(JSON.stringify(base));
   const tenant=rules['1'];
-  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...PRICE_ROUTES]) {
+  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...PRICE_ROUTES]) {
     const roles=(tenant[route]?.POST||[]).filter(r=>r!==COMMAND_ROLE);
     if(commandsEnabled===true&&(!PRICE_ROUTES.includes(route)||priceEnabled===true)) roles.unshift(COMMAND_ROLE);
     if(roles.length) tenant[route]={...tenant[route],POST:roles};
@@ -194,6 +195,41 @@ export function targetAllows(url,p,result,station=STATION) {
   const id=a===1?p.transactionId:(p.chargingProfile||p.csChargingProfiles).transactionId;
   // CitrineOS stores 1.6 integer transaction IDs as strings.
   return active.length===1&&active[0].transactionId===String(id);
+}
+// The lab start route for any protocol (the first route of each list).
+export const startRoute=pathname=>PROTOCOLS.some(p=>COMMANDS_BY_PROTOCOL[p][0]===pathname);
+
+// Stale transactions. CitrineOS keeps a transaction active until the station
+// sends TransactionEvent Ended. A station that loses its transaction state
+// (an App update recreates the simulator container) never does, so every
+// later start was refused as "another active session". OCPP 2.x
+// GetTransactionStatus asks the station: upstream's response handler sets the
+// transaction inactive when the station answers ongoingIndicator false with
+// no queued messages, and active again when it answers true. OCPP 1.6 has no
+// equivalent, so 1.6 transactions are left as they are.
+export const RECONCILE_ROUTE='/lab/reconcile-transactions';
+export const STATUS_ROUTES={
+  'ocpp2.1':'/ocpp/2.1/transactions/getTransactionStatus',
+  'ocpp2.0.1':'/ocpp/2.0.1/transactions/getTransactionStatus',
+};
+// Each active transaction is asked about at most this often, and at once when
+// the station comes online.
+export const RECONCILE_EVERY_MS=300000;
+// {protocol, route, transactions} for the command station, or null unless it
+// is online on OCPP 2.0.1/2.1 and every row is well formed (as targetAllows).
+export function reconcileTarget(result,station=STATION) {
+  const s=result?.data?.ChargingStations?.[0];
+  const route=s?STATUS_ROUTES[s.protocol]:undefined;
+  if(!route)return null;
+  const active=observed(result,station,s.protocol);
+  return active&&{protocol:s.protocol,route,transactions:active.map(t=>t.transactionId)};
+}
+// The transactions to ask about now: all when the station has just come
+// online, otherwise those not asked about within RECONCILE_EVERY_MS.
+// checked maps transaction ID to the time of its last check.
+export function reconcileDue(target,now,checked,cameOnline=false) {
+  if(!target)return [];
+  return target.transactions.filter(id=>cameOnline||!checked.has(id)||now-checked.get(id)>=RECONCILE_EVERY_MS);
 }
 
 // Read-only station configuration for the command station (OCPP 1.6

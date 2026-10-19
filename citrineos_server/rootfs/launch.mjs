@@ -9,7 +9,8 @@ import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_I
   OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
   CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult,
   PRICE_ROUTES,DEFAULT_TARIFF_ROUTE,priceOptions,pricePolicy,tariffStations,hasPriceSchedule,
-  validateCostUpdated,costTargetAllows,tariffTarget,validateTariff,tariffTargetAllows} from './control-policy.mjs';
+  validateCostUpdated,costTargetAllows,tariffTarget,validateTariff,tariffTargetAllows,
+  startRoute,RECONCILE_ROUTE,RECONCILE_EVERY_MS,reconcileTarget,reconcileDue} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -375,10 +376,10 @@ export async function main() {
       body:JSON.stringify({query:TARGET_QUERY,variables:{name}}),
     });
   }
-  // Sends one request with a one-time loopback callback and returns the
+  // Sends one request with a one-time loopback callback. Returns {payload}, the
   // station's reply (a CALLRESULT payload or CitrineOS's CALLERROR object), or
-  // answers the caller itself (502 not sent, 504 no reply in 8 s) and returns null.
-  async function callAndWait(res,upstream,identifier,body) {
+  // {status,error}: 502 not sent, 504 no reply in 8 s.
+  async function call(upstream,identifier,body) {
     const nonce=crypto.randomUUID();
     const reply=new Promise(resolve=>replies.set(nonce,resolve));
     try {
@@ -387,13 +388,56 @@ export async function main() {
         body:JSON.stringify(body),signal:AbortSignal.timeout(4000),
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
       const sent=await r.json().catch(()=>null);
-      if(!r.ok||!Array.isArray(sent)||!sent.every(x=>x?.success===true)){
-        res.writeHead(502);res.end('{"error":"CitrineOS did not send the request"}');return null;
-      }
+      if(!r.ok||!Array.isArray(sent)||!sent.every(x=>x?.success===true))
+        return {status:502,error:'CitrineOS did not send the request'};
       const payload=await Promise.race([reply,delay(8000).then(()=>null)]);
-      if(!payload){res.writeHead(504);res.end('{"error":"Station did not answer within 8 s"}');return null;}
-      return payload;
+      return payload?{payload}:{status:504,error:'Station did not answer within 8 s'};
     } finally {replies.delete(nonce);}
+  }
+  // As call(), but answers the caller itself on failure and returns null.
+  async function callAndWait(res,upstream,identifier,body) {
+    const r=await call(upstream,identifier,body);
+    if(r.error){res.writeHead(r.status);res.end(JSON.stringify({error:r.error}));return null;}
+    return r.payload;
+  }
+  // Stale transactions (control-policy.mjs): asks the command station about
+  // each transaction CitrineOS holds active for it (all of them, or only those
+  // due), then reads the rows again. Upstream closes those the station no
+  // longer has. One check runs at a time; a request during a check shares it.
+  const checked=new Map();
+  let checking=null;
+  function reconcile(reason,cameOnline=true) {
+    checking??=(async()=>{
+      try {
+        const target=reconcileTarget(await observe(station),station);
+        if(!target)return null;
+        for(const id of checked.keys()) if(!target.transactions.includes(id))checked.delete(id);
+        const results=[];
+        for(const id of reconcileDue(target,Date.now(),checked,cameOnline)) {
+          checked.set(id,Date.now());
+          const r=await call(target.route,station,{transactionId:id});
+          results.push(r.payload?{transactionId:id,ongoingIndicator:r.payload.ongoingIndicator??null,
+            messagesInQueue:r.payload.messagesInQueue??null}:{transactionId:id,error:r.error});
+        }
+        // The callback and upstream's row update come from the same reply;
+        // allow the update a moment before reading the rows again.
+        if(results.length)await delay(1500);
+        const after=results.length?reconcileTarget(await observe(station),station):target;
+        const active=after?after.transactions:null;
+        for(const x of results)x.active=active?active.includes(x.transactionId):null;
+        if(results.length)console.log(`Transaction status check (${reason}) on ${station}: `
+          +results.map(x=>`${x.transactionId} ${x.active===false?'closed (not ongoing at the station)':x.active?'still active':'unknown'}`).join(', ')+'.');
+        return {station_id:station,protocol:target.protocol,checked:results,active_after:active};
+      } finally {checking=null;}
+    })();
+    return checking;
+  }
+  async function reconcileRequest(req,res,controller) {
+    if(req.method!=='POST'){res.writeHead(405);res.end('{"error":"POST required"}');return;}
+    if(!controller){res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
+    const result=await reconcile('requested');
+    if(!result){res.writeHead(409);res.end('{"error":"The command station must be online on OCPP 2.1 or 2.0.1"}');return;}
+    res.end(JSON.stringify(result));
   }
   // Dynamic pricing (price_commands_enabled): C CostUpdated to the command
   // station, D SetDefaultTariff to a listed station. B rides on setChargingProfile.
@@ -437,6 +481,7 @@ export async function main() {
         res.writeHead(401);res.end('{"error":"Authentication required"}');return;
       }
       if(url.pathname===CONFIG_ROUTE) {await stationConfiguration(req,res,controller);return;}
+      if(url.pathname===RECONCILE_ROUTE) {await reconcileRequest(req,res,controller);return;}
       if(req.method==='POST'&&PRICE_ROUTES.includes(url.pathname)) {await priceCommand(req,res,url,controller);return;}
       const command=req.method==='POST'&&ALL_ROUTES.includes(url.pathname);
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
@@ -447,6 +492,8 @@ export async function main() {
           max_import_w:MAX_IMPORT_W,max_export_w:MAX_EXPORT_W,
           max_profile_seconds:600,max_periods:10,automatic_control:false,
           station_configuration:{route:CONFIG_ROUTE,protocols:['ocpp1.6'],keys:CONFIG_KEYS},
+          transaction_reconcile:{route:RECONCILE_ROUTE,protocols:['ocpp2.1','ocpp2.0.1'],
+            automatic:o.command_control_enabled===true,every_s:RECONCILE_EVERY_MS/1000},
           clear_requires_closed_transaction:true,real_devices_enabled:o.command_real_stations_enabled===true,
           open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o)}));return;
       }
@@ -477,7 +524,12 @@ export async function main() {
             body:JSON.stringify({query:TARGET_QUERY,variables:{name:station}}),
           });
           if(!targetAllows(url,parsed,state,station)){
-            res.writeHead(409);res.end('{"error":"Observed station protocol or transaction does not permit this command"}');return;
+            // A start refused for an active transaction may be refused for a
+            // stale one: ask the station now, so a retry can succeed.
+            const stale=startRoute(url.pathname)&&reconcileTarget(state,station)?.transactions.length>0;
+            if(stale)reconcile('start refused').catch(()=>{});
+            res.writeHead(409);res.end(JSON.stringify({error:'Observed station protocol or transaction does not permit this command'
+              +(stale?'; checking the station\'s active transactions, retry in a few seconds':'')}));return;
           }
           target='http://127.0.0.1:8088'+url.pathname+url.search;
           headers={'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`};
@@ -507,6 +559,21 @@ export async function main() {
   });
   gateway.requestTimeout=15000;gateway.headersTimeout=10000;
   await new Promise(r=>gateway.listen(8080,'0.0.0.0',r));streams.push(gateway);
+  // With scoped commands, every 30 s: all of the command station's active
+  // transactions are checked when it comes online, and each again every
+  // RECONCILE_EVERY_MS (a reconnect between two reads is caught that way).
+  if(o.command_control_enabled===true) {
+    let online=false;
+    const watch=async()=>{
+      try {
+        const s=(await observe(station))?.data?.ChargingStations?.[0];
+        const now=s?.isOnline===true, cameOnline=now&&!online;
+        online=now;
+        if(now&&!checking)await reconcile(cameOnline?'station online':'periodic',cameOnline);
+      } catch {}
+    };
+    setInterval(watch,30000).unref();watch();
+  }
   console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
   if(o.plugfest_enabled&&o.plugfest_open_admission)
     console.log('WARNING: Plugfest listener 8083 admits any station without authentication (plugfest_open_admission).');
