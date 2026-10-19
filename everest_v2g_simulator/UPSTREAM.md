@@ -9,12 +9,19 @@ EVerest source code. All EVerest components are Apache-2.0 licensed.
 |---|---|
 | EVerest demo manager image | `ghcr.io/everest/everest-demo/manager:2025.10.0-single-phase@sha256:9165d0937323ae61ee2e496f68f3c4a465ed9099740e489df1f0161265492756` (multi-arch index) |
 | everest-demo repository | [EVerest/everest-demo](https://github.com/EVerest/everest-demo) at `686e370d6ed6460211b06e34a4cdf9438a22e81e` (`TAG=2025.10.0-single-phase`) |
-| everest-core | 2025.10.0 (built inside the demo image) |
-| libocpp | `a68f6735ebee194bd543386bbf4dbe2f678df268` |
-| everest-framework | `23a1414f35f0b4bfcaf260340e3c7ca674214095` |
+| everest-core | 2025.10.0, commit `c86cd9c0ada60b5797f574fd484eae4d8330017d` (built inside the demo image) |
+| libocpp | v0.30.3, commit `1c6fb7c5fd92b4651648bcf3a6c8f32b58b935dc` (everest-core `dependencies.yaml`) |
+| everest-framework | v0.24.0, commit `059e95ca6cdd23f318259a87480c0b1f48d0cf72` |
+| libiso15118 | v0.9.0, commit `a792d07039475375faf56813ce46f52728032d80` |
 | Josev (PyEvJosev EV simulator) | As vendored in the demo image under `libexec/everest/3rd_party/josev` |
 | Josev Python dependencies | Hash-pinned wheels in `requirements-josev.txt` (installed with `--require-hashes --only-binary`) |
 | Runtime base | `debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587` (same Debian 12 ABI as the demo build) |
+
+Up to 0.1.10 this table gave `a68f6735…` as the libocpp
+commit and `23a1414…` as the everest-framework commit. Those are the demo
+build's CPM cache directory keys (`/ext/cache/cpm/libocpp/a68f6735…`, as in
+everest-demo's `enable_ocpp_logging.patch`), not git commits. The versions
+above are the tags pinned by everest-core 2025.10.0.
 
 The getting-started guide this App follows is
 [EVerest: Get started with software](https://everest.github.io/latest/how-to-guides/getting-started/get-started-sw.html).
@@ -47,7 +54,7 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
 
 ## Local patches
 
-`patch_josev.py` runs at image build and edits three files; `patch_yeti.py`
+`patch_josev.py` runs at image build and edits four files; `patch_yeti.py`
 patches one binary.
 
 Josev `iso15118/evcc/controller/simulator.py` (2025.9.0, bundled with
@@ -55,6 +62,15 @@ EVerest 2025.10.0): the simulated EV's ISO 15118-20 BPT discharge limits are
 hard-coded at 25 A and 11 kW in charge parameter discovery and the dynamic
 DC loop. With the DC supply at its 200 V default minimum, discharge stopped
 at 5 kW. The patch sets 66 A and 25 kW (25 kW at the App's 380 V).
+
+Josev `iso15118/evcc/states/iso15118_20_states.py` (2025.9.0): the EV
+gives up 60 s after the first Ongoing AuthorizationRes, and PyEvJosev
+allows one SDP retry cycle, so the EV starts no new session in that
+plug-in. A RequestStartTransaction about 60 s after plug-in then left the
+transaction at 0 W. The charger (libiso15118 v0.9.0) answers Ongoing for
+3 minutes (`TIMEOUT_EIM_ONGOING`); the patch makes the EV wait 190 s, so
+the charger decides. Only the Authorization state used the shared ongoing
+timeout; the patch requires exactly those two uses.
 
 `YetiSimulator` binary (everest-core 2025.10.0, prebuilt): the simulated
 board reports 32 A import and 16 A export per phase, which EvseManager uses
@@ -111,6 +127,28 @@ VALIDATION.md:
    end (for example unplugged while waiting for authorisation): with the
    connection closed, `Session::poll` returns before handling any event.
    Discovery is then ignored until the App restarts. The App reports it.
+10. Josev waits only 60 s for authorisation, the charger 3 minutes, and
+    PyEvJosev hard-codes one SDP retry cycle, so a session that ends before
+    charging leaves EvManager waiting with the plug-in refused (Local
+    patches; the App's EV watchdog re-plugs).
+11. OCPP201 applies every composite from libocpp's
+    `get_all_composite_schedules`, which always includes EVSE 0, and warns
+    each interval when EVSE 0 has no energy sink. There is no option to
+    skip EVSE 0 (see item 3 for why it has no sink here).
+12. EvseManager has two writers of the DC supply target in the ISO 15118-20
+    dynamic loop: on new limits, `enforce_limits` re-applies the previous
+    target (`apply_new_target_voltage_current`), while the loop handler
+    applies the new one from another thread, both through
+    `powersupply_DC_set` (on a reversal, two `Set mode` lines 0.3 ms
+    apart). When the stale write lands last nothing corrects it: the handler
+    sees its target unchanged, and `enforce_limits` acts again only when the
+    limits, target voltage or measured voltage (over 1 V) change. Charging
+    runs at the EV's maximum voltage (EvManager default 900 V) and
+    discharging at the supply minimum (380 V). With the EV maximum at 380 V
+    a +6 kW to -5 kW reversal stayed at -6 kW; at 382 V the reversals
+    tracked but an 11 kW to 6 kW step stayed at 11 kW. So charging stays at
+    900 V, which passes the same trials, and purcell-lab/ha-addons#70 cannot
+    be fixed by configuration.
 
 ## Licences
 

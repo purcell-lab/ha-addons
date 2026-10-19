@@ -60,6 +60,87 @@ async function refreshStatus() {
       cell(row, per.number_phases != null ? String(per.number_phases) : "–", "num");
     }
   } else { cell(body.insertRow(), "No schedule published yet").colSpan = 3; }
+  showPrice(s.session_cost);
+}
+
+// Dynamic pricing: session cost (CostUpdated / California Pricing) and the
+// price schedule of the last charging profile (information only).
+const money = (v, cur) => (typeof v === "number" && isFinite(v)) ? v.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + (cur ? " " + cur : "") : "–";
+const utc = (t) => t ? String(t).replace("T", " ").replace(/(\.\d+)?(Z|[+-]00:00)$/, "") : "–";
+const duration = (s) => typeof s !== "number" ? "–" : s % 3600 === 0 ? fmt(s / 3600) + " h" : s % 60 === 0 ? fmt(s / 60) + " min" : fmt(s) + " s";
+
+function setGrid(el, items) {
+  el.replaceChildren(...items.map(([label, value]) => {
+    const div = document.createElement("div");
+    const dt = document.createElement("dt"); dt.textContent = label;
+    const dd = document.createElement("dd"); dd.textContent = value;
+    div.append(dt, dd); return div;
+  }));
+}
+
+function showPrice(entry) {
+  const p = entry && entry.value;
+  if (!p) { setGrid($("price"), []); $("pricetext").hidden = true; return; }
+  const cur = p.currency || "";
+  const items = [
+    ["Total cost", money(p.total_cost, cur)],
+    ["Price now", p.kwh_price != null ? money(p.kwh_price, cur) + "/kWh" : "–"],
+    ["Next price", p.next_kwh_price != null ? money(p.next_kwh_price, cur) + "/kWh" : "–"],
+    ["Next from (UTC)", utc(p.next_at)],
+    ["Status", p.status || "–"],
+    ["Cost time (UTC)", utc(p.timestamp)],
+  ];
+  if (p.hour_price != null) items.splice(2, 0, ["Time price", money(p.hour_price, cur) + "/h"]);
+  setGrid($("price"), items);
+  $("pricemeta").textContent = "Latest session cost from EVerest" + (p.session_id ? " for transaction " + p.session_id : "") +
+    ", received " + fmt(entry.age_s) + " s ago. Shown only; the price does not change charging.";
+  $("pricetext").textContent = p.text ? "Price text: " + p.text : "";
+  $("pricetext").hidden = !p.text;
+}
+
+function schedulePrice(sched, it) {
+  if (sched.kind === "absolutePriceSchedule") return it.energy_fee != null ? money(it.energy_fee, sched.currency) + "/kWh" + (it.rules > 1 ? " (" + it.rules + " power ranges)" : "") : "–";
+  const level = it.price_level != null ? "Level " + it.price_level + (sched.number_of_price_levels ? " of " + sched.number_of_price_levels : "") : "–";
+  return it.cost != null ? level + ", cost " + it.cost : level;
+}
+
+function showPriceSchedules(list) {
+  const body = $("pricesched").tBodies[0]; body.replaceChildren();
+  if (!list || !list.length) {
+    $("schedmeta").textContent = "No price schedule in the last charging profile.";
+    cell(body.insertRow(), "None").colSpan = 3; return;
+  }
+  $("schedmeta").textContent = list.map((s) => s.kind + (s.id != null ? " #" + s.id : "") +
+    (s.description ? " “" + s.description + "”" : "") + ": " + s.count + " interval" + (s.count === 1 ? "" : "s") +
+    (s.count > s.intervals.length ? ", first " + s.intervals.length + " shown" : "") +
+    (s.time_anchor ? ", time anchor " + s.time_anchor : "")).join("; ") +
+    ". Information only: EVerest stores the schedule but does not act on it.";
+  for (const s of list) for (const it of s.intervals) {
+    const row = body.insertRow();
+    cell(row, it.start ? utc(it.start) : "+" + duration(it.offset_s));
+    cell(row, duration(it.duration_s), "num");
+    cell(row, schedulePrice(s, it), "num");
+  }
+}
+
+function pricingDetail(ev) {
+  if (ev.status === "CallError") return (ev.status_info && ev.status_info.reasonCode) || "CALLERROR";
+  const p = ev.payload || {};
+  if (ev.action === "CostUpdated") return "Total " + p.totalCost + ", transaction " + p.transactionId + (p.customData ? ", with customData" : "");
+  if (ev.action === "SetDefaultTariff" && p.tariff) return "Tariff " + (p.tariff.tariffId || "") + ", EVSE " + p.evseId;
+  return ev.status_info && ev.status_info.reasonCode ? ev.status_info.reasonCode : "–";
+}
+
+function showPricing(events) {
+  const body = $("pricing").tBodies[0]; body.replaceChildren();
+  for (const ev of events || []) {
+    const row = body.insertRow();
+    cell(row, utc(ev.received));
+    cell(row, ev.status || "pending", "st-" + (ev.status || "pending"));
+    cell(row, ev.action);
+    cell(row, pricingDetail(ev));
+  }
+  if (!(events || []).length) cell(body.insertRow(), "None received").colSpan = 4;
 }
 
 let lastJson = "";
@@ -91,6 +172,8 @@ async function refreshProfiles() {
     cell(row, prof.chargingProfilePurpose || (ev.payload && ev.payload.chargingProfileCriteria ? "criteria" : "–"));
   }
   if (!(d.recent || []).length) cell(body.insertRow(), "None received").colSpan = 4;
+  showPriceSchedules(d.price_schedules);
+  showPricing(d.pricing);
 }
 
 for (const b of document.querySelectorAll("button[data-cmd]")) {

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ROUTES,STATION,validateCommand,targetAllows,commandStation,stationAllowed,routesFor,
-  routeProtocol,COMMANDS_BY_PROTOCOL} from '../rootfs/control-policy.mjs';
+  routeProtocol,COMMANDS_BY_PROTOCOL,hasPriceSchedule,validateCostUpdated,costTargetAllows,validateTariff,
+  tariffTarget,tariffTargetAllows,pricePolicy,tariffStations,rbacRules,PRICE_ROUTES,COMMAND_ROLE,ALL_ROUTES}
+  from '../rootfs/control-policy.mjs';
 const url=i=>new URL('http://lab'+ROUTES[i]+'?identifier='+STATION+'&tenantId=1');
 const start={remoteStartId:12,evseId:1,idToken:{type:'ISO14443',idToken:'C17E0001'}};
 const profile=()=>({evseId:1,chargingProfile:{id:9001,stackLevel:1,chargingProfilePurpose:'TxProfile',
@@ -247,4 +249,219 @@ test('station configuration reads only listed keys from an online 1.6 command st
   assert.deepEqual(r.unknownKey,['MaxChargingProfilesInstalled']);
   assert.ok(!JSON.stringify(r).includes('secret'));
   assert.ok(configResult({errorCode:'NotImplemented'},['ChargingScheduleMaxPeriods']).error);
+});
+
+// Dynamic pricing (price_commands_enabled).
+const AUD={enabled:true,currency:'AUD'};
+const absolute=(x={})=>({timeAnchor:'2026-10-18T08:00:00+10:00',priceScheduleID:1,currency:'AUD',language:'en',
+  priceAlgorithm:'urn:iso:std:iso:15118:-20:PriceAlgorithm:1-Power',
+  priceRuleStacks:[225,202].map(v=>({duration:1800,priceRule:[{energyFee:{value:v,exponent:-3},powerRangeStart:{value:0,exponent:0}}]})),...x});
+const levels=(x={})=>({timeAnchor:'2026-10-18T08:00:00Z',priceScheduleId:2,numberOfPriceLevels:3,
+  priceLevelScheduleEntries:[{duration:1800,priceLevel:2},{duration:1800,priceLevel:0}],...x});
+const priced=sched=>{const p=profile();Object.assign(p.chargingProfile.chargingSchedule[0],sched);return p;};
+test('B: an OCPP 2.1 profile may carry one price schedule, only when enabled',()=>{
+  assert.equal(validateCommand(url(2),priced({absolutePriceSchedule:absolute()}),STATION,false,AUD),true);
+  assert.equal(validateCommand(url(2),priced({priceLevelSchedule:levels()}),STATION,false,AUD),true);
+  // Unchanged without a price schedule, enabled or not.
+  assert.equal(validateCommand(url(2),profile(),STATION,false,AUD),true);
+  // Off (default), disabled policy, or OCPP 2.0.1: refused.
+  for(const options of [undefined,null,{enabled:false,currency:'AUD'}])
+    assert.equal(validateCommand(url(2),priced({absolutePriceSchedule:absolute()}),STATION,false,options),false);
+  const v201=new URL('http://lab'+routesFor('ocpp2.0.1')[2]+'?identifier='+STATION+'&tenantId=1');
+  const ac=priced({absolutePriceSchedule:absolute()});
+  ac.chargingProfile.chargingSchedule[0].chargingSchedulePeriod=[{startPeriod:0,limit:7000}];
+  assert.equal(validateCommand(v201,ac,STATION,false,AUD),false,'2.0.1 has no price schedule');
+  // Both kinds at once.
+  assert.equal(validateCommand(url(2),priced({absolutePriceSchedule:absolute(),priceLevelSchedule:levels()}),STATION,false,AUD),false);
+  // The power bounds still apply to a priced profile.
+  const big=priced({absolutePriceSchedule:absolute()});big.chargingProfile.chargingSchedule[0].duration=601;
+  assert.equal(validateCommand(url(2),big,STATION,false,AUD),false);
+  // A different currency than price_currency.
+  assert.equal(validateCommand(url(2),priced({absolutePriceSchedule:absolute()}),STATION,false,{enabled:true,currency:'EUR'}),false);
+  assert.ok(hasPriceSchedule(priced({priceLevelSchedule:levels()})));
+  assert.equal(hasPriceSchedule(profile()),false);
+});
+test('B: absolutePriceSchedule bounds',()=>{
+  const ok=a=>validateCommand(url(2),priced({absolutePriceSchedule:a}),STATION,false,AUD);
+  const stack=(duration,v=100)=>({duration,priceRule:[{energyFee:{value:v,exponent:-3},powerRangeStart:{value:0,exponent:0}}]});
+  assert.equal(ok(absolute({priceRuleStacks:Array.from({length:288},()=>stack(300))})),true,'288 x 5 min');
+  assert.equal(ok(absolute({priceRuleStacks:[stack(172800)]})),true,'48 h horizon');
+  assert.equal(ok(absolute({priceScheduleDescription:'Amber import forecast',minimumCost:{value:0,exponent:0},
+    maximumCost:{value:100,exponent:0}})),true);
+  assert.equal(ok(absolute({priceRuleStacks:[stack(300,-32768),stack(300,32767)]})),true,'int16 range');
+  for(const [name,a] of [
+    ['289 stacks',absolute({priceRuleStacks:Array.from({length:289},()=>stack(300))})],
+    ['no stacks',absolute({priceRuleStacks:[]})],
+    ['horizon',absolute({priceRuleStacks:[stack(172800),stack(1)]})],
+    ['zero duration',absolute({priceRuleStacks:[stack(0)]})],
+    ['fraction duration',absolute({priceRuleStacks:[stack(1.5)]})],
+    ['int16',absolute({priceRuleStacks:[stack(300,32768)]})],
+    ['exponent',absolute({priceRuleStacks:[{duration:300,priceRule:[{energyFee:{value:1,exponent:-4},powerRangeStart:{value:0,exponent:0}}]}]})],
+    ['power range',absolute({priceRuleStacks:[{duration:300,priceRule:[{energyFee:{value:1,exponent:0},powerRangeStart:{value:1,exponent:0}}]}]})],
+    ['no rules',absolute({priceRuleStacks:[{duration:300,priceRule:[]}]})],
+    ['9 rules',absolute({priceRuleStacks:[{duration:300,priceRule:Array(9).fill(stack(1).priceRule[0])}]})],
+    ['parking fee',absolute({priceRuleStacks:[{duration:300,priceRule:[{...stack(1).priceRule[0],parkingFee:{value:1,exponent:0}}]}]})],
+    ['currency',absolute({currency:'USD'})],
+    ['language',absolute({language:'de'})],
+    ['algorithm',absolute({priceAlgorithm:'urn:iso:std:iso:15118:-20:PriceAlgorithm:2-PeakPower'})],
+    ['timeAnchor',absolute({timeAnchor:'tomorrow'})],
+    ['id',absolute({priceScheduleID:-1})],
+    ['description',absolute({priceScheduleDescription:'x'.repeat(161)})],
+    ['minimumCost',absolute({minimumCost:{value:1.5,exponent:0}})],
+    ['taxRules',absolute({taxRules:[]})],
+    ['overstay',absolute({overstayRuleList:{}})],
+    ['services',absolute({additionalSelectedServices:[]})],
+    ['missing currency',(({currency,...a})=>a)(absolute())],
+  ]) assert.equal(ok(a),false,name);
+});
+test('B: priceLevelSchedule bounds',()=>{
+  const ok=l=>validateCommand(url(2),priced({priceLevelSchedule:l}),STATION,false,AUD);
+  assert.equal(ok(levels({numberOfPriceLevels:10,priceLevelScheduleEntries:Array.from({length:100},(_,i)=>({duration:300,priceLevel:i%10}))})),true);
+  for(const [name,l] of [
+    ['101 entries',levels({priceLevelScheduleEntries:Array.from({length:101},()=>({duration:300,priceLevel:0}))})],
+    ['no entries',levels({priceLevelScheduleEntries:[]})],
+    ['level out of range',levels({priceLevelScheduleEntries:[{duration:300,priceLevel:3}]})],
+    ['11 levels',levels({numberOfPriceLevels:11})],
+    ['0 levels',levels({numberOfPriceLevels:0})],
+    ['duration',levels({priceLevelScheduleEntries:[{duration:0,priceLevel:0}]})],
+    ['horizon',levels({priceLevelScheduleEntries:[{duration:172800,priceLevel:0},{duration:1,priceLevel:0}]})],
+    ['ID spelling',(({priceScheduleId,...l})=>({...l,priceScheduleID:2}))(levels())],
+    ['extra key',levels({priceScheduleDescription:'x'})],
+    ['timeAnchor',levels({timeAnchor:'2026-10-18'})],
+  ]) assert.equal(ok(l),false,name);
+});
+const costUrl=(v='2.1',id=STATION)=>new URL(`http://lab/ocpp/${v}/transactions/costUpdated?identifier=${id}&tenantId=1`);
+const cost=(x={},d={})=>({totalCost:1.25,transactionId:'test-123',customData:{vendorId:'org.openchargealliance.costmsg',
+  chargingPrice:{kWhPrice:0.225},nextPeriod:{atTime:'2026-10-18T08:00:00+10:00',chargingPrice:{kWhPrice:0.202}},
+  priceText:'Amber 22.5 c/kWh now, 20.2 c/kWh from 08:00',...d},...x});
+test('C: CostUpdated with California Pricing customData for the command station only',()=>{
+  assert.equal(validateCostUpdated(costUrl(),cost(),STATION,false,AUD),true);
+  assert.equal(validateCostUpdated(costUrl('2.0.1'),cost(),STATION,false,AUD),true);
+  assert.equal(validateCostUpdated(costUrl(),cost({},{chargingPrice:{kWhPrice:-5,hourPrice:0,flatFee:20},
+    nextPeriod:undefined,priceText:undefined}),STATION,false,AUD),true);
+  assert.equal(validateCostUpdated(costUrl(),cost({totalCost:0}),STATION,false,AUD),true);
+  // Disabled, wrong station, 1.6, or extra query parameters.
+  for(const options of [undefined,{enabled:false,currency:'AUD'}])
+    assert.equal(validateCostUpdated(costUrl(),cost(),STATION,false,options),false);
+  assert.equal(validateCostUpdated(costUrl('2.1','SIM-EV-OTHER'),cost(),STATION,false,AUD),false);
+  assert.equal(validateCostUpdated(new URL('http://lab/ocpp/1.6/transactions/costUpdated?identifier='+STATION+'&tenantId=1'),cost(),STATION,false,AUD),false);
+  assert.equal(validateCostUpdated(new URL(costUrl().href+'&callbackUrl=x'),cost(),STATION,false,AUD),false);
+  assert.equal(validateCostUpdated(costUrl('2.1','ACME-1'),cost(),'ACME-1',false,AUD),false,'real station needs the flag');
+  assert.equal(validateCostUpdated(costUrl('2.1','ACME-1'),cost(),'ACME-1',true,AUD),true);
+  for(const [name,p] of [
+    ['negative total',cost({totalCost:-0.01})],['total too high',cost({totalCost:10000.01})],['total string',cost({totalCost:'1'})],
+    ['transaction',cost({transactionId:'a b'})],['no customData',(({customData,...p})=>p)(cost())],
+    ['vendor',cost({},{vendorId:'com.example'})],['price low',cost({},{chargingPrice:{kWhPrice:-5.01}})],
+    ['price high',cost({},{chargingPrice:{kWhPrice:20.01}})],['price missing',cost({},{chargingPrice:{hourPrice:1}})],
+    ['hourPrice',cost({},{chargingPrice:{kWhPrice:0.2,hourPrice:21}})],['extra price key',cost({},{chargingPrice:{kWhPrice:0.2,idlePrice:1}})],
+    ['next atTime',cost({},{nextPeriod:{atTime:'08:00',chargingPrice:{kWhPrice:0.2}}})],
+    ['next hourPrice',cost({},{nextPeriod:{atTime:'2026-10-18T08:00:00Z',chargingPrice:{kWhPrice:0.2,hourPrice:1}}})],
+    ['priceText',cost({},{priceText:'x'.repeat(256)})],['extra customData',cost({},{qrCodeText:'x'})],
+    ['extra key',cost({extra:1})],['array',[]],['null',null],
+  ]) assert.equal(validateCostUpdated(costUrl(),p,STATION,false,AUD),false,name);
+});
+test('C: the station is online on the route version and the transaction is its active one',()=>{
+  assert.equal(costTargetAllows(costUrl(),cost(),state()),true);
+  assert.equal(costTargetAllows(costUrl(),cost({transactionId:'other'}),state()),false);
+  assert.equal(costTargetAllows(costUrl(),cost(),state(false)),false,'no active transaction');
+  assert.equal(costTargetAllows(costUrl('2.0.1'),cost(),state()),false,'2.0.1 route to a 2.1 station');
+  const s201=state();s201.data.ChargingStations[0].protocol='ocpp2.0.1';
+  assert.equal(costTargetAllows(costUrl('2.0.1'),cost(),s201),true);
+  for(const change of [{isOnline:false},{ocppConnectionName:'REAL'},{tenantId:2}]) {
+    const s=state();Object.assign(s.data.ChargingStations[0],change);
+    assert.equal(costTargetAllows(costUrl(),cost(),s),false,JSON.stringify(change));
+  }
+  const duplicate=state();duplicate.data.Transactions.push({...duplicate.data.Transactions[0]});
+  assert.equal(costTargetAllows(costUrl(),cost(),duplicate),false);
+  assert.equal(costTargetAllows(costUrl(),cost(),{}),false);
+});
+const tariffUrl=(id=STATION,extra='')=>new URL(`http://lab/ocpp/2.1/transactions/setDefaultTariff?identifier=${id}&tenantId=1${extra}`);
+const tariff=(t={},e={})=>({evseId:0,tariff:{tariffId:'amber-20261018-0800',currency:'AUD',
+  description:[{format:'UTF8',language:'en',content:'Amber Electric import and feed-in'}],validFrom:'2026-10-18T08:00:00+10:00',
+  energy:{prices:[
+    {priceKwh:0.20455,conditions:{startTimeOfDay:'08:00',endTimeOfDay:'08:30',validFromDate:'2026-10-18',validToDate:'2026-10-18'}},
+    {priceKwh:-0.04545,conditions:{startTimeOfDay:'08:00',endTimeOfDay:'08:30',minPower:-1,maxPower:-1000000}}],
+    taxRates:[{type:'GST',tax:10}],...e},...t}});
+test('D: SetDefaultTariff to a listed station, energy prices only',()=>{
+  const stations=[STATION,'EVX-AU-001'];
+  assert.equal(tariffTarget(tariffUrl(),stations,AUD),STATION);
+  assert.equal(tariffTarget(tariffUrl('EVX-AU-001'),stations,AUD),'EVX-AU-001','no SIM-EV- restriction');
+  assert.equal(tariffTarget(tariffUrl('EVX-AU-002'),stations,AUD),null,'not provisioned');
+  assert.equal(tariffTarget(tariffUrl(STATION,'&callbackUrl=x'),stations,AUD),null);
+  assert.equal(tariffTarget(new URL(tariffUrl().href.replace('2.1','2.0.1')),stations,AUD),null,'2.1 only');
+  assert.equal(tariffTarget(tariffUrl(),stations,{enabled:false}),null);
+  assert.equal(validateTariff(tariff(),AUD),true);
+  assert.equal(validateTariff({evseId:1,tariff:{tariffId:'t',currency:'AUD',energy:{prices:[{priceKwh:0.1}]}}},AUD),true,'minimal');
+  assert.equal(validateTariff(tariff({},{prices:Array.from({length:96},(_,i)=>({priceKwh:i/10-5,
+    conditions:{dayOfWeek:['Saturday','Sunday']}}))}),AUD),true,'96 prices');
+  assert.equal(validateTariff(tariff(),undefined),false,'disabled');
+  assert.equal(validateTariff(tariff(),{enabled:true,currency:'EUR'}),false,'currency');
+  for(const [name,p] of [
+    ['97 prices',tariff({},{prices:Array.from({length:97},()=>({priceKwh:0.1}))})],
+    ['no prices',tariff({},{prices:[]})],['price low',tariff({},{prices:[{priceKwh:-5.01}]})],
+    ['price high',tariff({},{prices:[{priceKwh:20.01}]})],['price NaN',tariff({},{prices:[{priceKwh:'0.1'}]})],
+    ['time of day',tariff({},{prices:[{priceKwh:0.1,conditions:{startTimeOfDay:'8:00'}}]})],
+    ['24:00',tariff({},{prices:[{priceKwh:0.1,conditions:{endTimeOfDay:'24:00'}}]})],
+    ['date',tariff({},{prices:[{priceKwh:0.1,conditions:{validToDate:'2026-02-30'}}]})],
+    ['day',tariff({},{prices:[{priceKwh:0.1,conditions:{dayOfWeek:['Funday']}}]})],
+    ['day repeated',tariff({},{prices:[{priceKwh:0.1,conditions:{dayOfWeek:['Monday','Monday']}}]})],
+    ['power',tariff({},{prices:[{priceKwh:0.1,conditions:{maxPower:-1000001}}]})],
+    ['charging time',tariff({},{prices:[{priceKwh:0.1,conditions:{minChargingTime:60}}]})],
+    ['tax type',tariff({},{taxRates:[{type:'VAT',tax:10}]})],['tax rate',tariff({},{taxRates:[{type:'GST',tax:15}]})],
+    ['two taxes',tariff({},{taxRates:[{type:'GST',tax:10},{type:'GST',tax:10}]})],
+    ['no energy',(p=>{delete p.tariff.energy;return p;})(tariff())],
+    ['chargingTime',tariff({chargingTime:{prices:[{priceMinute:1}]}})],['idleTime',tariff({idleTime:{prices:[]}})],
+    ['fixedFee',tariff({fixedFee:{prices:[]}})],['reservationTime',tariff({reservationTime:{}})],
+    ['reservationFixed',tariff({reservationFixed:{}})],['maxCost',tariff({maxCost:{exclTax:1}})],
+    ['tariffId long',tariff({tariffId:'x'.repeat(61)})],['tariffId empty',tariff({tariffId:''})],
+    ['lab tariff id',tariff({tariffId:'HA-LAB-ZERO'})],
+    ['description language',tariff({description:[{format:'UTF8',language:'de',content:'x'}]})],
+    ['description format',tariff({description:[{format:'HTML',language:'en',content:'x'}]})],
+    ['description long',tariff({description:[{format:'UTF8',language:'en',content:'x'.repeat(256)}]})],
+    ['4 descriptions',tariff({description:Array(4).fill({format:'UTF8',language:'en',content:'x'})})],
+    ['validFrom',tariff({validFrom:'2026-10-18'})],
+    ['evseId',{...tariff(),evseId:-1}],['extra',{...tariff(),customData:{vendorId:'x'}}],[ 'undefined',undefined],
+  ]) assert.equal(validateTariff(p,AUD),false,name);
+});
+test('D: the target is online on OCPP 2.1; its transactions do not matter',()=>{
+  assert.equal(tariffTargetAllows(state(),STATION),true);
+  assert.equal(tariffTargetAllows(state(false),STATION),true);
+  for(const change of [{protocol:'ocpp2.0.1'},{isOnline:false},{ocppConnectionName:'EVX-AU-001'},{tenantId:2}]) {
+    const s=state();Object.assign(s.data.ChargingStations[0],change);
+    assert.equal(tariffTargetAllows(s,STATION),false,JSON.stringify(change));
+  }
+});
+test('control policy price_commands: enabled object, disabled {"enabled":false}',()=>{
+  assert.deepEqual(pricePolicy({}),{enabled:false});
+  assert.deepEqual(pricePolicy({price_commands_enabled:false,price_currency:'AUD'}),{enabled:false});
+  const o={price_commands_enabled:true,price_currency:'AUD',plugfest_enabled:true,
+    plugfest_stations:[{id:'EVX-AU-001',password:'p'},{id:STATION,password:'q'}]};
+  assert.deepEqual(pricePolicy(o),{enabled:true,currency:'AUD',
+    price_schedule:{max_rule_stacks:288,max_level_entries:100,max_horizon_s:172800},
+    cost_updated_by_protocol:{'ocpp2.1':'/ocpp/2.1/transactions/costUpdated','ocpp2.0.1':'/ocpp/2.0.1/transactions/costUpdated'},
+    default_tariff:'/ocpp/2.1/transactions/setDefaultTariff',
+    tariff_limits:{max_prices:96,min_price_kwh:-5,max_price_kwh:20},
+    tariff_stations:[STATION,'EVX-AU-001']});
+  // Plugfest identities count only while the listener is on.
+  assert.deepEqual(tariffStations({...o,plugfest_enabled:false}),[STATION]);
+  assert.deepEqual(tariffStations({command_station_id:'SIM-EV-X'}),['SIM-EV-X']);
+  assert.equal(pricePolicy({price_commands_enabled:true}).currency,'AUD');
+});
+test('RBAC grants the price routes to the command role only when both flags are on',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
+  assert.deepEqual(PRICE_ROUTES,['/ocpp/2.1/transactions/costUpdated','/ocpp/2.0.1/transactions/costUpdated',
+    '/ocpp/2.1/transactions/setDefaultTariff']);
+  const on=rbacRules(base,true,true)['1'];
+  for(const route of PRICE_ROUTES) assert.deepEqual(on[route],{POST:[COMMAND_ROLE]},route);
+  for(const route of ALL_ROUTES) assert.ok(on[route].POST.includes(COMMAND_ROLE),route);
+  for(const [commands,prices] of [[true,false],[false,true],[false,false]]) {
+    const rules=rbacRules(base,commands,prices)['1'];
+    for(const route of PRICE_ROUTES) assert.equal(rules[route],undefined,`${commands}/${prices} ${route}`);
+  }
+  // Price routes do not change any other rule.
+  const plain=rbacRules(base,true)['1'];
+  for(const route of PRICE_ROUTES) delete on[route];
+  assert.deepEqual(on,plain);
+  assert.deepEqual(rbacRules(rbacRules(base,true,true),true,false),rbacRules(base,true));
 });

@@ -3,6 +3,8 @@
 1. Josev's UDP client sends SDP on the configured interface (v2g1).
 2. A fresh simulated-EV ISO 15118 stack on every plug-in.
 3. The simulated EV discharges up to 25 kW (66 A) instead of 11 kW (25 A).
+4. The simulated EV waits for authorisation as long as the charger does
+   (3 minutes) instead of 60 s.
 
 Upstream PyEvJosev (EVerest 2025.10.0) runs one Josev EVCC per plug-in with
 asyncio.run(). When discovery fails, Josev logs SDPFailedError but its
@@ -106,6 +108,30 @@ SIM_POWER = ("ev_max_discharge_power=RationalNumber(exponent=3, value=11),",
              "ev_max_discharge_power=RationalNumber(exponent=3, value=25),")
 
 
+AUTH_TARGET = Path("/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py")
+AUTH_MARKER = "ha-everest: EV waits for authorisation as long as the charger"
+# Josev 2025.9.0 gives up 60 s after the first Ongoing AuthorizationRes and,
+# with PyEvJosev's single SDP retry cycle, never starts another session in
+# that plug-in, so a RequestStartTransaction about 60 s after plug-in left
+# the transaction at 0 W (issue #33). The charger (libiso15118 v0.9.0)
+# answers Ongoing for 3 minutes (TIMEOUT_EIM_ONGOING) before it fails the
+# session; the EV now waits slightly longer, so the charger decides.
+AUTH_WAIT_S = 190
+AUTH_IMPORT = "from iso15118.shared.messages.timeouts import Timeouts as TimeoutsShared\n"
+AUTH_TIMEOUT = "TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT"
+
+
+def patch_auth(text):
+    if AUTH_MARKER in text:
+        return text
+    # Upstream uses the shared ongoing timeout only in the Authorization state.
+    if text.count(AUTH_IMPORT) != 1 or text.count(AUTH_TIMEOUT) != 2:
+        raise ValueError("Josev iso15118_20_states.py does not match the expected upstream text")
+    constant = (f"# {AUTH_MARKER} (patch_josev.py)\n"
+                f"HA_EVEREST_AUTH_WAIT_S = {AUTH_WAIT_S}\n")
+    return text.replace(AUTH_TIMEOUT, "HA_EVEREST_AUTH_WAIT_S").replace(AUTH_IMPORT, AUTH_IMPORT + constant)
+
+
 def patch_sim(text):
     if SIM_MARKER in text:
         return text
@@ -139,12 +165,14 @@ def apply(path, function):
     print(f"patched {path}")
 
 
-def main(path=TARGET, udp_path=UDP_TARGET, sim_path=SIM_TARGET):
+def main(path=TARGET, udp_path=UDP_TARGET, sim_path=SIM_TARGET, auth_path=AUTH_TARGET):
     apply(path, patch)
     if udp_path:
         apply(udp_path, patch_udp)
     if sim_path:
         apply(sim_path, patch_sim)
+    if auth_path:
+        apply(auth_path, patch_auth)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 name: EVerest DC V2G Test Charger
-version: "0.1.9"
+version: "0.1.11"
 slug: everest_v2g_simulator
 description: Isolated EVerest bidirectional DC charger and EV (ISO 15118-20 DC_BPT); OCPP 2.1 with 2.0.1 fallback.
 url: https://github.com/purcell-lab/ha-addons

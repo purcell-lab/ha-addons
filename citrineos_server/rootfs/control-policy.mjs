@@ -32,14 +32,15 @@ export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
 // accepted 2.0.1 and 1.6 routes at the gateway but CitrineOS refused them).
 // Starts from the shipped rules (reader and Operator UI roles unchanged),
 // removes the command role from every scoped route, then grants it exactly
-// ALL_ROUTES and the read-only configuration route when scoped commands are enabled.
+// ALL_ROUTES and the read-only configuration route when scoped commands are enabled,
+// plus the price routes (PRICE_ROUTES) when price commands are enabled too.
 export const COMMAND_ROLE='lab-controller';
-export function rbacRules(base,commandsEnabled) {
+export function rbacRules(base,commandsEnabled,priceEnabled=false) {
   const rules=JSON.parse(JSON.stringify(base));
   const tenant=rules['1'];
-  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM]) {
+  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...PRICE_ROUTES]) {
     const roles=(tenant[route]?.POST||[]).filter(r=>r!==COMMAND_ROLE);
-    if(commandsEnabled===true) roles.unshift(COMMAND_ROLE);
+    if(commandsEnabled===true&&(!PRICE_ROUTES.includes(route)||priceEnabled===true)) roles.unshift(COMMAND_ROLE);
     if(roles.length) tenant[route]={...tenant[route],POST:roles};
     else if(tenant[route]) { delete tenant[route].POST; if(!Object.keys(tenant[route]).length) delete tenant[route]; }
   }
@@ -62,15 +63,19 @@ const timestamp=n=>typeof n==='string'
   && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(n)
   && Number.isFinite(Date.parse(n));
 
-export function validateCommand(url,p,station=STATION,real=false) {
+// Exactly identifier=<one station> and tenantId=1: no callbacks or duplicate routing.
+const queryStation=url=>[...url.searchParams.keys()].length===2
+  &&url.searchParams.getAll('identifier').length===1
+  &&url.searchParams.getAll('tenantId').length===1
+  &&url.searchParams.get('tenantId')==='1'?url.searchParams.get('identifier'):null;
+
+// price: priceOptions(o). Only with it enabled may an OCPP 2.1 profile carry a
+// price schedule (information for the station; the limits are unchanged).
+export function validateCommand(url,p,station=STATION,real=false,price=null) {
   const protocol=routeProtocol(url.pathname);
   if(!protocol||!stationAllowed(station,real)) return false;
   const a=action(url.pathname);
-  if([...url.searchParams.keys()].length!==2
-    ||url.searchParams.getAll('identifier').length!==1
-    ||url.searchParams.getAll('tenantId').length!==1
-    ||url.searchParams.get('identifier')!==station
-    ||url.searchParams.get('tenantId')!=='1') return false;
+  if(queryStation(url)!==station) return false;
   if(protocol==='ocpp1.6') return validate16(a,p);
   if(a===0) return keys(p,['remoteStartId','evseId','idToken'])
     &&int(p.remoteStartId,0,2147483647)&&p.evseId===1
@@ -87,7 +92,10 @@ export function validateCommand(url,p,station=STATION,real=false) {
     ||!['Absolute','Relative'].includes(c.chargingProfileKind)
     ||!Array.isArray(c.chargingSchedule)||c.chargingSchedule.length!==1)return false;
   const s=c.chargingSchedule[0];
-  if(!keys(s,['id','startSchedule','duration','chargingRateUnit','chargingSchedulePeriod'])
+  const priced=price?.enabled===true&&protocol==='ocpp2.1';
+  if(!keys(s,['id','startSchedule','duration','chargingRateUnit','chargingSchedulePeriod',
+    ...(priced?['absolutePriceSchedule','priceLevelSchedule']:[])])
+    ||(priced&&!validPriceSchedule(s,price.currency))
     ||!int(s.id,0,2147483647)||!int(s.duration,1,600)||s.chargingRateUnit!=='W'
     ||!Array.isArray(s.chargingSchedulePeriod)||s.chargingSchedulePeriod.length<1
     ||s.chargingSchedulePeriod.length>10)return false;
@@ -162,16 +170,22 @@ export const TARGET_QUERY=`query ControlTarget($name: String!) {
     stationId tenantId transactionId isActive
   }
 }`;
-export function targetAllows(url,p,result,station=STATION) {
+// The station's active transactions, or null unless the station is the
+// expected one, online on exactly this protocol, and every row is well formed.
+function observed(result,station,protocol) {
   const stations=result?.data?.ChargingStations, transactions=result?.data?.Transactions;
   if(!Array.isArray(stations)||stations.length!==1||!Array.isArray(transactions)
-    ||transactions.length>500)return false;
+    ||transactions.length>500)return null;
   const s=stations[0];
   if(!s||!int(s.id,1,Number.MAX_SAFE_INTEGER)||s.tenantId!==1
-    ||s.ocppConnectionName!==station||s.protocol!==routeProtocol(url.pathname)||s.isOnline!==true)return false;
+    ||s.ocppConnectionName!==station||!protocol||s.protocol!==protocol||s.isOnline!==true)return null;
   if(transactions.some(t=>!t||t.tenantId!==1||t.isActive!==true
-    ||!int(t.stationId,1,Number.MAX_SAFE_INTEGER)||!transaction(t.transactionId)))return false;
-  const active=transactions.filter(t=>t.stationId===s.id);
+    ||!int(t.stationId,1,Number.MAX_SAFE_INTEGER)||!transaction(t.transactionId)))return null;
+  return transactions.filter(t=>t.stationId===s.id);
+}
+export function targetAllows(url,p,result,station=STATION) {
+  const active=observed(result,station,routeProtocol(url.pathname));
+  if(!active)return false;
   const a=action(url.pathname);
   if(a===0)return active.length===0;
   // Clearing a profile during discharge can restore the default import limit.
@@ -255,3 +269,135 @@ export function operatorTargetAllows(cmd,result) {
   return !!s&&s.tenantId===1&&s.ocppConnectionName===cmd.identifier
     &&s.protocol===cmd.protocol&&s.isOnline===true;
 }
+
+// Dynamic pricing (price_commands_enabled, off by default). Prices are
+// information for the station; they never change the power bounds above.
+// B: an OCPP 2.1 setChargingProfile may carry one price schedule.
+// C: CostUpdated (California Pricing customData) for the command station's
+//    active transaction, OCPP 2.1 or 2.0.1.
+// D: SetDefaultTariff (OCPP 2.1) to the command station or a provisioned
+//    Plugfest station. Not a control command, so any listed identity may get it.
+export const PRICE_ALGORITHM='urn:iso:std:iso:15118:-20:PriceAlgorithm:1-Power';
+export const PRICE_SCHEDULE_LIMITS={max_rule_stacks:288,max_level_entries:100,max_horizon_s:172800};
+export const TARIFF_LIMITS={max_prices:96,min_price_kwh:-5,max_price_kwh:20};
+export const COST_UPDATED_BY_PROTOCOL={
+  'ocpp2.1':'/ocpp/2.1/transactions/costUpdated','ocpp2.0.1':'/ocpp/2.0.1/transactions/costUpdated'};
+export const DEFAULT_TARIFF_ROUTE='/ocpp/2.1/transactions/setDefaultTariff';
+export const PRICE_ROUTES=[...Object.values(COST_UPDATED_BY_PROTOCOL),DEFAULT_TARIFF_ROUTE];
+export const COST_VENDOR='org.openchargealliance.costmsg';
+export const MAX_TOTAL_COST=10000;
+// The tariff the App seeds on every connector (#30). CitrineOS stores an
+// accepted SetDefaultTariff by tariffId, so that id would overwrite it.
+export const LAB_TARIFF='HA-LAB-ZERO';
+export const priceOptions=o=>({enabled:o.price_commands_enabled===true,currency:o.price_currency||'AUD'});
+// The command station and every provisioned Plugfest identity, once each.
+export const tariffStations=o=>[...new Set([commandStation(o),
+  ...(o.plugfest_enabled===true?(o.plugfest_stations||[]).map(st=>st.id):[])])];
+// The /lab/control-policy "price_commands" value.
+export function pricePolicy(o) {
+  const price=priceOptions(o);
+  if(!price.enabled)return {enabled:false};
+  return {enabled:true,currency:price.currency,price_schedule:{...PRICE_SCHEDULE_LIMITS},
+    cost_updated_by_protocol:{...COST_UPDATED_BY_PROTOCOL},default_tariff:DEFAULT_TARIFF_ROUTE,
+    tariff_limits:{...TARIFF_LIMITS},tariff_stations:tariffStations(o)};
+}
+export const priceProtocol=pathname=>
+  Object.keys(COST_UPDATED_BY_PROTOCOL).find(p=>COST_UPDATED_BY_PROTOCOL[p]===pathname)
+  ||(pathname===DEFAULT_TARIFF_ROUTE?'ocpp2.1':null);
+// A schedule carries a price schedule key (for a clearer rejection message).
+export const hasPriceSchedule=p=>{
+  const s=p?.chargingProfile?.chargingSchedule?.[0];
+  return !!s&&typeof s==='object'&&('absolutePriceSchedule' in s||'priceLevelSchedule' in s);
+};
+const text=(n,max)=>typeof n==='string'&&n.length<=max;
+const price=n=>Number.isFinite(n)&&n>=TARIFF_LIMITS.min_price_kwh&&n<=TARIFF_LIMITS.max_price_kwh;
+// RationalNumber: value x 10^exponent, kept small enough for any station.
+const rational=r=>keys(r,['value','exponent'])&&int(r.value,-32768,32767)&&int(r.exponent,-3,3);
+const horizon=entries=>entries.reduce((sum,x)=>sum+x.duration,0)<=PRICE_SCHEDULE_LIMITS.max_horizon_s;
+// No price schedule, or exactly one of the two kinds.
+function validPriceSchedule(s,currency) {
+  const a=s.absolutePriceSchedule, l=s.priceLevelSchedule;
+  if(a!==undefined&&l!==undefined)return false;
+  if(a!==undefined)return keys(a,['timeAnchor','priceScheduleID','priceScheduleDescription','currency','language',
+      'priceAlgorithm','minimumCost','maximumCost','priceRuleStacks'])
+    &&timestamp(a.timeAnchor)&&int(a.priceScheduleID,0,2147483647)
+    &&(a.priceScheduleDescription===undefined||text(a.priceScheduleDescription,160))
+    &&a.currency===currency&&a.language==='en'&&a.priceAlgorithm===PRICE_ALGORITHM
+    &&(a.minimumCost===undefined||rational(a.minimumCost))&&(a.maximumCost===undefined||rational(a.maximumCost))
+    &&Array.isArray(a.priceRuleStacks)&&a.priceRuleStacks.length>=1
+    &&a.priceRuleStacks.length<=PRICE_SCHEDULE_LIMITS.max_rule_stacks
+    &&a.priceRuleStacks.every(st=>keys(st,['duration','priceRule'])
+      &&int(st.duration,1,PRICE_SCHEDULE_LIMITS.max_horizon_s)
+      &&Array.isArray(st.priceRule)&&st.priceRule.length>=1&&st.priceRule.length<=8
+      &&st.priceRule.every(r=>keys(r,['energyFee','powerRangeStart'])&&rational(r.energyFee)
+        &&rational(r.powerRangeStart)&&r.powerRangeStart.value===0&&r.powerRangeStart.exponent===0))
+    &&horizon(a.priceRuleStacks);
+  if(l!==undefined)return keys(l,['timeAnchor','priceScheduleId','numberOfPriceLevels','priceLevelScheduleEntries'])
+    &&timestamp(l.timeAnchor)&&int(l.priceScheduleId,0,2147483647)&&int(l.numberOfPriceLevels,1,10)
+    &&Array.isArray(l.priceLevelScheduleEntries)&&l.priceLevelScheduleEntries.length>=1
+    &&l.priceLevelScheduleEntries.length<=PRICE_SCHEDULE_LIMITS.max_level_entries
+    &&l.priceLevelScheduleEntries.every(x=>keys(x,['duration','priceLevel'])
+      &&int(x.duration,1,PRICE_SCHEDULE_LIMITS.max_horizon_s)&&int(x.priceLevel,0,l.numberOfPriceLevels-1))
+    &&horizon(l.priceLevelScheduleEntries);
+  return true;
+}
+// C: California Pricing CostUpdated to the command station (AUD/kWh incl. GST).
+const chargingPrice=(c,only)=>keys(c,only?['kWhPrice']:['kWhPrice','hourPrice','flatFee'])&&price(c.kWhPrice)
+  &&(c.hourPrice===undefined||price(c.hourPrice))&&(c.flatFee===undefined||price(c.flatFee));
+export function validateCostUpdated(url,p,station=STATION,real=false,options=null) {
+  if(options?.enabled!==true||!priceProtocol(url.pathname)||url.pathname===DEFAULT_TARIFF_ROUTE
+    ||!stationAllowed(station,real)||queryStation(url)!==station)return false;
+  const d=p?.customData;
+  return keys(p,['totalCost','transactionId','customData'])
+    &&Number.isFinite(p.totalCost)&&p.totalCost>=0&&p.totalCost<=MAX_TOTAL_COST&&transaction(p.transactionId)
+    &&keys(d,['vendorId','chargingPrice','nextPeriod','priceText'])&&d.vendorId===COST_VENDOR
+    &&chargingPrice(d.chargingPrice,false)
+    &&(d.nextPeriod===undefined||(keys(d.nextPeriod,['atTime','chargingPrice'])
+      &&timestamp(d.nextPeriod.atTime)&&chargingPrice(d.nextPeriod.chargingPrice,true)))
+    &&(d.priceText===undefined||text(d.priceText,255));
+}
+// Same observed state as a profile: online on the route's protocol, and the
+// CostUpdated names the station's one active transaction.
+export function costTargetAllows(url,p,result,station=STATION) {
+  const active=observed(result,station,priceProtocol(url.pathname));
+  return !!active&&active.length===1&&active[0].transactionId===p.transactionId;
+}
+// D: the listed station a SetDefaultTariff request names, or null.
+export function tariffTarget(url,stations,options=null) {
+  if(options?.enabled!==true||url.pathname!==DEFAULT_TARIFF_ROUTE)return null;
+  const id=queryStation(url);
+  return id!==null&&stations.includes(id)?id:null;
+}
+const timeOfDay=n=>typeof n==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(n);
+const date=n=>typeof n==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(n)
+  &&new Date(n+'T00:00:00Z').toISOString().slice(0,10)===n;
+const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+// W; negative for export (the station pays the driver).
+const watts=n=>n===undefined||(Number.isFinite(n)&&Math.abs(n)<=1000000);
+const conditions=c=>c===undefined||(keys(c,['startTimeOfDay','endTimeOfDay','dayOfWeek','validFromDate',
+    'validToDate','minPower','maxPower'])
+  &&(c.startTimeOfDay===undefined||timeOfDay(c.startTimeOfDay))&&(c.endTimeOfDay===undefined||timeOfDay(c.endTimeOfDay))
+  &&(c.dayOfWeek===undefined||(Array.isArray(c.dayOfWeek)&&c.dayOfWeek.length>=1&&c.dayOfWeek.length<=7
+    &&new Set(c.dayOfWeek).size===c.dayOfWeek.length&&c.dayOfWeek.every(d=>DAYS.includes(d))))
+  &&(c.validFromDate===undefined||date(c.validFromDate))&&(c.validToDate===undefined||date(c.validToDate))
+  &&watts(c.minPower)&&watts(c.maxPower));
+// Energy prices only (AUD/kWh excl. GST), optional GST 10 %: no time, idle,
+// fixed or reservation fees, and no minimum or maximum cost.
+export function validateTariff(p,options=null) {
+  const t=p?.tariff, e=t?.energy;
+  return options?.enabled===true&&keys(p,['evseId','tariff'])&&int(p.evseId,0,2147483647)
+    &&keys(t,['tariffId','currency','description','validFrom','energy'])
+    &&typeof t.tariffId==='string'&&/^[\x20-\x7e]{1,60}$/.test(t.tariffId)&&t.tariffId.trim()===t.tariffId
+    &&t.tariffId!==LAB_TARIFF&&t.currency===options.currency
+    &&(t.description===undefined||(Array.isArray(t.description)&&t.description.length>=1&&t.description.length<=3
+      &&t.description.every(m=>keys(m,['format','language','content'])&&m.format==='UTF8'&&m.language==='en'
+        &&text(m.content,255)&&m.content.length>0)))
+    &&(t.validFrom===undefined||timestamp(t.validFrom))
+    &&keys(e,['prices','taxRates'])&&Array.isArray(e.prices)&&e.prices.length>=1
+    &&e.prices.length<=TARIFF_LIMITS.max_prices
+    &&e.prices.every(x=>keys(x,['priceKwh','conditions'])&&price(x.priceKwh)&&conditions(x.conditions))
+    &&(e.taxRates===undefined||(Array.isArray(e.taxRates)&&e.taxRates.length===1
+      &&keys(e.taxRates[0],['type','tax'])&&e.taxRates[0].type==='GST'&&e.taxRates[0].tax===10));
+}
+// Online on OCPP 2.1 (SetDefaultTariff is a 2.1 message); transactions do not matter.
+export const tariffTargetAllows=(result,station)=>observed(result,station,'ocpp2.1')!==null;

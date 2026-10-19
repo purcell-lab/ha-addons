@@ -43,6 +43,8 @@ jobs:
             docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
               -t "citrine-${app}:test" "citrineos_${app}"
           done
+      - name: Upstream reconnect patch is applied (#67)
+        run: docker run --rm --entrypoint node citrine-server:test /opt/citrine-ha/patch-reconnect.mjs --check
       - name: Authentication, discovery, persistence and logical restore
         env:
           TEST_NATIVE_SIMULATOR: "1"

@@ -45,6 +45,9 @@ def prepare(root):
     # are deliberately retained. Network identity must not be changed by CSMS.
     client = root / "lib/MicroOcppMongoose/src/MicroOcppMongooseClient.cpp"
     replace(client, "readonly = false;", "readonly = true;")
+    # Connection diagnostics (#31): name the address Mongoose resolved and tried.
+    replace(client, 'MG_ERROR(("%p %s", c->fd, (char *) ev_data));',
+            'MG_ERROR(("%p %s peer %M", c->fd, (char *) ev_data, mg_print_ip_port, &c->rem));')
     metering = root / "lib/MicroOcpp/src/MicroOcpp/Model/Metering"
     measurands = "Energy.Active.Import.Register,Power.Active.Import,Current.Import,Voltage"
     replace(metering / "MeteringService.cpp",

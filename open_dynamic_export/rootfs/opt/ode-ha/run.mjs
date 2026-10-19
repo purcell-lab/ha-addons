@@ -6,6 +6,9 @@
 //     from /config/config.json (this App's folder under /addon_configs).
 //   - CSIP-AUS certificate and key files, when present in /config, are
 //     copied into the private config directory ODE reads.
+//   - ODE's output is passed through unchanged; when it shows the CSIP-AUS
+//     server answering 404 for the DER (for example after a test session
+//     has ended), one explanatory line is added, at most once an hour.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -126,6 +129,39 @@ export function prepare(options, userDir = USER_DIR, odeDir = ODE_DIR) {
     }
 }
 
+// A CSIP-AUS server that no longer knows the EndDevice/DER (a test session
+// that has ended) answers 404 to every DER update.
+const DER_404 = /DerHelper.*status code 404/;
+export const SESSION_HINT =
+    'Open Dynamic Export (App): EndDevice/DER not found on the CSIP-AUS ' +
+    'server (HTTP 404). The test session has probably ended; stop the App ' +
+    'or remove csipAus from its configuration.';
+
+// Watches ODE's log lines; returns the hint line to print, or null. Hints
+// after `threshold` 404 lines, then again at most every `interval` ms.
+export function sessionWatch({ threshold = 3, interval = 3600000, now = Date.now } = {}) {
+    let count = 0;
+    let last = null;
+    return function line(text) {
+        if (!DER_404.test(text)) return null;
+        count += 1;
+        if (count < threshold) return null;
+        if (last !== null && now() - last < interval) return null;
+        last = now();
+        return SESSION_HINT;
+    };
+}
+
+// Splits one stream's raw output into complete lines.
+export function lineSplitter() {
+    let partial = '';
+    return function split(chunk) {
+        const lines = (partial + chunk).split('\n');
+        partial = lines.pop().slice(-65536);
+        return lines;
+    };
+}
+
 function main() {
     let options;
     try {
@@ -138,12 +174,24 @@ function main() {
     const child = spawn('node', ['dist/app.js'], {
         cwd: APP_DIR,
         env: environment(options),
-        stdio: 'inherit',
+        stdio: ['inherit', 'pipe', 'pipe'],
     });
+    const watch = sessionWatch();
+    for (const [from, to] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+        const split = lineSplitter();
+        from.on('data', (chunk) => {
+            to.write(chunk);
+            for (const text of split(chunk.toString('utf8'))) {
+                const hint = watch(text);
+                if (hint) console.log(hint);
+            }
+        });
+    }
     for (const signal of ['SIGTERM', 'SIGINT']) {
         process.on(signal, () => child.kill(signal));
     }
-    child.on('exit', (code, signal) => process.exit(signal ? 0 : (code ?? 1)));
+    // 'close' waits for the piped output to drain.
+    child.on('close', (code, signal) => process.exit(signal ? 0 : (code ?? 1)));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();

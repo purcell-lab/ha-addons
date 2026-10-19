@@ -117,6 +117,15 @@ try:
             except Exception:pass
             time.sleep(2)
         else:raise AssertionError("Simulator listener activation failed")
+        # #30: the seed puts the zero-cost lab tariff on the provisioned
+        # connectors and the unpublished lab Location on the station.
+        lab=docker("exec","lab-db","psql","-U","citrine","-d","citrine","-Atc",
+            'SELECT count(*) FROM "Connectors" c JOIN "Tariffs" t ON t.id=c."tariffId" '
+            'JOIN "ChargingStations" s ON s.id=c."stationId" JOIN "Locations" l ON l.id=s."locationId" '
+            "WHERE s.\"ocppConnectionName\"='SIM-CITRINE-LAB-01' AND t.\"tariffId\"='HA-LAB-ZERO' "
+            "AND t.\"pricePerKwh\"=0 AND t.\"tenantId\"=1 AND l.name='Home Assistant lab' "
+            "AND l.\"publishUpstream\"=false").strip()
+        assert lab=="2",lab
         docker("create","--name","lab-simulator","--network","citrine-ci","citrine-simulator:test")
         names.append("lab-simulator")
         p=TMP/"lab-simulator.json"

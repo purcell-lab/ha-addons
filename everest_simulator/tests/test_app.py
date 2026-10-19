@@ -22,6 +22,36 @@ GOOD = {"csms_url": "ws://192.0.2.10:9300/ocpp", "charge_point_id": "SIM-EV-EVER
         "acknowledge_test_isolation": True}
 
 
+def pricing_docs():
+    """TariffCostCtrlr and CustomizationCtrlr shaped as in libocpp v0.30.3:
+    Available[*] ReadOnly without a value, Enabled[Cost] false, Currency EUR."""
+    def prop(name, instance=None, mutability="ReadWrite", **value):
+        attribute = {"type": "Actual", "mutability": mutability}
+        attribute.update(value)
+        entry = {"variable_name": name, "attributes": [attribute]}
+        if instance:
+            entry["instance"] = instance
+        return entry
+    tariff = {"name": "TariffCostCtrlr", "properties": {
+        "TariffCostCtrlrAvailableTariff": prop("Available", "Tariff", "ReadOnly"),
+        "TariffCostCtrlrAvailableCost": prop("Available", "Cost", "ReadOnly"),
+        "TariffCostCtrlrCurrency": prop("Currency", value="EUR"),
+        "TariffCostCtrlrEnabledTariff": prop("Enabled", "Tariff"),
+        "TariffCostCtrlrEnabledCost": prop("Enabled", "Cost", value=False),
+        "TariffFallbackMessage": prop("TariffFallbackMessage", value=""),
+        "TotalCostFallbackMessage": prop("TotalCostFallbackMessage", value=""),
+        "NumberOfDecimalsForCostValues": prop("NumberOfDecimalsForCostValues"),
+    }}
+    custom = {"name": "CustomizationCtrlr", "properties": {
+        "CustomImplementationEnabled": prop("CustomImplementationEnabled"),
+        "CustomImplementationCaliforniaPricingEnabled": prop(
+            "CustomImplementationEnabled", "org.openchargealliance.costmsg"),
+        "CustomImplementationMultiLanguageEnabled": prop(
+            "CustomImplementationEnabled", "org.openchargealliance.multilanguage"),
+    }}
+    return {"TariffCostCtrlr": tariff, "CustomizationCtrlr": custom}
+
+
 def component_fixture(directory):
     """Minimal standardized device-model files with the properties we edit."""
     def doc(*props):
@@ -40,6 +70,7 @@ def component_fixture(directory):
         "OCPPCommCtrlr": doc("HeartbeatInterval"),
         "ChargingStation": doc("ChargingStationSupplyPhases"),
     }
+    files.update(pricing_docs())
     for name, content in files.items():
         (std / f"{name}.json").write_text(json.dumps(content))
     return directory
@@ -365,6 +396,237 @@ class UiServerTest(unittest.TestCase):
         self.assertEqual(commands["unplug"], ("modify_charging_session", "unplug"))
         self.assertIn("draw_power_regulated 16,3", commands["plugin"][1])
         self.assertTrue(commands["pause"][1].startswith("pause"))
+
+
+class DynamicPricingConfigTest(unittest.TestCase):
+    def test_tariff_and_cost_enabled_in_aud_with_california_pricing(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        source = component_fixture(Path(tmp.name) / "source")
+        target = Path(tmp.name) / "target"
+        configure.component_config(source, target, configure.validate(GOOD), "a" * 32)
+        for prop in ("TariffCostCtrlrAvailableTariff", "TariffCostCtrlrEnabledTariff",
+                     "TariffCostCtrlrAvailableCost", "TariffCostCtrlrEnabledCost"):
+            self.assertIs(value(target, "TariffCostCtrlr", prop), True, prop)
+        self.assertEqual(value(target, "TariffCostCtrlr", "TariffCostCtrlrCurrency"), "AUD")
+        self.assertEqual(value(target, "TariffCostCtrlr", "NumberOfDecimalsForCostValues"), 4)
+        self.assertIs(value(target, "CustomizationCtrlr", "CustomImplementationCaliforniaPricingEnabled"), True)
+        # Only California Pricing; the generic and multi-language switches stay upstream.
+        self.assertNotIn("value", json.loads((target / "standardized/CustomizationCtrlr.json").read_text())
+                         ["properties"]["CustomImplementationMultiLanguageEnabled"]["attributes"][0])
+        doc = json.loads((target / "standardized/TariffCostCtrlr.json").read_text())
+        # Available is ReadOnly (no SetVariables), so the file carries the value;
+        # the variable, instance and mutability stay as upstream defines them.
+        available = doc["properties"]["TariffCostCtrlrAvailableCost"]
+        self.assertEqual((available["variable_name"], available["instance"]), ("Available", "Cost"))
+        self.assertEqual(available["attributes"][0]["mutability"], "ReadOnly")
+        self.assertEqual(value(target, "TariffCostCtrlr", "TotalCostFallbackMessage"), "")
+
+
+PRICING_LOG = """2026-10-18T05:00:00.000Z: CentralSystem>ChargePoint  SetChargingProfile
+[2, "p-1", "SetChargingProfile", {"evseId": 1, "chargingProfile": {"id": 7, "chargingProfilePurpose": "TxProfile"}}]
+2026-10-18T05:00:00.100Z: ChargePoint>CentralSystem SetChargingProfileResponse
+[3, "p-1", {"status": "Accepted"}]
+2026-10-18T05:00:01.000Z: CentralSystem>ChargePoint  CostUpdated
+[
+  2,
+  "c-1",
+  "CostUpdated",
+  {"totalCost": 1.23, "transactionId": "tx-1", "customData": {"vendorId": "org.openchargealliance.costmsg",
+   "chargingPrice": {"kWhPrice": 0.2512}, "priceText": "0.2512 AUD/kWh"}}
+]
+2026-10-18T05:00:01.050Z: ChargePoint>CentralSystem CostUpdatedResponse
+[
+  3,
+  "c-1",
+  {}
+]
+2026-10-18T05:00:02.000Z: CentralSystem>ChargePoint  SetDefaultTariff
+[2, "t-1", "SetDefaultTariff", {"evseId": 0, "tariff": {"tariffId": "AMBER-1", "currency": "AUD"}}]
+2026-10-18T05:00:02.010Z: ChargePoint>CentralSystem Unknown
+[
+  4,
+  "t-1",
+  "NotImplemented",
+  "",
+  {}
+]
+2026-10-18T05:00:03.000Z: CentralSystem>ChargePoint  GetTariffs
+[2, "t-2", "GetTariffs", {"evseId": 0}]
+2026-10-18T05:00:03.010Z: ChargePoint>CentralSystem Unknown
+[4, "t-2", "NotImplemented", "", {}]
+2026-10-18T05:00:04.000Z: CentralSystem>ChargePoint  ClearTariffs
+[2, "t-3", "ClearTariffs", {}]
+2026-10-18T05:00:05.000Z: CentralSystem>ChargePoint  ChangeTransactionTariff
+[2, "t-4", "ChangeTransactionTariff", {"transactionId": "tx-1", "tariff": {"tariffId": "AMBER-2", "currency": "AUD"}}]
+2026-10-18T05:00:05.010Z: ChargePoint>CentralSystem Unknown
+[4, "t-4", "NotImplemented", "", {}]
+"""
+
+
+def priced_profile(schedule):
+    return {"payload": {"evseId": 1, "chargingProfile": {
+        "id": 8, "chargingProfilePurpose": "TxDefaultProfile",
+        "chargingSchedule": [dict({"id": 2, "chargingRateUnit": "W",
+                                   "chargingSchedulePeriod": [{"startPeriod": 0, "limit": 7000.0}]}, **schedule)]}}}
+
+
+class PricingLogTest(unittest.TestCase):
+    def test_pricing_messages_and_call_errors_tracked(self):
+        for action in ("CostUpdated", "SetDefaultTariff", "GetTariffs", "ClearTariffs",
+                       "ChangeTransactionTariff", "SetChargingProfile", "ClearChargingProfile"):
+            self.assertIn(action, ocpp_log.TRACKED)
+        events = ocpp_log.pricing_events(PRICING_LOG)
+        self.assertEqual([e["action"] for e in events],
+                         ["ChangeTransactionTariff", "ClearTariffs", "GetTariffs", "SetDefaultTariff", "CostUpdated"])
+        by_id = {e["message_id"]: e for e in events}
+        self.assertEqual(by_id["c-1"]["status"], "Replied")  # CostUpdatedResponse has no status
+        self.assertEqual(by_id["c-1"]["payload"]["customData"]["chargingPrice"]["kWhPrice"], 0.2512)
+        for uid in ("t-1", "t-2", "t-4"):
+            self.assertEqual(by_id[uid]["status"], "CallError")
+            self.assertEqual(by_id[uid]["status_info"]["reasonCode"], "NotImplemented")
+        self.assertIsNone(by_id["t-3"]["status"])  # no reply recorded yet
+        # Profiles are listed apart, so cost updates never push them out.
+        profiles = ocpp_log.profile_events(PRICING_LOG)
+        self.assertEqual([e["message_id"] for e in profiles], ["p-1"])
+        flood = PRICING_LOG + "".join(
+            f"2026-10-18T06:00:{i:02d}.000Z: CentralSystem>ChargePoint  CostUpdated\n"
+            f'[2, "f-{i}", "CostUpdated", {{"totalCost": {i}, "transactionId": "tx-1"}}]\n' for i in range(20))
+        self.assertEqual(ocpp_log.latest_profile(ocpp_log.profile_events(flood))["message_id"], "p-1")
+        self.assertEqual(len(ocpp_log.pricing_events(flood)), 10)
+
+    def test_absolute_price_schedule_summary(self):
+        stacks = [{"duration": 1800, "priceRule": [
+                       {"energyFee": {"value": 45, "exponent": -2}, "powerRangeStart": {"value": 7, "exponent": 0}},
+                       {"energyFee": {"value": 2512, "exponent": -4}, "powerRangeStart": {"value": 0, "exponent": 0}}]}
+                  ] + [{"duration": 1800, "priceRule": [{"energyFee": {"value": 30 + i, "exponent": -2},
+                                                         "powerRangeStart": {"value": 0, "exponent": 0}}]}
+                       for i in range(9)]
+        found = ocpp_log.price_schedules(priced_profile({"absolutePriceSchedule": {
+            "timeAnchor": "2026-10-18T05:00:00Z", "priceScheduleID": 3, "currency": "AUD", "language": "en",
+            "priceAlgorithm": "org.openchargealliance.costcalc", "priceScheduleDescription": "Amber import",
+            "priceRuleStacks": stacks}}))
+        self.assertEqual(len(found), 1)
+        summary = found[0]
+        self.assertEqual((summary["kind"], summary["id"], summary["currency"], summary["count"]),
+                         ("absolutePriceSchedule", 3, "AUD", 10))
+        self.assertEqual(len(summary["intervals"]), ocpp_log.PRICE_INTERVALS)
+        first, second = summary["intervals"][:2]
+        # The lowest power range is the plain energy price.
+        self.assertEqual((first["start"], first["duration_s"], first["energy_fee"], first["rules"]),
+                         ("2026-10-18T05:00:00Z", 1800, 0.2512, 2))
+        self.assertEqual((second["offset_s"], second["start"], second["energy_fee"]),
+                         (1800, "2026-10-18T05:30:00Z", 0.3))
+
+    def test_price_level_and_sales_tariff_summary(self):
+        levels = ocpp_log.price_schedules(priced_profile({"priceLevelSchedule": {
+            "timeAnchor": "2026-10-18T15:00:00+10:00", "priceScheduleId": 4, "numberOfPriceLevels": 5,
+            "priceLevelScheduleEntries": [{"duration": 300, "priceLevel": 1}, {"duration": 600, "priceLevel": 4}]}}))
+        self.assertEqual(levels[0]["kind"], "priceLevelSchedule")
+        self.assertEqual(levels[0]["number_of_price_levels"], 5)
+        self.assertEqual([(i["start"], i["price_level"]) for i in levels[0]["intervals"]],
+                         [("2026-10-18T05:00:00Z", 1), ("2026-10-18T05:05:00Z", 4)])
+        sales = ocpp_log.price_schedules(priced_profile({"startSchedule": "2026-10-18T05:00:00Z", "salesTariff": {
+            "id": 5, "numEPriceLevels": 3, "salesTariffEntry": [
+                {"relativeTimeInterval": {"start": 0, "duration": 900}, "ePriceLevel": 2,
+                 "consumptionCost": [{"startValue": 0, "cost": [{"costKind": "RelativePricePercentage",
+                                                                 "amount": 25, "amountMultiplier": -1}]}]}]}}))
+        self.assertEqual(sales[0]["kind"], "salesTariff")
+        self.assertEqual(sales[0]["intervals"][0]["start"], "2026-10-18T05:00:00Z")
+        self.assertEqual((sales[0]["intervals"][0]["price_level"], sales[0]["intervals"][0]["cost"]), (2, 2.5))
+
+    def test_no_or_malformed_price_information(self):
+        self.assertEqual(ocpp_log.price_schedules(None), [])
+        self.assertEqual(ocpp_log.price_schedules({"payload": None}), [])
+        self.assertEqual(ocpp_log.price_schedules(priced_profile({})), [])
+        broken = ocpp_log.price_schedules(priced_profile({"absolutePriceSchedule": {
+            "timeAnchor": "not a time", "priceRuleStacks": [{"duration": "x", "priceRule": "y"}, 5]}}))
+        self.assertEqual(broken[0]["count"], 2)
+        self.assertEqual(broken[0]["intervals"], [{"offset_s": 0, "start": None, "duration_s": "x",
+                                                   "energy_fee": None, "rules": 0}])
+        self.assertIsNone(ocpp_log._number({"value": 1, "exponent": 10 ** 6}))
+
+
+SESSION_COST = {
+    "session_id": "tx-1", "status": "Running", "currency": {"code": "AUD", "decimals": 4},
+    "cost_chunks": [{"cost": {"value": 12300}, "timestamp_to": "2026-10-18T05:00:01.000Z", "metervalue_to": 4200}],
+    "charging_price": [
+        {"category": "Energy", "price": {"currency": {"code": "AUD", "decimals": 4}, "value": {"value": 2512}}},
+        {"category": "Time", "price": {"currency": {"code": "AUD", "decimals": 4}, "value": {"value": 10000}}}],
+    "next_period": {"timestamp_from": "2026-10-18T05:30:00.000Z", "charging_price": [
+        {"category": "Energy", "price": {"currency": {"code": "AUD", "decimals": 4}, "value": {"value": 3100}}}]},
+    "message": [{"content": "0.2512 AUD/kWh"}, {"content": "0,2512 AUD/kWh", "language": "de"}],
+}
+
+
+class SessionCostTest(unittest.TestCase):
+    def setUp(self):
+        import ui_server
+        self.ui = ui_server
+
+    def test_topic_and_var_unwrapping(self):
+        self.assertEqual(self.ui.TOPICS[self.ui.SESSION_COST_TOPIC], "session_cost")
+        self.assertEqual(self.ui.SESSION_COST_TOPIC, "everest/modules/ocpp/impl/session_cost/var")
+        self.assertEqual(self.ui.unwrap_var({"name": "session_cost", "data": {"a": 1}}), ("session_cost", {"a": 1}))
+        self.assertEqual(self.ui.unwrap_var({"name": "tariff_message", "data": {}}), (None, None))
+        self.assertEqual(self.ui.unwrap_var("garbage"), (None, None))
+
+    def test_bus_stores_only_session_cost(self):
+        bus = self.ui.Bus()
+        message = type("Message", (), {})
+        for name in ("tariff_message", "session_cost"):
+            m = message()
+            m.topic = self.ui.SESSION_COST_TOPIC
+            m.payload = json.dumps({"name": name, "data": SESSION_COST if name == "session_cost" else {}}).encode()
+            bus.on_message(None, None, m)
+        self.assertEqual(bus.snapshot()["session_cost"]["value"], SESSION_COST)
+        self.assertEqual(set(bus.snapshot()), {"session_cost"})
+
+    def test_session_price_summary(self):
+        price = self.ui.session_price(SESSION_COST)
+        self.assertEqual(price["total_cost"], 1.23)
+        self.assertEqual(price["kwh_price"], 0.2512)
+        self.assertEqual(price["hour_price"], 1.0)
+        self.assertEqual(price["next_kwh_price"], 0.31)
+        self.assertEqual(price["next_at"], "2026-10-18T05:30:00.000Z")
+        self.assertEqual(price["currency"], "AUD")
+        self.assertEqual(price["text"], "0.2512 AUD/kWh / 0,2512 AUD/kWh")
+        self.assertEqual((price["timestamp"], price["meter_wh"], price["session_id"]),
+                         ("2026-10-18T05:00:01.000Z", 4200, "tx-1"))
+
+    def test_session_price_without_california_pricing(self):
+        # Plain CostUpdated (no customData): total cost only.
+        price = self.ui.session_price({"session_id": "tx-2", "status": "Running",
+                                       "currency": {"code": "AUD", "decimals": 4},
+                                       "cost_chunks": [{"cost": {"value": 5}}]})
+        self.assertEqual(price["total_cost"], 0.0005)
+        self.assertIsNone(price["kwh_price"])
+        self.assertIsNone(price["next_at"])
+        self.assertIsNone(price["text"])
+        self.assertIsNone(self.ui.session_price("garbage"))
+        self.assertIsNone(self.ui.session_price({"currency": {"decimals": 99}, "cost_chunks": [{"cost": {}}]})["total_cost"])
+
+    def test_status_and_profiles_carry_pricing(self):
+        class Bus:
+            last_command = None
+
+            def snapshot(self):
+                return {"session_cost": {"value": SESSION_COST, "age_s": 3.0}}
+        status = self.ui.status(Bus())
+        self.assertEqual(status["session_cost"]["value"]["kwh_price"], 0.2512)
+        self.assertEqual(status["session_cost"]["age_s"], 3.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            old = self.ui.LOGS
+            self.ui.LOGS = Path(tmp)
+            try:
+                (Path(tmp) / "libocpp_201.log").write_text(PRICING_LOG)
+                body = self.ui.profiles()
+            finally:
+                self.ui.LOGS = old
+        self.assertEqual(body["latest_profile"]["message_id"], "p-1")
+        self.assertEqual(body["price_schedules"], [])
+        self.assertEqual(body["pricing"][-1]["action"], "CostUpdated")
+        self.assertEqual(body["recent"][0]["action"], "SetChargingProfile")
 
 
 class PublishWorkflowTest(unittest.TestCase):

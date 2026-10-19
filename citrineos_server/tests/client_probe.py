@@ -8,7 +8,7 @@ import importlib
 import json
 import sys
 import types
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import aiohttp
 
 package = types.ModuleType("lab_client")
@@ -18,6 +18,23 @@ lab = importlib.import_module("lab_client.lab_control")
 hasura = importlib.import_module("lab_client.hasura_client")
 compat = importlib.import_module("lab_client.compatibility")
 telemetry = importlib.import_module("lab_client.lab_telemetry")
+pricing = importlib.import_module("lab_client.pricing")
+BRISBANE = timezone(timedelta(hours=10))
+
+
+def amber(channel, base, now):
+    """A synthetic Amber forecast sensor: the current 5-minute interval, then 30-minute ones."""
+    # Like Amber: starts at :01, ends on the minute.
+    edge = now.replace(second=0, microsecond=0) - timedelta(minutes=now.minute % 5)
+    edges = [edge, edge + timedelta(minutes=5)]
+    while len(edges) < 13:
+        edges.append(edges[-1] + timedelta(minutes=30))
+    spans = [(a + timedelta(seconds=1), b) for a, b in zip(edges, edges[1:])]
+    forecasts = [{"per_kwh": round(base + 0.01 * i, 4), "start_time": a.isoformat(),
+                  "end_time": b.isoformat(), "duration": int((b - a).total_seconds() // 60)}
+                 for i, (a, b) in enumerate(spans)]
+    return types.SimpleNamespace(state=str(forecasts[0]["per_kwh"]),
+        attributes={"forecasts": forecasts, "channel_type": channel, "unit_of_measurement": "$/kWh"})
 
 
 async def run(x):
@@ -34,9 +51,27 @@ async def run(x):
         if action == "stop":
             return await client.request_stop_transaction(**common, transaction_id=x["transaction_id"])
         if action == "profile":
+            price_schedule = None
+            if x.get("priced"):
+                await client.ping()
+                price_schedule = pricing.build_price_schedule(
+                    pricing.amber_intervals(amber("general", 0.225, datetime.now(timezone.utc))))
             return await client.submit_schedule(**common, transaction_id=x["transaction_id"],
                 periods=x["periods"], duration=x["duration"],
-                start_at=datetime.fromisoformat(x["start_at"]))
+                start_at=datetime.fromisoformat(x["start_at"]), price_schedule=price_schedule)
+        if action == "cost":
+            await client.ping()
+            current, nxt = pricing.current_and_next(
+                pricing.amber_intervals(amber("general", 0.225, datetime.now(timezone.utc))))
+            body = pricing.build_cost_updated(x["transaction_id"], current, nxt, BRISBANE, total_cost=0.42)
+            return {"body": body, "dispatch": await client.cost_updated(**common, body=body)}
+        if action == "tariff":
+            await client.ping()
+            now = datetime.now(timezone.utc)
+            tariff = pricing.build_tariff(pricing.amber_intervals(amber("general", 0.225, now)), BRISBANE,
+                export_intervals=pricing.amber_intervals(amber("feedIn", 0.08, now)), count=12)
+            result = await client.set_default_tariff(**common, evse_id=0, tariff=tariff)
+            return {"entries": len(tariff["energy"]["prices"]), "dispatch": result}
         if action == "clear":
             return await client.clear_charging_profile(**common, profile_id=lab.PROFILE_ID)
         if action == "meter":

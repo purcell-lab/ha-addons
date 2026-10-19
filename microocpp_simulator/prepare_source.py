@@ -127,6 +127,9 @@ def prepare(root):
     # Keep CSMS ChangeConfiguration from changing the network identity.
     client = root / "lib/MicroOcppMongoose/src/MicroOcppMongooseClient.cpp"
     replace_once(client, "readonly = false;", "readonly = true;")
+    # Connection diagnostics (#31): name the address Mongoose resolved and tried.
+    replace_once(client, 'MG_ERROR(("%p %s", c->fd, (char *) ev_data));',
+                 'MG_ERROR(("%p %s peer %M", c->fd, (char *) ev_data, mg_print_ip_port, &c->rem));')
     for variable in ("csmsUrl", "identity", "basicAuthPassword"):
         replace_once(client, f"{variable}->setPersistent();",
                      f"{variable}->setPersistent();\n"

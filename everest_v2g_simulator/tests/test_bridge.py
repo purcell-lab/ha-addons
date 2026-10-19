@@ -148,6 +148,12 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(attributes["direction"], "discharge")
         self.assertEqual(attributes["discovery_selftest"], "passed")
         self.assertEqual(ha_bridge.status_attributes({}, {})[1], "unknown")
+        # Issue #33: the EV watchdog's state.
+        self.assertEqual(attributes["ev_session"], "unknown")
+        recovery = {"at": 1.0, "result": "re-plugged", "attempt": 1}
+        watched = dict(STATUS, ev_watchdog={"ev_session": "ok", "recoveries": 1, "last_recovery": recovery})
+        attributes, _ = ha_bridge.status_attributes(watched, {})
+        self.assertEqual((attributes["ev_session"], attributes["ev_last_recovery"]), ("ok", recovery))
         self.assertTrue(self.bridge.publish())
         self.assertFalse(self.bridge.publish())  # unchanged within the refresh interval
         self.clock[0] += ha_bridge.REFRESH_S + 1
