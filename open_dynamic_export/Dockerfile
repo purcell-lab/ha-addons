@@ -19,8 +19,9 @@ RUN git init -q . \
     && test "$(git rev-parse HEAD)" = "${ODE_COMMIT}"
 # Applied in order; each must apply cleanly to the pinned commit.
 COPY ingress.patch ramp-tms.patch influxdb-quiet.patch stdout-log-level.patch \
-     default-control-merge.patch /tmp/
-RUN for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-merge; do \
+     default-control-merge.patch poll-rate-after-error.patch /tmp/
+RUN for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-merge \
+             poll-rate-after-error; do \
         git apply --check "/tmp/$p.patch" && git apply "/tmp/$p.patch" || exit 1; \
     done \
     && corepack enable \
@@ -32,6 +33,7 @@ RUN for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-me
     && cp LICENSE /out/usr/share/doc/open-dynamic-export/LICENSE \
     && cp /tmp/ingress.patch /tmp/ramp-tms.patch /tmp/influxdb-quiet.patch \
           /tmp/stdout-log-level.patch /tmp/default-control-merge.patch \
+          /tmp/poll-rate-after-error.patch \
           /out/usr/share/doc/open-dynamic-export/ \
     && echo "${ODE_COMMIT}" > /out/usr/share/doc/open-dynamic-export/COMMIT
 
