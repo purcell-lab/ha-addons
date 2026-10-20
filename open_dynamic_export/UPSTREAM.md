@@ -67,6 +67,20 @@ control (import, export, generation and load limits, energise, connect,
 from the first of those. Programs at equal primacy keep the server's order.
 It adds tests to `derControls.test.ts`. Not yet raised upstream.
 
+### `poll-rate-after-error.patch`
+
+Fixes the poll interval after a failed poll. `PollableResource` scheduled
+the next poll with the response's `pollRate`, or ODE's default (300 s for
+most resources) when there was no response, so every failed poll fell back
+to 300 s. During a server outage all the CSIP-AUS lists drifted onto a
+5-minute cycle, and new controls were seen up to 5 minutes after the
+server recovered. CSIP-AUS test ALL-23 (communication loss) waits 120 s
+for the client to poll DERControlList after comms are restored, so it
+failed. The patch keeps the poll rate of the last successful response and
+uses it after a failure; the default is used only until the first
+successful poll. It adds two tests to `pollableResource.test.ts`. Not yet
+raised upstream.
+
 ## This App's own code
 
 `rootfs/opt/ode-ha/run.mjs` maps the App options to ODE's environment and

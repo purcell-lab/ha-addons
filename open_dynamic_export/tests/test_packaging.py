@@ -14,6 +14,7 @@ RAMP_PATCH = (ROOT / "ramp-tms.patch").read_text()
 INFLUX_PATCH = (ROOT / "influxdb-quiet.patch").read_text()
 LOG_PATCH = (ROOT / "stdout-log-level.patch").read_text()
 DEFAULT_PATCH = (ROOT / "default-control-merge.patch").read_text()
+POLL_PATCH = (ROOT / "poll-rate-after-error.patch").read_text()
 PUBLISH = (REPO / ".github/workflows/ode-publish.yml").read_text()
 PR = (REPO / ".github/workflows/ode.yml").read_text()
 COMMIT = "bc807abbc4c58be3294257ee76f0348dc87c4945"  # upstream v0.20.0
@@ -49,7 +50,7 @@ class PinningTest(unittest.TestCase):
         self.assertNotIn("latest", DOCKERFILE)
 
     def test_patches_are_applied_in_order(self):
-        self.assertIn("for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-merge; do", DOCKERFILE)
+        self.assertIn("for p in ingress ramp-tms influxdb-quiet stdout-log-level default-control-merge \\\n             poll-rate-after-error; do", DOCKERFILE)
         self.assertIn('git apply --check "/tmp/$p.patch"', DOCKERFILE)
 
     def test_patch_is_applied_and_limited_to_ingress(self):
@@ -71,6 +72,13 @@ class PinningTest(unittest.TestCase):
         self.assertEqual(files, {"src/sep2/helpers/derControls.ts",
                                  "src/sep2/helpers/derControls.test.ts"})
         self.assertIn("CSIP-AUS GEN-10", DEFAULT_PATCH)
+
+    def test_poll_rate_patch_only_touches_pollable_resource(self):
+        files = set(re.findall(r"^diff --git a/(\S+) ", POLL_PATCH, re.M))
+        self.assertEqual(files, {"src/sep2/helpers/pollableResource.ts",
+                                 "src/sep2/helpers/pollableResource.test.ts"})
+        self.assertIn("+    private lastPollRateSeconds: number | null = null;", POLL_PATCH)
+        self.assertIn("Cactus ALL-23", POLL_PATCH)
 
     def test_influxdb_patch_only_quietens_that_error(self):
         files = set(re.findall(r"^diff --git a/(\S+) ", INFLUX_PATCH, re.M))

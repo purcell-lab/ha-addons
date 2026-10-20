@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.5
+
+- CSIP-AUS polling after a server outage: a failed poll now retries at the
+  poll rate the server last gave (for example 60 s), not ODE's 300 s
+  default. Before, a few minutes of server errors put every resource on a
+  5-minute cycle, so after the server came back ODE took up to 5 minutes to
+  see new controls. Cactus ALL-23 (communication loss) exposed it: comms
+  came back at 10:19:47 and the test waits 120 s for a DERControlList
+  poll, but ODE's next one was not due until about 10:23:55
+  (`poll-rate-after-error.patch`).
+
 ## 0.1.4
 
 - CSIP-AUS default controls: when no control is active, each limit now
