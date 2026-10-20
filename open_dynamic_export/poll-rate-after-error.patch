@@ -1,0 +1,111 @@
+diff --git a/src/sep2/helpers/pollableResource.test.ts b/src/sep2/helpers/pollableResource.test.ts
+index 7b4917b..792af17 100644
+--- a/src/sep2/helpers/pollableResource.test.ts
++++ b/src/sep2/helpers/pollableResource.test.ts
+@@ -210,4 +210,77 @@ describe('PollableResource', () => {
+         await vi.advanceTimersByTimeAsync(30_000);
+         expect(dataHandler).toHaveBeenCalledTimes(0);
+     });
++
++    it('should keep polling at the last server poll rate after a failed poll', async () => {
++        // a CSIP-AUS server outage (Cactus ALL-23) must not push polling back to the
++        // default rate, or new controls are only seen up to that default after the server recovers
++        let fail = false;
++        const get = vi.fn();
++
++        class MockPollableResource extends PollableResource<MockResponse> {
++            // oxlint-disable-next-line @typescript-eslint/require-await
++            async get(): Promise<MockResponse> {
++                get();
++                if (fail) {
++                    throw new Error('COMMS DISABLED');
++                }
++                return { hello: 'world', pollRate: 60 };
++            }
++        }
++
++        const pollableResource = new MockPollableResource({
++            client: sep2Client,
++            url: 'http://example.com',
++            defaultPollRateSeconds: 300,
++        });
++        pollableResource.on('pollError', () => {});
++
++        // first poll succeeds with the server's 60 s poll rate
++        await vi.advanceTimersByTimeAsync(0);
++        expect(get).toHaveBeenCalledTimes(1);
++
++        // the server goes down: polls keep failing, every 60 s rather than every 300 s
++        fail = true;
++        await vi.advanceTimersByTimeAsync(60 * 1000);
++        expect(get).toHaveBeenCalledTimes(2);
++        await vi.advanceTimersByTimeAsync(60 * 1000);
++        expect(get).toHaveBeenCalledTimes(3);
++
++        // the server recovers: the next poll is at most 60 s later
++        fail = false;
++        const dataHandler = vi.fn();
++        pollableResource.on('data', dataHandler);
++        await vi.advanceTimersByTimeAsync(60 * 1000);
++        expect(dataHandler).toHaveBeenCalledTimes(1);
++
++        pollableResource.destroy();
++    });
++
++    it('should use the default poll rate when the first poll fails', async () => {
++        const get = vi.fn();
++
++        class MockPollableResource extends PollableResource<MockResponse> {
++            // oxlint-disable-next-line @typescript-eslint/require-await
++            async get(): Promise<MockResponse> {
++                get();
++                throw new Error('unreachable');
++            }
++        }
++
++        const pollableResource = new MockPollableResource({
++            client: sep2Client,
++            url: 'http://example.com',
++            defaultPollRateSeconds: 5,
++        });
++        pollableResource.on('pollError', () => {});
++
++        await vi.advanceTimersByTimeAsync(0);
++        expect(get).toHaveBeenCalledTimes(1);
++        await vi.advanceTimersByTimeAsync(4 * 1000);
++        expect(get).toHaveBeenCalledTimes(1);
++        await vi.advanceTimersByTimeAsync(1 * 1000);
++        expect(get).toHaveBeenCalledTimes(2);
++
++        pollableResource.destroy();
++    });
+ });
+diff --git a/src/sep2/helpers/pollableResource.ts b/src/sep2/helpers/pollableResource.ts
+index 821d56d..c8ba8ac 100644
+--- a/src/sep2/helpers/pollableResource.ts
++++ b/src/sep2/helpers/pollableResource.ts
+@@ -14,6 +14,9 @@ export abstract class PollableResource<
+     private client: SEP2Client;
+     private url: string;
+     private defaultPollRateSeconds: number;
++    // the poll rate of the last successful response, reused after a failed poll
++    // so a server outage does not push polling back to the (much longer) default
++    private lastPollRateSeconds: number | null = null;
+     private pollTimerId: NodeJS.Timeout | null = null;
+     private abortController: AbortController;
+ 
+@@ -80,7 +83,13 @@ export abstract class PollableResource<
+             this.emit('data', response);
+         }
+ 
+-        const pollRate = response?.pollRate || this.defaultPollRateSeconds;
++        const pollRate = response
++            ? response.pollRate || this.defaultPollRateSeconds
++            : (this.lastPollRateSeconds ?? this.defaultPollRateSeconds);
++
++        if (response) {
++            this.lastPollRateSeconds = pollRate;
++        }
+ 
+         // schedule next poll
+         this.pollTimerId = setTimeout(() => {
