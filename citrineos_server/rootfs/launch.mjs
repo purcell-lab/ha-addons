@@ -107,10 +107,14 @@ export function validatePlugfest(o) {
 // Optional port 8083 is the Plugfest listener for external charging stations:
 // Security Profile 1 with per-station provisioned passwords, unknown stations
 // rejected; or, with plugfest_open_admission, Security Profile 0 admitting any
-// identity without credentials. It is the only port the App can publish on
-// the host. Upstream picks the first of these protocols the station offers,
+// identity without credentials. With 8084-8089 below, these are the only
+// ports the App can publish on the host. Upstream picks the first of these protocols the station offers,
 // so 2.1 is preferred and 1.6 is the last fallback.
 export const PLUGFEST_PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
+// Ports 8084-8089 are identical Plugfest listeners, so each station under test
+// can be given its own endpoint (ws://host:8084 ... ws://host:8089). Admission
+// is the same as on 8083: a port does not restrict which identity connects.
+export const PLUGFEST_STATION_PORTS=[8084,8085,8086,8087,8088,8089];
 export function buildListeners(o) {
   const listeners=[];
   if(o.simulator_enabled||o.profile_simulator_enabled) listeners.push({
@@ -125,8 +129,9 @@ export function buildListeners(o) {
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
   const open=o.plugfest_open_admission===true;
-  if(o.plugfest_enabled) listeners.push({
-    id:'citrine-plugfest',host:'0.0.0.0',port:8083,protocols:[...PLUGFEST_PROTOCOLS],
+  if(o.plugfest_enabled) for(const port of [8083,...PLUGFEST_STATION_PORTS]) listeners.push({
+    id:port===8083?'citrine-plugfest':`citrine-plugfest-${port}`,host:'0.0.0.0',port,
+    protocols:[...PLUGFEST_PROTOCOLS],
     securityProfile:open?0:1,allowUnknownChargingStations:open,ignoreAuthenticationHeaders:open,
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
@@ -576,7 +581,7 @@ export async function main() {
   }
   console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
   if(o.plugfest_enabled&&o.plugfest_open_admission)
-    console.log('WARNING: Plugfest listener 8083 admits any station without authentication (plugfest_open_admission).');
+    console.log('WARNING: Plugfest listeners 8083-8089 admit any station without authentication (plugfest_open_admission).');
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) main().catch(()=>{
   console.error('Laboratory startup failed; inspect dependency health. Credentials omitted.');

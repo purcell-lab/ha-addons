@@ -249,7 +249,7 @@ bound is unchanged: TxProfile only, an active transaction on that station
 is required, at most 600 s and 10 periods, 25 kW import and export, and
 clear only after the transaction has closed.
 
-- The station connects on the Plugfest listener (8083), so `plugfest_enabled`
+- The station connects on the Plugfest listeners (8083 to 8089), so `plugfest_enabled`
   is required: with a provisioned password in `plugfest_stations`, or with
   `plugfest_open_admission` for no authentication.
 - `profile_simulator_enabled` cannot be on at the same time, because it
@@ -277,7 +277,7 @@ Before you command a real charger:
   charger itself (TxDefaultProfile or ChargingStationMaxProfile).
 - Watt limits on a single-phase charger need `numberPhases: 1`; libocpp-based
   chargers assume 3 phases otherwise.
-- With `plugfest_open_admission`, anyone who can reach port 8083 can connect
+- With `plugfest_open_admission`, anyone who can reach ports 8083 to 8089 can connect
   as the command station's identity. Use a provisioned password for anything
   but an isolated test network.
 
@@ -375,7 +375,10 @@ from the pinned upstream release.
 
 For an OCPP Plugfest where this server is the CSMS under test, external
 charging stations on the venue network need to connect. `plugfest_enabled`
-(default `false`) adds listener `citrine-plugfest` on port 8083:
+(default `false`) adds listener `citrine-plugfest` on port 8083, and six
+identical listeners on ports 8084 to 8089 (`citrine-plugfest-8084` ...
+`citrine-plugfest-8089`) so that each station under test can be given its own
+endpoint:
 
 - OCPP 2.1, 2.0.1 and 1.6, Security Profile 1 (Basic Auth over `ws://`),
   tenant 1. The server chooses the first of 2.1, 2.0.1, 1.6 that the station
@@ -399,25 +402,41 @@ charging stations on the venue network need to connect. `plugfest_enabled`
   provisioned (removed from `plugfest_stations`, or a disabled simulator)
   are revoked, so a removed station cannot log in again.
 
-Port 8083 is the only port this App declares, and it is closed until you
-set a host port for `8083/tcp` on the App's Network tab. Vendors then use
-`ws://<host-ip>:<host-port>/<station-id>` with Basic Auth user `<station-id>`.
+Ports 8083 to 8089 are the only ports this App declares, and each is closed
+until you set a host port for it on the App's Network tab. Vendors then use
+`ws://<host>:<host-port>/<station-id>` with Basic Auth user `<station-id>`,
+for example one station per port:
+
+| Station under test | Endpoint |
+|---|---|
+| 1 | `ws://<host>:8084/<station-id>` |
+| 2 | `ws://<host>:8085/<station-id>` |
+| 3 | `ws://<host>:8086/<station-id>` |
+| 4 | `ws://<host>:8087/<station-id>` |
+| 5 | `ws://<host>:8088/<station-id>` |
+| 6 | `ws://<host>:8089/<station-id>` |
+
+All seven ports admit stations the same way (the `plugfest_stations` list,
+or open admission). A port does not restrict which identity connects on it:
+it gives each station a separate endpoint, log and firewall rule, not
+separate credentials. Close a port again (clear its host port) when its
+station's slot ends.
 
 Read this before enabling it:
 
 - Security Profile 1 is cleartext: passwords and OCPP traffic can be read
   by anyone on the same network. Use it only on the Plugfest network, only
   during test slots, and with passwords made for the event.
-- Do not expose port 8083 to the internet (no port forward); an online
+- Do not expose ports 8083 to 8089 to the internet (no port forward); an online
   test partner needs a separate TLS (Security Profile 2) path.
 - Command and control of a real station by the HA path needs
   `command_real_stations_enabled` and that station as `command_station_id`;
   otherwise use the test partner's agreed procedure.
 
-### Open admission on 8083 (opt-in, unauthenticated)
+### Open admission on 8083 to 8089 (opt-in, unauthenticated)
 
 `plugfest_open_admission: true` (default `false`, needs `plugfest_enabled`)
-switches 8083 to Security Profile 0: any station identity connects, with no
+switches 8083 to 8089 to Security Profile 0: any station identity connects, with no
 password, on 2.1, 2.0.1 or 1.6, and registers at BootNotification. Any
 Authorization header is ignored. `plugfest_stations` may then be empty.
 Anyone who can reach the port can register a station or take over an
