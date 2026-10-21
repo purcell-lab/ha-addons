@@ -56,17 +56,17 @@ console.log(JSON.stringify(x.open?{
   v201:await attempt('PF-OPEN-201',null,['ocpp2.0.1']),
   v16:await attempt('PF-OPEN-16',null,['ocpp1.6']),
   preferred:await attempt('PF-OPEN-ALL',null,all),
-  port8087:await attempt('PF-OPEN-8087',null,['ocpp2.1'],8087),
+  port8103:await attempt('PF-OPEN-8103',null,['ocpp2.1'],8103),
 }:{
   good:await attempt(x.id,x.password),
   wrong:await attempt(x.id,x.password.slice(0,-1)+(x.password.endsWith('A')?'B':'A')),
   unknown:await attempt('PF-UNKNOWN-99',x.password),
   v16:await settle()||await attempt(x.id,x.password,['ocpp1.6']),
   preferred:await settle()||await attempt(x.id,x.password,all),
-  // 8084-8089: per-station endpoints, admitted exactly as on 8083.
-  port8084:await settle()||await attempt(x.id,x.password,['ocpp2.0.1'],8084),
-  port8089:await settle()||await attempt(x.id,x.password,['ocpp1.6'],8089),
-  unknown8089:await attempt('PF-UNKNOWN-99',x.password,['ocpp2.0.1'],8089),
+  // 8100-8105: per-station endpoints, admitted exactly as on 8083.
+  port8100:await settle()||await attempt(x.id,x.password,['ocpp2.0.1'],8100),
+  port8105:await settle()||await attempt(x.id,x.password,['ocpp1.6'],8105),
+  unknown8105:await attempt('PF-UNKNOWN-99',x.password,['ocpp2.0.1'],8105),
 }));
 """
 
@@ -147,9 +147,9 @@ def plugfest_trial(docker, request, server_options, values, tmp):
     assert not result["unknown"]["connected"], "unknown station was admitted"
     assert result["v16"] == {"connected": True, "protocol": "ocpp1.6", "boot": "Accepted"}, result["v16"]
     assert result["preferred"] == {"connected": True, "protocol": "ocpp2.1", "boot": "Accepted"}, result["preferred"]
-    assert result["port8084"] == {"connected": True, "protocol": "ocpp2.0.1", "boot": "Accepted"}, result["port8084"]
-    assert result["port8089"] == {"connected": True, "protocol": "ocpp1.6", "boot": "Accepted"}, result["port8089"]
-    assert not result["unknown8089"]["connected"], "unknown station was admitted on 8089"
+    assert result["port8100"] == {"connected": True, "protocol": "ocpp2.0.1", "boot": "Accepted"}, result["port8100"]
+    assert result["port8105"] == {"connected": True, "protocol": "ocpp1.6", "boot": "Accepted"}, result["port8105"]
+    assert not result["unknown8105"]["connected"], "unknown station was admitted on 8105"
     # Removing the station from the options revokes its password on restart.
     other = "Pf-" + secrets.token_urlsafe(24)[:29]
     values.append(other)
@@ -186,7 +186,7 @@ def plugfest_trial(docker, request, server_options, values, tmp):
         raise AssertionError("Plugfest open admission activation failed")
     opened = probe("PF-OPEN", None, open_admission=True)
     for key, protocol in (("v21", "ocpp2.1"), ("v201", "ocpp2.0.1"), ("v16", "ocpp1.6"),
-                          ("preferred", "ocpp2.1"), ("port8087", "ocpp2.1")):
+                          ("preferred", "ocpp2.1"), ("port8103", "ocpp2.1")):
         assert opened[key] == {"connected": True, "protocol": protocol, "boot": "Accepted"}, (key, opened[key])
     r = subprocess.run(
         ["docker", "exec", "-i", "lab-server", "node", "--input-type=module", "-e", RECONNECT],
@@ -197,6 +197,6 @@ def plugfest_trial(docker, request, server_options, values, tmp):
     assert rounds == [{"boot": True, "heartbeat": True}] * 9, rounds
     print(json.dumps({"plugfest_listener": "passed", "accepted_boot": True,
                       "wrong_password_refused": True, "unknown_station_refused": True,
-                      "ocpp16_boot": True, "ocpp21_preferred": True, "station_ports_8084_8089": True,
+                      "ocpp16_boot": True, "ocpp21_preferred": True, "station_ports_8100_8105": True,
                       "removed_station_revoked": True, "open_admission_all_versions": True,
                       "reconnect_replies": True}))

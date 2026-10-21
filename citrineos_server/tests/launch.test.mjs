@@ -68,11 +68,11 @@ test('Plugfest listener: opt-in Security Profile 1 on 8083 for provisioned stati
   const ls=buildListeners(pf), [l]=ls;
   assert.equal(l.port,8083);
   assert.equal(l.id,'citrine-plugfest');
-  // 8084-8089: one endpoint per station under test, admitted exactly as on 8083.
-  assert.deepEqual(ls.map(x=>x.port),[8083,8084,8085,8086,8087,8088,8089]);
+  // 8100-8105: one endpoint per station under test, admitted exactly as on 8083.
+  assert.deepEqual(ls.map(x=>x.port),[8083,8100,8101,8102,8103,8104,8105]);
   assert.equal(new Set(ls.map(x=>x.id)).size,7);
-  // No listener may take a loopback port the App uses itself (8088 was the
-  // upstream API: EADDRINUSE in CI).
+  // No listener may take a loopback port the App uses itself (8088, the
+  // upstream API, drew EADDRINUSE in CI).
   const all=buildListeners({...pf,open_admission_enabled:true,simulator_enabled:true}).map(x=>x.port);
   assert.ok(INTERNAL_PORTS.includes(UPSTREAM_API_PORT));
   for(const port of all)assert.ok(!INTERNAL_PORTS.includes(port),port);
@@ -82,7 +82,7 @@ test('Plugfest listener: opt-in Security Profile 1 on 8083 for provisioned stati
   assert.equal(l.ignoreAuthenticationHeaders,false);
   // Upstream picks the first listed protocol the station offers.
   assert.deepEqual(l.protocols,['ocpp2.1','ocpp2.0.1','ocpp1.6']);
-  assert.deepEqual(buildListeners({...pf,open_admission_enabled:true}).map(x=>x.port),[8082,8083,8084,8085,8086,8087,8088,8089]);
+  assert.deepEqual(buildListeners({...pf,open_admission_enabled:true}).map(x=>x.port),[8082,8083,8100,8101,8102,8103,8104,8105]);
 });
 test('Plugfest open admission: 8083 without credentials, explicitly opted in',()=>{
   const st=[{id:'EVX-AU-001',password:'Vendor-Pass-0001'}];

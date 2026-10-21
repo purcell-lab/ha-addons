@@ -18,20 +18,20 @@ docker_api: false
 # can be published, and only when you set a host port on the Network tab.
 ports:
   8083/tcp: null
-  8084/tcp: null
-  8085/tcp: null
-  8086/tcp: null
-  8087/tcp: null
-  8088/tcp: null
-  8089/tcp: null
+  8100/tcp: null
+  8101/tcp: null
+  8102/tcp: null
+  8103/tcp: null
+  8104/tcp: null
+  8105/tcp: null
 ports_description:
   8083/tcp: Plugfest OCPP 2.1/2.0.1/1.6 listener (Basic Auth for provisioned stations, or no auth with plugfest_open_admission; off unless plugfest_enabled and a host port is set)
-  8084/tcp: Plugfest listener for station 1 (same admission as 8083; off unless plugfest_enabled and a host port is set)
-  8085/tcp: Plugfest listener for station 2 (same admission as 8083; off unless plugfest_enabled and a host port is set)
-  8086/tcp: Plugfest listener for station 3 (same admission as 8083; off unless plugfest_enabled and a host port is set)
-  8087/tcp: Plugfest listener for station 4 (same admission as 8083; off unless plugfest_enabled and a host port is set)
-  8088/tcp: Plugfest listener for station 5 (same admission as 8083; off unless plugfest_enabled and a host port is set)
-  8089/tcp: Plugfest listener for station 6 (same admission as 8083; off unless plugfest_enabled and a host port is set)
+  8100/tcp: Plugfest listener for station 1 (same admission as 8083; off unless plugfest_enabled and a host port is set)
+  8101/tcp: Plugfest listener for station 2 (same admission as 8083; off unless plugfest_enabled and a host port is set)
+  8102/tcp: Plugfest listener for station 3 (same admission as 8083; off unless plugfest_enabled and a host port is set)
+  8103/tcp: Plugfest listener for station 4 (same admission as 8083; off unless plugfest_enabled and a host port is set)
+  8104/tcp: Plugfest listener for station 5 (same admission as 8083; off unless plugfest_enabled and a host port is set)
+  8105/tcp: Plugfest listener for station 6 (same admission as 8083; off unless plugfest_enabled and a host port is set)
 options:
   mode: disconnected
   database_host: ""

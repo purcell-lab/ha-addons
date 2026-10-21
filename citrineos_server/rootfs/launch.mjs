@@ -107,17 +107,17 @@ export function validatePlugfest(o) {
 // Optional port 8083 is the Plugfest listener for external charging stations:
 // Security Profile 1 with per-station provisioned passwords, unknown stations
 // rejected; or, with plugfest_open_admission, Security Profile 0 admitting any
-// identity without credentials. With 8084-8089 below, these are the only
+// identity without credentials. With 8100-8105 below, these are the only
 // ports the App can publish on the host. Upstream picks the first of these protocols the station offers,
 // so 2.1 is preferred and 1.6 is the last fallback.
 export const PLUGFEST_PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
-// Ports 8084-8089 are identical Plugfest listeners, so each station under test
-// can be given its own endpoint (ws://host:8084 ... ws://host:8089). Admission
+// Ports 8100-8105 are identical Plugfest listeners, so each station under test
+// can be given its own endpoint (ws://host:8100 ... ws://host:8105). Admission
 // is the same as on 8083: a port does not restrict which identity connects.
-export const PLUGFEST_STATION_PORTS=[8084,8085,8086,8087,8088,8089];
-// Loopback ports inside the container: upstream API (moved from 8088 to free it
-// for a station listener), JWKS, callbacks and the gateway. No listener may use them.
-export const UPSTREAM_API_PORT=8098;
+export const PLUGFEST_STATION_PORTS=[8100,8101,8102,8103,8104,8105];
+// Ports the App uses itself: upstream API (loopback), JWKS, callbacks and the
+// gateway. No listener may use them.
+export const UPSTREAM_API_PORT=8088;
 const UPSTREAM=`http://127.0.0.1:${UPSTREAM_API_PORT}`;
 export const INTERNAL_PORTS=[8080,8091,8092,UPSTREAM_API_PORT];
 export function buildListeners(o) {
@@ -586,7 +586,7 @@ export async function main() {
   }
   console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
   if(o.plugfest_enabled&&o.plugfest_open_admission)
-    console.log('WARNING: Plugfest listeners 8083-8089 admit any station without authentication (plugfest_open_admission).');
+    console.log('WARNING: Plugfest listeners 8083 and 8100-8105 admit any station without authentication (plugfest_open_admission).');
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) main().catch(()=>{
   console.error('Laboratory startup failed; inspect dependency health. Credentials omitted.');
