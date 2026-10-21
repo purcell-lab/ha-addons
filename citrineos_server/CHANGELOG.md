@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.2
+
+- Six more Plugfest listeners, on ports 8100 to 8105, so each charging
+  station under test can have its own endpoint
+  (`ws://<host>:8100/<station-id>` ... `ws://<host>:8105/<station-id>`).
+  They are identical to 8083: OCPP 2.1/2.0.1/1.6, the same
+  `plugfest_stations` Basic Auth or `plugfest_open_admission`, tenant 1, and
+  only with `plugfest_enabled`. Each is closed until its host port is set on
+  the Network tab. A port does not restrict which identity connects on it.
+  CI boots a provisioned station on 8100 (2.0.1) and 8105 (1.6), refuses an
+  unknown one on 8105, and admits an open-admission station on 8103. A unit
+  test checks that no listener takes a port the App uses itself (8080, 8088,
+  8091, 8092).
+
 ## 0.7.1
 
 - Stale transactions no longer block every start. A station that loses its

@@ -16,9 +16,10 @@ class PackagingSafety(unittest.TestCase):
             self.assertIs(config[field], False)
         for field in ("map", "devices", "privileged", "services", "image"):
             self.assertNotIn(field, config)
-        # Only the opt-in Plugfest listener may be published, and only by an
+        # Only the opt-in Plugfest listeners may be published, and only by an
         # operator-set host port (null by default).
-        self.assertEqual(config["ports"], {"8083/tcp": None})
+        self.assertEqual(config["ports"],
+                         {f"{port}/tcp": None for port in [8083, *range(8100, 8106)]})
         self.assertIs(config["options"]["plugfest_enabled"], False)
         self.assertIs(config["options"]["plugfest_open_admission"], False)
         self.assertEqual(config["options"]["plugfest_stations"], [])

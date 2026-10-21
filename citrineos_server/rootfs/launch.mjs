@@ -107,10 +107,19 @@ export function validatePlugfest(o) {
 // Optional port 8083 is the Plugfest listener for external charging stations:
 // Security Profile 1 with per-station provisioned passwords, unknown stations
 // rejected; or, with plugfest_open_admission, Security Profile 0 admitting any
-// identity without credentials. It is the only port the App can publish on
-// the host. Upstream picks the first of these protocols the station offers,
+// identity without credentials. With 8100-8105 below, these are the only
+// ports the App can publish on the host. Upstream picks the first of these protocols the station offers,
 // so 2.1 is preferred and 1.6 is the last fallback.
 export const PLUGFEST_PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
+// Ports 8100-8105 are identical Plugfest listeners, so each station under test
+// can be given its own endpoint (ws://host:8100 ... ws://host:8105). Admission
+// is the same as on 8083: a port does not restrict which identity connects.
+export const PLUGFEST_STATION_PORTS=[8100,8101,8102,8103,8104,8105];
+// Ports the App uses itself: upstream API (loopback), JWKS, callbacks and the
+// gateway. No listener may use them.
+export const UPSTREAM_API_PORT=8088;
+const UPSTREAM=`http://127.0.0.1:${UPSTREAM_API_PORT}`;
+export const INTERNAL_PORTS=[8080,8091,8092,UPSTREAM_API_PORT];
 export function buildListeners(o) {
   const listeners=[];
   if(o.simulator_enabled||o.profile_simulator_enabled) listeners.push({
@@ -125,8 +134,9 @@ export function buildListeners(o) {
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
   const open=o.plugfest_open_admission===true;
-  if(o.plugfest_enabled) listeners.push({
-    id:'citrine-plugfest',host:'0.0.0.0',port:8083,protocols:[...PLUGFEST_PROTOCOLS],
+  if(o.plugfest_enabled) for(const port of [8083,...PLUGFEST_STATION_PORTS]) listeners.push({
+    id:port===8083?'citrine-plugfest':`citrine-plugfest-${port}`,host:'0.0.0.0',port,
+    protocols:[...PLUGFEST_PROTOCOLS],
     securityProfile:open?0:1,allowUnknownChargingStations:open,ignoreAuthenticationHeaders:open,
     tenantId:1,dynamicTenantResolution:false,pingInterval:30,
   });
@@ -231,7 +241,7 @@ export async function main() {
   fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
   const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
   const config={
-    ENV:'production',HOST:'127.0.0.1',PORT:8088,
+    ENV:'production',HOST:'127.0.0.1',PORT:UPSTREAM_API_PORT,
     DATABASE_HOST:o.database_host,DATABASE_USERNAME:'citrine',DATABASE_PASSWORD:o.database_password,
     DATABASE_DATABASE:'citrine',DATABASE_POOL:{max:10,min:0},DATABASE_SYNC:false,DATABASE_ALTER:false,DATABASE_FORCE:false,
     MESSAGEBROKER_AMQP_URL:`amqp://citrine:${o.broker_password}@${o.broker_host}:5672`,
@@ -307,7 +317,7 @@ export async function main() {
     console.error('Upstream server exited; gateway closing.');stop();process.exitCode=1;
   });
   await waitFor('CitrineOS',async()=> {
-    try { const r=await fetch('http://127.0.0.1:8088/health/ready',{signal:AbortSignal.timeout(1500)});return r.ok; } catch{return false;}
+    try { const r=await fetch(UPSTREAM+'/health/ready',{signal:AbortSignal.timeout(1500)});return r.ok; } catch{return false;}
   });
   await waitFor('Hasura',async()=> {
     try {const r=await fetch(`http://${o.hasura_host}:8080/healthz`,{signal:AbortSignal.timeout(1500)});return r.ok;}catch{return false;}
@@ -349,7 +359,7 @@ export async function main() {
       res.writeHead(409);res.end('{"error":"Station is unknown, offline or uses another OCPP version"}');return;
     }
     console.log(`Operator command ${cmd.action} to ${cmd.identifier} (${cmd.protocol}).`);
-    const r=await fetch('http://127.0.0.1:8088'+url.pathname+url.search,{method:'POST',body,redirect:'error',
+    const r=await fetch(UPSTREAM+url.pathname+url.search,{method:'POST',body,redirect:'error',
       signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token('lab-operator')}`}});
     res.writeHead(r.status);res.end(await r.text());
   }
@@ -384,7 +394,7 @@ export async function main() {
     const reply=new Promise(resolve=>replies.set(nonce,resolve));
     try {
       const q=new URLSearchParams({identifier,tenantId:'1',callbackUrl:`http://127.0.0.1:8092/callback/${nonce}`});
-      const r=await fetch(`http://127.0.0.1:8088${upstream}?${q}`,{method:'POST',redirect:'error',
+      const r=await fetch(`${UPSTREAM}${upstream}?${q}`,{method:'POST',redirect:'error',
         body:JSON.stringify(body),signal:AbortSignal.timeout(4000),
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
       const sent=await r.json().catch(()=>null);
@@ -464,7 +474,7 @@ export async function main() {
     if(!costTargetAllows(url,parsed,await observe(target),target)){
       res.writeHead(409);res.end('{"error":"The command station must be online on this OCPP version with this active transaction"}');return;
     }
-    const r=await fetch('http://127.0.0.1:8088'+url.pathname+url.search,{method:'POST',body,redirect:'error',
+    const r=await fetch(UPSTREAM+url.pathname+url.search,{method:'POST',body,redirect:'error',
       signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
     res.writeHead(r.status);res.end(await r.text());
   }
@@ -531,7 +541,7 @@ export async function main() {
             res.writeHead(409);res.end(JSON.stringify({error:'Observed station protocol or transaction does not permit this command'
               +(stale?'; checking the station\'s active transactions, retry in a few seconds':'')}));return;
           }
-          target='http://127.0.0.1:8088'+url.pathname+url.search;
+          target=UPSTREAM+url.pathname+url.search;
           headers={'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`};
         } else {
         if(!parsed || Array.isArray(parsed) || typeof parsed.query!=='string') {res.writeHead(400);res.end('{}');return;}
@@ -546,7 +556,7 @@ export async function main() {
           }
           url.search='?tenantId=1';
         }
-        target='http://127.0.0.1:8088'+url.pathname+url.search;
+        target=UPSTREAM+url.pathname+url.search;
         headers={Authorization:`Bearer ${signer.token()}`};
       }
       const r=await fetch(target,{method:req.method,headers,body,redirect:'error',signal:AbortSignal.timeout(10000)});
@@ -576,7 +586,7 @@ export async function main() {
   }
   console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
   if(o.plugfest_enabled&&o.plugfest_open_admission)
-    console.log('WARNING: Plugfest listener 8083 admits any station without authentication (plugfest_open_admission).');
+    console.log('WARNING: Plugfest listeners 8083 and 8100-8105 admit any station without authentication (plugfest_open_admission).');
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) main().catch(()=>{
   console.error('Laboratory startup failed; inspect dependency health. Credentials omitted.');
