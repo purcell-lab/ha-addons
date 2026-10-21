@@ -115,6 +115,11 @@ export const PLUGFEST_PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
 // can be given its own endpoint (ws://host:8084 ... ws://host:8089). Admission
 // is the same as on 8083: a port does not restrict which identity connects.
 export const PLUGFEST_STATION_PORTS=[8084,8085,8086,8087,8088,8089];
+// Loopback ports inside the container: upstream API (moved from 8088 to free it
+// for a station listener), JWKS, callbacks and the gateway. No listener may use them.
+export const UPSTREAM_API_PORT=8098;
+const UPSTREAM=`http://127.0.0.1:${UPSTREAM_API_PORT}`;
+export const INTERNAL_PORTS=[8080,8091,8092,UPSTREAM_API_PORT];
 export function buildListeners(o) {
   const listeners=[];
   if(o.simulator_enabled||o.profile_simulator_enabled) listeners.push({
@@ -236,7 +241,7 @@ export async function main() {
   fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
   const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
   const config={
-    ENV:'production',HOST:'127.0.0.1',PORT:8088,
+    ENV:'production',HOST:'127.0.0.1',PORT:UPSTREAM_API_PORT,
     DATABASE_HOST:o.database_host,DATABASE_USERNAME:'citrine',DATABASE_PASSWORD:o.database_password,
     DATABASE_DATABASE:'citrine',DATABASE_POOL:{max:10,min:0},DATABASE_SYNC:false,DATABASE_ALTER:false,DATABASE_FORCE:false,
     MESSAGEBROKER_AMQP_URL:`amqp://citrine:${o.broker_password}@${o.broker_host}:5672`,
@@ -312,7 +317,7 @@ export async function main() {
     console.error('Upstream server exited; gateway closing.');stop();process.exitCode=1;
   });
   await waitFor('CitrineOS',async()=> {
-    try { const r=await fetch('http://127.0.0.1:8088/health/ready',{signal:AbortSignal.timeout(1500)});return r.ok; } catch{return false;}
+    try { const r=await fetch(UPSTREAM+'/health/ready',{signal:AbortSignal.timeout(1500)});return r.ok; } catch{return false;}
   });
   await waitFor('Hasura',async()=> {
     try {const r=await fetch(`http://${o.hasura_host}:8080/healthz`,{signal:AbortSignal.timeout(1500)});return r.ok;}catch{return false;}
@@ -354,7 +359,7 @@ export async function main() {
       res.writeHead(409);res.end('{"error":"Station is unknown, offline or uses another OCPP version"}');return;
     }
     console.log(`Operator command ${cmd.action} to ${cmd.identifier} (${cmd.protocol}).`);
-    const r=await fetch('http://127.0.0.1:8088'+url.pathname+url.search,{method:'POST',body,redirect:'error',
+    const r=await fetch(UPSTREAM+url.pathname+url.search,{method:'POST',body,redirect:'error',
       signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token('lab-operator')}`}});
     res.writeHead(r.status);res.end(await r.text());
   }
@@ -389,7 +394,7 @@ export async function main() {
     const reply=new Promise(resolve=>replies.set(nonce,resolve));
     try {
       const q=new URLSearchParams({identifier,tenantId:'1',callbackUrl:`http://127.0.0.1:8092/callback/${nonce}`});
-      const r=await fetch(`http://127.0.0.1:8088${upstream}?${q}`,{method:'POST',redirect:'error',
+      const r=await fetch(`${UPSTREAM}${upstream}?${q}`,{method:'POST',redirect:'error',
         body:JSON.stringify(body),signal:AbortSignal.timeout(4000),
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
       const sent=await r.json().catch(()=>null);
@@ -469,7 +474,7 @@ export async function main() {
     if(!costTargetAllows(url,parsed,await observe(target),target)){
       res.writeHead(409);res.end('{"error":"The command station must be online on this OCPP version with this active transaction"}');return;
     }
-    const r=await fetch('http://127.0.0.1:8088'+url.pathname+url.search,{method:'POST',body,redirect:'error',
+    const r=await fetch(UPSTREAM+url.pathname+url.search,{method:'POST',body,redirect:'error',
       signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
     res.writeHead(r.status);res.end(await r.text());
   }
@@ -536,7 +541,7 @@ export async function main() {
             res.writeHead(409);res.end(JSON.stringify({error:'Observed station protocol or transaction does not permit this command'
               +(stale?'; checking the station\'s active transactions, retry in a few seconds':'')}));return;
           }
-          target='http://127.0.0.1:8088'+url.pathname+url.search;
+          target=UPSTREAM+url.pathname+url.search;
           headers={'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`};
         } else {
         if(!parsed || Array.isArray(parsed) || typeof parsed.query!=='string') {res.writeHead(400);res.end('{}');return;}
@@ -551,7 +556,7 @@ export async function main() {
           }
           url.search='?tenantId=1';
         }
-        target='http://127.0.0.1:8088'+url.pathname+url.search;
+        target=UPSTREAM+url.pathname+url.search;
         headers={Authorization:`Bearer ${signer.token()}`};
       }
       const r=await fetch(target,{method:req.method,headers,body,redirect:'error',signal:AbortSignal.timeout(10000)});

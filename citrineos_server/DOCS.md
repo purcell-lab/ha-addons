@@ -49,7 +49,7 @@ Other paths and methods are denied. GraphQL has no mutation permissions; its fou
 tables expose only the staged HA client's explicit discovery fields. Caller
 authentication, role and tenant headers are never forwarded to dependencies.
 
-The upstream API binds loopback port 8088 and uses its actual OIDC/JWT provider,
+The upstream API binds loopback port 8098 and uses its actual OIDC/JWT provider,
 not local authentication bypass. The gateway signs 60-second internal JWTs with
 an in-memory RSA key and role `lab-reader`; its loopback JWKS endpoint is port 8091.
 RBAC permits only tariff reads for that role. Restart rotates the internal key.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validate,permitted,equalToken,buildListeners,upstreamExitCode,upstreamTransactions,COST_UPDATED_INTERVAL_OFF,
+import {validate,permitted,equalToken,buildListeners,INTERNAL_PORTS,UPSTREAM_API_PORT,upstreamExitCode,upstreamTransactions,COST_UPDATED_INTERVAL_OFF,
   priceRequest,commandRejection} from '../rootfs/launch.mjs';
 import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS} from '../rootfs/control-policy.mjs';
 const good={mode:'isolated',database_host:'citrine-db',broker_host:'citrine-broker',hasura_host:'citrine-hasura',
@@ -71,6 +71,11 @@ test('Plugfest listener: opt-in Security Profile 1 on 8083 for provisioned stati
   // 8084-8089: one endpoint per station under test, admitted exactly as on 8083.
   assert.deepEqual(ls.map(x=>x.port),[8083,8084,8085,8086,8087,8088,8089]);
   assert.equal(new Set(ls.map(x=>x.id)).size,7);
+  // No listener may take a loopback port the App uses itself (8088 was the
+  // upstream API: EADDRINUSE in CI).
+  const all=buildListeners({...pf,open_admission_enabled:true,simulator_enabled:true}).map(x=>x.port);
+  assert.ok(INTERNAL_PORTS.includes(UPSTREAM_API_PORT));
+  for(const port of all)assert.ok(!INTERNAL_PORTS.includes(port),port);
   for(const x of ls)assert.deepEqual({...x,id:l.id,port:l.port},l);
   assert.equal(l.securityProfile,1);
   assert.equal(l.allowUnknownChargingStations,false);

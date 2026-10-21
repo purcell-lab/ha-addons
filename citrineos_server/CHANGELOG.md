@@ -11,6 +11,8 @@
   the Network tab. A port does not restrict which identity connects on it.
   CI boots a provisioned station on 8084 (2.0.1) and 8089 (1.6), refuses an
   unknown one on 8089, and admits an open-admission station on 8087.
+- The upstream CitrineOS API moves from loopback port 8088 to 8098, freeing
+  8088 for a station listener. It stays loopback-only behind the gateway.
 
 ## 0.7.1
 
