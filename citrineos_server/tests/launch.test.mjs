@@ -247,3 +247,8 @@ test('a refused profile with a price schedule says why',()=>{
     'Price schedules need OCPP 2.1');
   assert.equal(commandRejection(u,p,{enabled:true}),'Command or price schedule outside lab bounds');
 });
+test('device model reports: on by default, a boolean option',()=>{
+  assert.doesNotThrow(()=>validate(good));
+  for(const v of [true,false])assert.doesNotThrow(()=>validate({...good,device_model_reports:v}));
+  for(const v of ['true',1,null])assert.throws(()=>validate({...good,device_model_reports:v}));
+});

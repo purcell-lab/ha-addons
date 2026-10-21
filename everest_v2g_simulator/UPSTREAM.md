@@ -149,6 +149,23 @@ VALIDATION.md:
     tracked but an 11 kW to 6 kW step stayed at 11 kW. So charging stays at
     900 V, which passes the same trials, and purcell-lab/ha-addons#70 cannot
     be fixed by configuration.
+13. OCPP201 2025.10.0 builds the EVSE component in its own device model
+    storage: EVSE `Power` has no `MaxSet` attribute, and its `maxLimit` is
+    the board's capabilities (`max_current_A_import x 230 V x
+    max_phase_count_import`, as published by the board, before EvseManager's
+    `max_current_import_A`), not the configured rating. That component
+    shadows any EVSE file in `component_config` (the composed storage merges
+    the EVEREST storage first). `update_hw_capabilities` notes "TODO: update
+    EVSE.Power maxLimit value". The App reports its rating on
+    `ChargingStation` `Power` instead (DOCS, Power rating).
+14. ISO 15118-20 charging needs: EVerest sends NotifyEVChargingNeeds with
+    `v2xChargingParameters` only. CitrineOS v2.0.1 rejects them (it handles
+    only AC/DC parameters, and its ChargingNeeds table has no V2X column),
+    and libocpp stops an OCPP 2.1 transaction whose -20 needs are rejected.
+    The App therefore leaves OCPP201 `extensions_15118` unconnected (DOCS,
+    EV charging needs). Needed upstream: CitrineOS support for
+    `v2xChargingParameters`/`DC_BPT` (store them, answer Accepted or
+    NoChargingProfile without sending its own profile).
 
 ## Licences
 

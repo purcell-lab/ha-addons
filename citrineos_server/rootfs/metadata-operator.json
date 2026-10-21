@@ -335,6 +335,29 @@
         },
         "allow_aggregations": true
        }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "evseId",
+         "transactionDatabaseId",
+         "acChargingParameters",
+         "dcChargingParameters",
+         "requestedEnergyTransfer",
+         "departureTime",
+         "createdAt",
+         "updatedAt"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501,
+        "allow_aggregations": false
+       }
       }
      ]
     },
@@ -945,6 +968,24 @@
          }
         },
         "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "name",
+         "instance",
+         "evseDatabaseId"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 501,
+        "allow_aggregations": false
        }
       }
      ]
@@ -3411,6 +3452,77 @@
         },
         "allow_aggregations": true
        }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "evseDatabaseId",
+         "componentId",
+         "variableId",
+         "type",
+         "value",
+         "updatedAt"
+        ],
+        "filter": {
+         "_and": [
+          {
+           "tenantId": {
+            "_eq": "X-Hasura-Tenant-Id"
+           }
+          },
+          {
+           "Variable": {
+            "_or": [
+             {
+              "name": {
+               "_in": [
+                "Power",
+                "DischargePower",
+                "MaxDischargePower",
+                "PowerDischarge",
+                "V2XMaxDischargePower"
+               ]
+              }
+             },
+             {
+              "name": {
+               "_ilike": "%discharge%power%"
+              }
+             }
+            ]
+           }
+          },
+          {
+           "_not": {
+            "Variable": {
+             "_or": [
+              {
+               "name": {
+                "_ilike": "%password%"
+               }
+              },
+              {
+               "name": {
+                "_ilike": "%secret%"
+               }
+              },
+              {
+               "name": {
+                "_ilike": "%key%"
+               }
+              }
+             ]
+            }
+           }
+          }
+         ]
+        },
+        "limit": 501,
+        "allow_aggregations": false
+       }
       }
      ]
     },
@@ -3444,6 +3556,74 @@
          }
         },
         "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "variableId",
+         "maxLimit",
+         "minLimit",
+         "unit"
+        ],
+        "filter": {
+         "_and": [
+          {
+           "tenantId": {
+            "_eq": "X-Hasura-Tenant-Id"
+           }
+          },
+          {
+           "Variable": {
+            "_or": [
+             {
+              "name": {
+               "_in": [
+                "Power",
+                "DischargePower",
+                "MaxDischargePower",
+                "PowerDischarge",
+                "V2XMaxDischargePower"
+               ]
+              }
+             },
+             {
+              "name": {
+               "_ilike": "%discharge%power%"
+              }
+             }
+            ]
+           }
+          },
+          {
+           "_not": {
+            "Variable": {
+             "_or": [
+              {
+               "name": {
+                "_ilike": "%password%"
+               }
+              },
+              {
+               "name": {
+                "_ilike": "%secret%"
+               }
+              },
+              {
+               "name": {
+                "_ilike": "%key%"
+               }
+              }
+             ]
+            }
+           }
+          }
+         ]
+        },
+        "limit": 501,
+        "allow_aggregations": false
        }
       }
      ]
@@ -3662,6 +3842,68 @@
          }
         },
         "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "name",
+         "instance"
+        ],
+        "filter": {
+         "_and": [
+          {
+           "tenantId": {
+            "_eq": "X-Hasura-Tenant-Id"
+           }
+          },
+          {
+           "_or": [
+            {
+             "name": {
+              "_in": [
+               "Power",
+               "DischargePower",
+               "MaxDischargePower",
+               "PowerDischarge",
+               "V2XMaxDischargePower"
+              ]
+             }
+            },
+            {
+             "name": {
+              "_ilike": "%discharge%power%"
+             }
+            }
+           ]
+          },
+          {
+           "_not": {
+            "_or": [
+             {
+              "name": {
+               "_ilike": "%password%"
+              }
+             },
+             {
+              "name": {
+               "_ilike": "%secret%"
+              }
+             },
+             {
+              "name": {
+               "_ilike": "%key%"
+              }
+             }
+            ]
+           }
+          }
+         ]
+        },
+        "limit": 501,
+        "allow_aggregations": false
        }
       }
      ]

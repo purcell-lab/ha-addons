@@ -1,0 +1,18 @@
+query DeviceModel {
+  Variables(where: {_or: [{name: {_in: ["Power", "DischargePower"]}}, {name: {_ilike: "%discharge%power%"}}]}, order_by: {id: asc}) {
+    id name instance
+  }
+  VariableAttributes(order_by: {id: asc}) {
+    id stationId evseDatabaseId componentId variableId type value updatedAt
+    Variable { name VariableCharacteristic { maxLimit minLimit unit } }
+    Component { name instance }
+    ChargingStation { ocppConnectionName }
+  }
+  Components(order_by: {id: asc}) { id name instance evseDatabaseId }
+  VariableCharacteristics(order_by: {id: asc}) { id variableId maxLimit minLimit unit }
+  ChargingNeeds(order_by: {id: asc}) {
+    id evseId transactionDatabaseId acChargingParameters dcChargingParameters
+    requestedEnergyTransfer departureTime createdAt updatedAt
+    Evse { id stationId evseTypeId }
+  }
+}

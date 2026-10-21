@@ -69,6 +69,64 @@
           "columns": ["id","tenantId","transactionDatabaseId","transactionId","timestamp","sampledValue"],
           "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, "limit": 501
         }}]
+      },
+      {
+        "table": {"schema": "public", "name": "VariableAttributes"},
+        "object_relationships": [
+          {"name": "ChargingStation", "using": {"foreign_key_constraint_on": "stationId"}},
+          {"name": "Component", "using": {"foreign_key_constraint_on": "componentId"}},
+          {"name": "Variable", "using": {"foreign_key_constraint_on": "variableId"}}
+        ],
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","stationId","evseDatabaseId","componentId","variableId","type","value","updatedAt"],
+          "filter": {"_and": [{"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, {"Variable": {"_or": [{"name": {"_in": ["Power","DischargePower","MaxDischargePower","PowerDischarge","V2XMaxDischargePower"]}}, {"name": {"_ilike": "%discharge%power%"}}]}}, {"_not": {"Variable": {"_or": [{"name": {"_ilike": "%password%"}}, {"name": {"_ilike": "%secret%"}}, {"name": {"_ilike": "%key%"}}]}}}]},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "Components"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","name","instance","evseDatabaseId"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "Variables"},
+        "object_relationships": [
+          {"name": "VariableCharacteristic", "using": {"foreign_key_constraint_on": {"column": "variableId", "table": {"name": "VariableCharacteristics", "schema": "public"}}}}
+        ],
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","name","instance"],
+          "filter": {"_and": [{"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, {"_or": [{"name": {"_in": ["Power","DischargePower","MaxDischargePower","PowerDischarge","V2XMaxDischargePower"]}}, {"name": {"_ilike": "%discharge%power%"}}]}, {"_not": {"_or": [{"name": {"_ilike": "%password%"}}, {"name": {"_ilike": "%secret%"}}, {"name": {"_ilike": "%key%"}}]}}]},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "VariableCharacteristics"},
+        "object_relationships": [{"name": "Variable", "using": {"foreign_key_constraint_on": "variableId"}}],
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","variableId","maxLimit","minLimit","unit"],
+          "filter": {"_and": [{"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, {"Variable": {"_or": [{"name": {"_in": ["Power","DischargePower","MaxDischargePower","PowerDischarge","V2XMaxDischargePower"]}}, {"name": {"_ilike": "%discharge%power%"}}]}}, {"_not": {"Variable": {"_or": [{"name": {"_ilike": "%password%"}}, {"name": {"_ilike": "%secret%"}}, {"name": {"_ilike": "%key%"}}]}}}]},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
+      },
+      {
+        "table": {"schema": "public", "name": "ChargingNeeds"},
+        "object_relationships": [
+          {"name": "Evse", "using": {"foreign_key_constraint_on": "evseId"}},
+          {"name": "Transaction", "using": {"manual_configuration": {"remote_table": {"name": "Transactions", "schema": "public"}, "column_mapping": {"transactionDatabaseId": "id", "transactionCreatedAt": "createdAt"}}}}
+        ],
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","evseId","transactionDatabaseId","acChargingParameters","dcChargingParameters","requestedEnergyTransfer","departureTime","createdAt","updatedAt"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 501,
+          "allow_aggregations": false
+        }}]
       }
     ]
   }]

@@ -191,6 +191,22 @@ def _set(doc, prop, value):
     raise KeyError(prop)
 
 
+def power_variable(watts):
+    """ChargingStation Power, in libocpp's component_config format."""
+    return {
+        "variable_name": "Power",
+        "characteristics": {"unit": "W", "dataType": "decimal", "minLimit": -watts,
+                            "maxLimit": watts, "supportsMonitoring": False},
+        "attributes": [
+            {"type": "MaxSet", "mutability": "ReadOnly", "value": watts},
+            {"type": "MinSet", "mutability": "ReadOnly", "value": -watts},
+        ],
+        "description": "Rated charging (MaxSet) and discharging (MinSet, negative) power of the "
+                       "charging station in W.",
+        "type": "number",
+    }
+
+
 def component_config(source, target, settings, password):
     """Copy the standard device model and apply only the documented overrides."""
     if target.exists():
@@ -241,6 +257,22 @@ def component_config(source, target, settings, password):
         "CompositeScheduleDefaultLimitWatts": rating["watts"],
         "CompositeScheduleDefaultNumberPhases": 3,
     })
+    # Power rating in the device model (GetBaseReport). EVerest 2025.10.0
+    # builds the EVSE component itself (OCPP201 EverestDeviceModelStorage):
+    # EVSE 1 Power has only an Actual attribute and a maxLimit of the board's
+    # unclamped capabilities (patch_yeti: 128 A x 3 x 230 V = 88,320 W), and
+    # it shadows any EVSE file in component_config. The rating is therefore
+    # reported on the ChargingStation component, which only this file
+    # defines: MaxSet = rating (charging), MinSet = -rating (discharge, OCPP
+    # 2.1 sign), and the same as maxLimit / minLimit. CitrineOS stores MaxSet
+    # and MinSet per station; it keeps one maxLimit per variable name for all
+    # stations.
+    path = std / "ChargingStation.json"
+    station = json.loads(path.read_text())
+    if "ChargingStationPower" in station["properties"]:
+        raise ValueError("Upstream ChargingStation now defines Power; review the rating override")
+    station["properties"]["ChargingStationPower"] = power_variable(rating["watts"])
+    path.write_text(json.dumps(station, indent=2))
     # ChargingStationSupplyPhases stays at the upstream value (3): setting it to 1
     # made libocpp drop every profile from composite schedules (2025.10.0).
     # Transaction sample interval (option tx_sample_interval_s, default 5 s).
@@ -398,6 +430,10 @@ def everest_config(settings, data, pki_password):
                         {"module_id": "evse_manager_1_ocpp_sink", "implementation_id": "external_limits"},
                     ],
                     "reservation": [{"module_id": "auth", "implementation_id": "reservation"}],
+                    # No extensions_15118 (Evse15118D20 "extensions"), so no
+                    # NotifyEVChargingNeeds (DOCS.md, EV charging needs): CitrineOS
+                    # v2.0.1 rejects ISO 15118-20 DC_BPT needs, and libocpp then
+                    # stops every OCPP 2.1 transaction (ReqEnergyTransferRejected).
                 },
             },
             "persistent_store": {
