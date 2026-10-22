@@ -23,6 +23,10 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
   watchdog   No authorisation: after the charger's 3-minute limit the EV
              gives up its session; the App re-plugs it, and a later start
              still charges
+  tls        wss:// (Security Profile 2, Basic Auth) to a TLS mock CSMS:
+             connects with csms_ca_certificate and with the CA in the
+             system store; refuses a hostname mismatch, and a server whose
+             CA is in the system store but is not the configured one
 
 Each charging step compares mean measured DC power with the setpoint, and
 mean DC voltage with the simulated battery voltage, and metered import and
@@ -34,6 +38,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import ssl
 import subprocess
 import sys
 import time
@@ -534,6 +539,113 @@ async def watchdog_scenario():
     return report
 
 
+TLS_PORT = 9221
+TLS_PKI = Path("/tmp/tls-pki")       # keys stay here, never under /ssl
+SSL_CAS = Path("/ssl/test-csms")     # CA certificates only, as an operator would
+SYSTEM_CA = Path("/usr/local/share/ca-certificates/ha-everest-acceptance.crt")
+
+
+def tls_pki():
+    """Test-only CSMS CA with a localhost server certificate, and an unrelated CA."""
+    shutil.rmtree(TLS_PKI, ignore_errors=True)
+    TLS_PKI.mkdir(mode=0o700)
+    SSL_CAS.mkdir(parents=True, exist_ok=True)
+
+    def run(*args):
+        subprocess.run(["openssl", *map(str, args)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ec = ("-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes")
+    for name in ("ca", "other-ca"):
+        run("req", "-x509", *ec, "-subj", f"/CN=Acceptance {name}", "-days", "2",
+            "-keyout", TLS_PKI / f"{name}.key", "-out", SSL_CAS / f"{name}.pem")
+    run("req", "-new", *ec, "-subj", "/CN=localhost", "-keyout", TLS_PKI / "server.key",
+        "-out", TLS_PKI / "server.csr")
+    (TLS_PKI / "server.ext").write_text("subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\n"
+                                        "extendedKeyUsage=serverAuth\n")
+    run("x509", "-req", "-in", TLS_PKI / "server.csr", "-CA", SSL_CAS / "ca.pem",
+        "-CAkey", TLS_PKI / "ca.key", "-set_serial", "2", "-days", "2",
+        "-extfile", TLS_PKI / "server.ext", "-out", TLS_PKI / "server.pem")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(TLS_PKI / "server.pem", TLS_PKI / "server.key")
+    return context
+
+
+async def tls_mock(context):
+    csms = MockCsms(accept=("ocpp2.1", "ocpp2.0.1"), host=["127.0.0.1", "::1"], port=TLS_PORT,
+                    ssl=context)
+    try:
+        return await csms.start()
+    except OSError:  # no IPv6 loopback
+        csms.host = "127.0.0.1"
+        return await csms.start()
+
+
+def tls_options(url, ca=""):
+    return {"csms_url": url, "charge_point_id": CPID, "ocpp_version": "2.1",
+            "acknowledge_test_isolation": True, "csms_ca_certificate": ca}
+
+
+async def tls_connects(context, options, trust):
+    csms = await tls_mock(context)
+    app = App(options)
+    app.start()
+    try:
+        await asyncio.wait_for(csms.boot.wait(), 120)
+        assert csms.subprotocol == "ocpp2.1", csms.subprotocol
+        assert csms.authorization == CPID, csms.authorization  # Basic Auth over TLS
+        assert "localhost" in csms.client_hellos, csms.client_hellos  # SNI, as Cloudflare needs
+        status = await wait_for(lambda: http("/api/status")["app"], 30, what="UI")
+        shown = (status["csms_scheme"], status["security_profile"], status["csms_trust"])
+        assert shown == ("wss", 2, trust), status
+        log = log_text(app)
+        assert f"connection enabled (wss://, Security Profile 2, CSMS trust: {trust})" in log
+        password = (DATA / "basic-auth-password").read_text().strip()
+        assert password and password not in log, "Basic Auth password in the App log"
+    finally:
+        code = app.stop()
+        csms.server.close()
+        await csms.server.wait_closed()
+    assert code == 0
+
+
+async def tls_refused(context, options, what):
+    csms = await tls_mock(context)
+    app = App(options)
+    app.start()
+    try:
+        await wait_for(lambda: csms.client_hellos, 120, what=f"TLS attempt ({what})")
+        await asyncio.sleep(15)
+        assert not csms.connected.is_set() and not csms.boot.is_set(), f"connected despite {what}"
+        assert app.proc.poll() is None, "App stopped"
+    finally:
+        code = app.stop()
+        csms.server.close()
+        await csms.server.wait_closed()
+    assert code == 0
+
+
+async def tls_scenario():
+    url = f"wss://localhost:{TLS_PORT}/ocpp"
+    ca = str(SSL_CAS / "ca.pem")
+    context = tls_pki()
+    await tls_connects(context, tls_options(url, ca), ca)
+    # Right CA, wrong name: the certificate is for localhost only.
+    await tls_refused(context, tls_options(f"wss://127.0.0.1:{TLS_PORT}/ocpp", ca), "a hostname mismatch")
+    # Default trust: OpenSSL's default paths (Debian ca-certificates).
+    shutil.copy(SSL_CAS / "ca.pem", SYSTEM_CA)
+    subprocess.run(["update-ca-certificates"], check=True, stdout=subprocess.DEVNULL, cwd="/")
+    try:
+        await tls_connects(context, tls_options(url), "system CA store")
+        # csms_ca_certificate is the only trust anchor: the system store
+        # (which now trusts this server) is not used.
+        await tls_refused(context, tls_options(url, str(SSL_CAS / "other-ca.pem")),
+                          "an unrelated configured CA")
+    finally:
+        SYSTEM_CA.unlink()
+        subprocess.run(["update-ca-certificates", "--fresh"], check=True, stdout=subprocess.DEVNULL, cwd="/")
+    return {"scenario": "tls", "result": "pass"}
+
+
 async def main(selected):
     results = []
     if "offline" in selected:
@@ -548,8 +660,10 @@ async def main(selected):
         results.append(await version_only_scenario("pinned201", "2.0.1", ("ocpp2.1", "ocpp2.0.1"), "ocpp2.0.1"))
     if "watchdog" in selected:
         results.append(await watchdog_scenario())
+    if "tls" in selected:
+        results.append(await tls_scenario())
     print(json.dumps(results, indent=2), flush=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201", "watchdog"]))
+    asyncio.run(main(sys.argv[1:] or ["offline", "recovery", "v2g21", "fallback", "pinned201", "watchdog", "tls"]))

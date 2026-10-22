@@ -4,6 +4,7 @@ firewall, log parsing, log filtering and the UI service. No EVerest binaries
 are needed (the PKI test needs openssl)."""
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -65,7 +66,8 @@ def component_fixture(directory):
         "InternalCtrlr": doc("ChargePointId", "NetworkConnectionProfiles", "SupportedOcppVersions",
                              "ChargePointVendor", "ChargePointModel", "ChargeBoxSerialNumber",
                              "LogMessagesFormat", "LogRotation", "LogRotationMaximumFileSize",
-                             "LogRotationMaximumFileCount"),
+                             "LogRotationMaximumFileCount", "UseSslDefaultVerifyPaths",
+                             "VerifyCsmsCommonName", "VerifyCsmsAllowWildcards"),
         "SecurityCtrlr": doc("SecurityCtrlrIdentity", "BasicAuthPassword", "SecurityProfile"),
         "SmartChargingCtrlr": doc("CompositeScheduleDefaultLimitAmps", "CompositeScheduleDefaultLimitWatts",
                                   "CompositeScheduleDefaultNumberPhases"),
@@ -98,8 +100,12 @@ class ManifestTest(unittest.TestCase):
                      "max_power_kw: int(3,25)", "slug: everest_v2g_simulator"):
             self.assertIn(line, CONFIG_TEXT)
         for forbidden in ("ports:", "host_network", "full_access", "devices:", "SYS_ADMIN",
-                          "NET_RAW", "hassio_api", "hassio_role", "docker_api", "auth_api", "map:"):
+                          "NET_RAW", "hassio_api", "hassio_role", "docker_api", "auth_api"):
             self.assertNotIn(forbidden, CONFIG_TEXT)
+        # One mapped folder: /ssl, read-only, for csms_ca_certificate.
+        self.assertEqual(CONFIG_TEXT.count("map:"), 1)
+        self.assertIn("map:\n  - type: ssl\n    read_only: true\noptions:", CONFIG_TEXT)
+        self.assertIn('  csms_ca_certificate: ""', CONFIG_TEXT)
         # Core API access only for the opt-in, outbound-only control bridge.
         self.assertIn("homeassistant_api: true", CONFIG_TEXT)
         self.assertIn("  ha_control: false", CONFIG_TEXT)
@@ -172,7 +178,7 @@ class ValidateTest(unittest.TestCase):
             {"ocpp_version": "1.6"}, {"ocpp_version": 2.1}, {"max_power_kw": 2},
             {"max_power_kw": 26}, {"max_power_kw": True}, {"max_power_kw": "11"},
             {"max_power_kw": 7.5},
-            {"csms_url": "wss://host:443"}, {"csms_url": "http://host:80"},
+            {"csms_url": "http://host:80"}, {"csms_url": "https://host"},
             {"csms_url": "ws://host"}, {"csms_url": "ws://user:pw@host:80"},
             {"csms_url": "ws://host:80/?a=b"}, {"csms_url": "ws://host:80/%2e"},
             {"csms_url": "ws://127.0.0.1:9"}, {"csms_url": "ws://h:80/" + "x" * 200},
@@ -182,6 +188,43 @@ class ValidateTest(unittest.TestCase):
         for change in bad:
             with self.subTest(change=change), self.assertRaises(ValueError):
                 configure.validate(dict(GOOD, **change))
+
+    def test_security_profile_follows_scheme(self):
+        settings = configure.validate(GOOD)
+        self.assertEqual((settings["security_profile"], settings["csms_ca_certificate"]), (1, ""))
+        self.assertEqual(configure.validate({})["security_profile"], 1)
+        for url in ("wss://csms.example.org", "wss://csms.example.org/", "wss://csms.example.org/ocpp",
+                    "wss://csms.example.org:443/ocpp/", "wss://192.0.2.10:8443", "wss://[2001:db8::1]/ocpp"):
+            with self.subTest(url=url):
+                settings = configure.validate(dict(GOOD, csms_url=url))
+                self.assertEqual(settings["security_profile"], 2)
+                self.assertEqual(settings["csms_url"], url.rstrip("/"))
+
+    def test_wss_keeps_every_other_url_rule(self):
+        for url in ("wss://", "wss:///ocpp", "wss://host:", "wss://host:0", "wss://host:65536",
+                    "wss://user:pw@host", "wss://host/?a=b", "wss://host/#x", "wss://host/%2e",
+                    "wss://host/a b", "wss://host\\x", "WSS://host", "Ws://host:80",
+                    "wss://localhost:9", "wss://host/ocpp/SIM-EV-EVEREST-V2G-01",
+                    "wss://host/SIM-EV-EVEREST-V2G-01/"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                configure.validate(dict(GOOD, csms_url=url))
+        with self.assertRaises(ValueError):
+            configure.validate(dict(GOOD, csms_url="wss://host", acknowledge_test_isolation=False))
+
+    def test_csms_ca_option_rules(self):
+        wss = dict(GOOD, csms_url="wss://csms.example.org/ocpp")
+        for path in ("/ssl/ca.pem", "/ssl/test-csms/root_ca.crt", "/ssl/a.b.pem"):
+            self.assertEqual(configure.validate(dict(wss, csms_ca_certificate=path))["csms_ca_certificate"], path)
+        for bad in ("ca.pem", "/data/ca.pem", "/ssl/", "/ssl/ca.key", "/ssl/ca.pem.txt", "/ssl/../etc/ca.pem",
+                    "/ssl/x/../ca.pem", "/ssl/.hidden.pem", "/ssl//ca.pem", "/ssl/c a.pem", "/ssl/ca%2e.pem",
+                    "/ssl/" + "x" * 200 + ".pem", None, 1, True):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                configure.validate(dict(wss, csms_ca_certificate=bad))
+        # Only meaningful with TLS: refused with ws://, ignored while disconnected.
+        with self.assertRaises(ValueError):
+            configure.validate(dict(GOOD, csms_ca_certificate="/ssl/ca.pem"))
+        settings = configure.validate({"csms_url": "", "csms_ca_certificate": "/ssl/ca.pem"})
+        self.assertEqual(settings["csms_ca_certificate"], "")
 
     def test_ha_control_is_boolean(self):
         self.assertFalse(configure.validate({})["ha_control"])
@@ -363,6 +406,40 @@ class GeneratedConfigTest(unittest.TestCase):
         _, target = self.build({"csms_url": ""})
         profile = json.loads(value(target, "InternalCtrlr", "NetworkConnectionProfiles"))[0]
         self.assertEqual(profile["connectionData"]["ocppCsmsUrl"], "ws://127.0.0.1:9")
+        self.assertEqual(profile["connectionData"]["securityProfile"], 1)
+        self.assertEqual(value(target, "SecurityCtrlr", "SecurityProfile"), 1)
+
+    def test_wss_is_security_profile_2_with_verified_server(self):
+        url = "wss://csms.example.org/ocpp"
+        _, target = self.build(dict(GOOD, csms_url=url))
+        profile = json.loads(value(target, "InternalCtrlr", "NetworkConnectionProfiles"))[0]
+        self.assertEqual(profile["connectionData"]["ocppCsmsUrl"], url)
+        self.assertEqual(profile["connectionData"]["securityProfile"], 2)
+        # Both places: libocpp drops profiles below SecurityCtrlr.SecurityProfile.
+        self.assertEqual(value(target, "SecurityCtrlr", "SecurityProfile"), 2)
+        self.assertEqual(value(target, "SecurityCtrlr", "BasicAuthPassword"), "a" * 32)
+        # System CA store, hostname checked, whole-label wildcards allowed.
+        self.assertIs(value(target, "InternalCtrlr", "UseSslDefaultVerifyPaths"), True)
+        self.assertIs(value(target, "InternalCtrlr", "VerifyCsmsCommonName"), True)
+        self.assertIs(value(target, "InternalCtrlr", "VerifyCsmsAllowWildcards"), True)
+        _, target = self.build(GOOD)
+        self.assertEqual(value(target, "SecurityCtrlr", "SecurityProfile"), 1)
+        self.assertEqual(value(target, "SecurityCtrlr", "BasicAuthPassword"), "a" * 32)
+
+    def test_csms_ca_replaces_the_system_store(self):
+        options = dict(GOOD, csms_url="wss://csms.test:8443", csms_ca_certificate="/ssl/csms/ca.pem")
+        _, target = self.build(options)
+        self.assertIs(value(target, "InternalCtrlr", "UseSslDefaultVerifyPaths"), False)
+        self.assertIs(value(target, "InternalCtrlr", "VerifyCsmsCommonName"), True)
+        self.assertEqual(value(target, "SecurityCtrlr", "SecurityProfile"), 2)
+        security = configure.everest_config(configure.validate(options), Path("/data"),
+                                            "b" * 24)["active_modules"]["evse_security"]["config_module"]
+        self.assertEqual(security, {"private_key_password": "b" * 24,
+                                    "csms_ca_bundle": "/data/csms-ca/CSMS_ROOT_CA.pem"})
+        # Without the option EvseSecurity keeps its default bundle.
+        security = configure.everest_config(configure.validate(dict(options, csms_ca_certificate="")),
+                                            Path("/data"), "b" * 24)["active_modules"]["evse_security"]
+        self.assertEqual(security["config_module"], {"private_key_password": "b" * 24})
 
     def test_everest_config_scope(self):
         settings = configure.validate(dict(GOOD, max_power_kw=7))
@@ -420,6 +497,82 @@ class GeneratedConfigTest(unittest.TestCase):
         session = configure.ev_session()
         self.assertIn("iso_start_v2g_session DC", session)
         self.assertTrue(session.endswith("unplug"))
+
+
+def openssl_cert(directory, name, *extra):
+    """Self-signed P-256 certificate (and key) for the CSMS CA tests."""
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                    "-nodes", "-subj", f"/CN={name}", "-keyout", str(directory / f"{name}.key"),
+                    "-out", str(directory / f"{name}.pem"), *extra],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return directory / f"{name}.pem"
+
+
+class CsmsCaTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ssl = Path(tmp.name) / "ssl"
+        self.data = Path(tmp.name) / "data"
+        (self.ssl / "csms").mkdir(parents=True)
+        self.data.mkdir()
+        self.ca = openssl_cert(self.ssl / "csms", "ca", "-days", "30")
+
+    def settings(self, path="/ssl/csms/ca.pem", url="wss://csms.test"):
+        return configure.validate(dict(GOOD, csms_url=url, csms_ca_certificate=path))
+
+    def test_copies_the_ca_into_data(self):
+        path = configure.install_csms_ca(self.data, self.settings(), self.ssl)
+        self.assertEqual(path, self.data / "csms-ca" / "CSMS_ROOT_CA.pem")
+        self.assertEqual(path.read_text(), self.ca.read_text())
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+        # Cleared option (or ws://, or disconnected): no stale trust anchor.
+        self.assertIsNone(configure.install_csms_ca(self.data, configure.validate(GOOD), self.ssl))
+        self.assertFalse((self.data / "csms-ca").exists())
+
+    def test_refuses_unusable_files(self):
+        (self.ssl / "with-key.pem").write_text(self.ca.read_text() + (self.ssl / "csms/ca.key").read_text())
+        (self.ssl / "junk.pem").write_text("not a certificate\n")
+        (self.ssl / "big.pem").write_text(self.ca.read_text() + "#" * configure.CSMS_CA_MAX_BYTES)
+        outside = self.ssl.parent / "outside.pem"
+        outside.write_text(self.ca.read_text())
+        (self.ssl / "link.pem").symlink_to(outside)
+        (self.ssl / "dir.pem").mkdir()
+        for name in ("missing.pem", "with-key.pem", "junk.pem", "big.pem", "link.pem", "dir.pem"):
+            with self.subTest(name=name), self.assertRaises(ValueError) as caught:
+                configure.install_csms_ca(self.data, self.settings("/ssl/" + name), self.ssl)
+            self.assertNotIn("BEGIN", str(caught.exception))
+        self.assertFalse((self.data / "csms-ca").exists())
+
+    def test_leaf_signed_by_another_ca_is_refused(self):
+        # Not self-signed: libevse-security would not treat it as installed.
+        key = self.ssl / "csms" / "ca.key"
+        subprocess.run(["openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                        "-nodes", "-subj", "/CN=leaf", "-keyout", str(self.ssl / "leaf.key"),
+                        "-out", str(self.ssl / "leaf.csr")], check=True, stderr=subprocess.DEVNULL)
+        subprocess.run(["openssl", "x509", "-req", "-in", str(self.ssl / "leaf.csr"), "-CA", str(self.ca),
+                        "-CAkey", str(key), "-days", "5", "-out", str(self.ssl / "leaf.pem")],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with self.assertRaises(ValueError):
+            configure.install_csms_ca(self.data, self.settings("/ssl/leaf.pem"), self.ssl)
+
+    def test_configure_checks_the_ca_before_binding(self):
+        source = component_fixture(self.data.parent / "source")
+        options = dict(GOOD, csms_url="wss://csms.test", csms_ca_certificate="/ssl/missing.pem")
+        with self.assertRaises(ValueError):
+            configure.configure(self.data, options, source, pki_password="b" * 24, ssl_dir=self.ssl)
+        self.assertFalse((self.data / "test-identity.json").exists())
+        options["csms_ca_certificate"] = "/ssl/csms/ca.pem"
+        settings, path = configure.configure(self.data, options, source, pki_password="b" * 24,
+                                             ssl_dir=self.ssl)
+        self.assertEqual(settings["security_profile"], 2)
+        self.assertIn("csms_ca_bundle: " + str(self.data / "csms-ca" / "CSMS_ROOT_CA.pem"), path.read_text())
+        self.assertNotIn("a" * 32, path.read_text())
+        # ws:// to wss:// for the same host is a destination change.
+        with self.assertRaises(ValueError):
+            configure.configure(self.data, dict(options, csms_url="wss://csms.test:443"), source,
+                                pki_password="b" * 24, ssl_dir=self.ssl)
 
 
 FAKE_CERTS = r"""#!/bin/bash

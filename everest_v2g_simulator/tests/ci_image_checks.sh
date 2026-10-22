@@ -5,15 +5,16 @@
 # (including the 3-minute EV watchdog run) and the discovery recovery run on
 # an IPv6 eth0 network.
 # CHECKS=minimal (pull request CI) runs one OCPP 2.1 V2G session with the
-# TxProfile steps, the fail-closed, self-test, listener and firewall checks.
+# TxProfile steps, the wss:// (Security Profile 2) checks, the fail-closed,
+# self-test, listener and firewall checks.
 # Offline, recovery, 2.0.1 fallback, pinned 2.0.1 and watchdog run at release.
 set -eu
 IMAGE="$1"
 TESTS=everest_v2g_simulator/tests
 CHECKS="${CHECKS:-full}"
 case "$CHECKS" in
-  full) SCENARIOS="offline recovery v2g21 fallback pinned201 watchdog" ;;
-  minimal) SCENARIOS="v2g21" ;;
+  full) SCENARIOS="offline recovery v2g21 fallback pinned201 watchdog tls" ;;
+  minimal) SCENARIOS="v2g21 tls" ;;
   *) echo "CHECKS must be full or minimal"; exit 2 ;;
 esac
 echo "== Checks: $CHECKS ($SCENARIOS)"

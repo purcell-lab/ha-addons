@@ -51,6 +51,17 @@ stripped. The upstream admin-panel `controller` is replaced by a stub.
   (4.14 kW). Without the one-phase fallback, EnergyManager enforces 0 W for
   any charging target below it, even on this DC EVSE.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
+- `wss://` (Security Profile 2, 0.1.14): libocpp v0.30.3
+  `WebsocketLibwebsockets::tls_init` loads EvseSecurity's CSMS CA bundle
+  when it holds a valid self-signed root (libevse-security v0.10.0
+  `is_ca_certificate_installed`), then OpenSSL's default paths when
+  `UseSslDefaultVerifyPaths` is true, and always sets `SSL_VERIFY_PEER`.
+  `verify_csms_cn` checks the host name (`VerifyCsmsCommonName`) with
+  `X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS` when `VerifyCsmsAllowWildcards`
+  is true. The URI parser defaults `wss://` to port 443 and refuses a
+  scheme that does not fit the profile. With `csms_ca_certificate` the App
+  sets EvseSecurity `csms_ca_bundle` to an absolute path in `/data` and
+  `UseSslDefaultVerifyPaths` to false.
 
 ## Local patches
 

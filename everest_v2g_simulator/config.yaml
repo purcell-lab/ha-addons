@@ -1,5 +1,5 @@
 name: EVerest DC V2G Test Charger
-version: "0.1.13"
+version: "0.1.14"
 slug: everest_v2g_simulator
 description: Isolated EVerest bidirectional DC charger and EV (ISO 15118-20 DC_BPT); OCPP 2.1 with 2.0.1 fallback.
 url: https://github.com/purcell-lab/ha-addons
@@ -22,6 +22,11 @@ privileged:
 # Only for the optional, outbound-only HA control bridge (option ha_control,
 # default off): one status object and one command event type (DOCS.md).
 homeassistant_api: true
+# Read-only, only for the optional csms_ca_certificate (a private test CSMS
+# CA for wss://). Nothing is written there.
+map:
+  - type: ssl
+    read_only: true
 options:
   csms_url: ""
   charge_point_id: SIM-EV-EVEREST-V2G-01
@@ -32,6 +37,7 @@ options:
   archive_and_rebind: false
   ha_control: false
   csms_basic_auth_password: ""
+  csms_ca_certificate: ""
 schema:
   csms_url: str
   charge_point_id: match(^SIM-EV-[A-Za-z0-9_-]{1,36}$)
@@ -42,3 +48,4 @@ schema:
   archive_and_rebind: bool
   ha_control: bool
   csms_basic_auth_password: password
+  csms_ca_certificate: str
