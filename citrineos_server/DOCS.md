@@ -106,6 +106,18 @@ image is patched (`node /opt/citrine-ha/patch-reconnect.mjs --check`). If a
 station shows the old symptom on an unpatched version, restart only the
 station (one clean connection).
 
+**Charging needs patch (OCPP 2.1).** The build also patches
+`@citrineos/ocpp/dist/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.js`
+(`rootfs/patch-charging-needs.mjs`). Upstream v2.0.1 accepts DC charging needs
+only when `requestedEnergyTransfer` is exactly `DC`, so an OCPP 2.1 EV asking
+for bidirectional DC (`DC_BPT`) was always answered Rejected and the station
+refused the energy transfer (`ReqEnergyTransferRejected`). With the patch the
+2.1 DC modes match like `DC`; for a mode that is not an OCPP 2.0.1 mode
+CitrineOS stores the needs, answers Accepted and sends no automatic profile,
+so the lab's TxProfile (CentralSetpoint, discharge) stays in control. The same
+exact-build guard applies, and CI runs
+`node /opt/citrine-ha/patch-charging-needs.mjs --check`.
+
 **Lab tariff and location (#30).** When any charger listener is on, startup
 adds a zero-cost tariff (`HA-LAB-ZERO`, EUR 0 per kWh; upstream already
 reports cost 0 without one) to every tenant-1 connector without a tariff, and
@@ -197,13 +209,14 @@ Upstream data model limits, which the App does not change:
   Per-station values are `VariableAttributes` rows (`stationId`, `type`
   `Actual`, `MaxSet` or `MinSet`), when the station reports them.
 - `ChargingNeeds` rows come only from NotifyEVChargingNeeds that CitrineOS
-  accepts: AC with `acChargingParameters` or `DC` with
-  `dcChargingParameters` during an active transaction. ISO 15118-20
-  bidirectional needs (`DC_BPT`, `v2xChargingParameters`) are answered
-  Rejected and not stored; the table has no column for them. When it
-  accepts, CitrineOS itself sends the station a TxProfile computed from the
-  EV's maxima (not bounded by the lab policy). A physical ISO 15118-2 station
-  on the Plugfest listener can get such a profile.
+  accepts: AC with `acChargingParameters`, or `DC`, `DC_BPT`, `DC_ACDP` or
+  `DC_ACDP_BPT` with `dcChargingParameters`, during an active transaction
+  (the 2.1 modes need the charging needs patch below). The table has no
+  column for `v2xChargingParameters`, so those are not stored. For AC and
+  `DC` needs CitrineOS itself sends the station a TxProfile computed from the
+  EV's maxima (not bounded by the lab policy); a physical ISO 15118-2 station
+  on the Plugfest listener can get such a profile. For the 2.1 modes it sends
+  none.
 
 ## Deliberate limits
 

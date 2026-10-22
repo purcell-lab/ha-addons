@@ -92,6 +92,9 @@ async function refreshStatus() {
   else { $("conn").textContent = "Not connected"; $("conn").className = "badge bad"; }
   $("ident").textContent = app.charge_point_id || "";
   $("offer").textContent = app.offered_subprotocols ? "Offers " + app.offered_subprotocols.join(", ") : "";
+  $("security").textContent = app.security_profile
+    ? app.csms_scheme + ":// Security Profile " + app.security_profile + (app.csms_trust ? " (trust: " + app.csms_trust + ")" : "")
+    : "";
 
   const si = val(s.evse.session_info) || {};
   const pm = val(s.evse.powermeter) || {};
