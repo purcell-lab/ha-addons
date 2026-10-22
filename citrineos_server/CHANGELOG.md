@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.4
+
+- OCPP 2.1 charging needs are accepted. Upstream v2.0.1 matches DC needs only
+  when `requestedEnergyTransfer` is exactly `DC`, so an ISO 15118-20 EV asking
+  for bidirectional DC (`DC_BPT`, also `DC_ACDP`, `DC_ACDP_BPT`) was always
+  answered Rejected, and a station then refuses the EV's energy transfer
+  (Trialog's ComboCS4M-SW ended its transaction with
+  `ReqEnergyTransferRejected`). A build-time patch to the upstream handler
+  (`rootfs/patch-charging-needs.mjs`, same exact-build guard as the reconnect
+  patch) matches those modes like `DC`. For a mode that is not an OCPP 2.0.1
+  mode it stores the charging needs, answers Accepted and sends no automatic
+  TxProfile: the lab's own TxProfile sets the V2X operation mode, and an
+  automatic one would stack above it. Needs without an active transaction or
+  without charging parameters are still Rejected; AC and `DC` needs are
+  unchanged. CI checks the image is patched.
+
 ## 0.7.3
 
 - Home Assistant can learn each station's power rating. CitrineOS stores a

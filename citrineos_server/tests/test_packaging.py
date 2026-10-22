@@ -41,6 +41,9 @@ class PackagingSafety(unittest.TestCase):
         # The upstream reconnect race patch (#67) is applied and verified at build.
         self.assertIn("RUN node /opt/citrine-ha/patch-reconnect.mjs \\\n"
                       "    && node /opt/citrine-ha/patch-reconnect.mjs --check", docker)
+        # The OCPP 2.1 charging needs patch (DC_BPT) is applied and verified at build.
+        self.assertIn("RUN node /opt/citrine-ha/patch-charging-needs.mjs \\\n"
+                      "    && node /opt/citrine-ha/patch-charging-needs.mjs --check", docker)
 
     def test_dependencies_are_private_and_pinned(self):
         for app in ("citrineos_database", "citrineos_broker", "citrineos_hasura"):
