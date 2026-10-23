@@ -118,6 +118,18 @@ so the lab's TxProfile (CentralSetpoint, discharge) stays in control. The same
 exact-build guard applies, and CI runs
 `node /opt/citrine-ha/patch-charging-needs.mjs --check`.
 
+**allowedEnergyTransfer patch (OCPP 2.1).** The build also patches
+`@citrineos/ocpp/dist/src/handlers/requests/2/authorize-request-ocpp-21-handler.js`
+(`rootfs/patch-allowed-energy.mjs`). OCPP 2.1 AuthorizeResponse lists the energy
+transfer modes the EV may choose (`allowedEnergyTransfer`); when it is omitted the
+station treats the session as charging only. Upstream v2.0.1 never sets it, so a
+bidirectional (CentralSetpoint discharge) session could not be negotiated. With the
+patch every Accepted OCPP 2.1 AuthorizeResponse lists `DC`, `DC_BPT`,
+`AC_single_phase`, `AC_two_phase`, `AC_three_phase` and `AC_BPT`, unless the
+response already has a list. Other statuses and OCPP 2.0.1 are unchanged. The same
+exact-build guard applies, and CI runs
+`node /opt/citrine-ha/patch-allowed-energy.mjs --check`.
+
 **Lab tariff and location (#30).** When any charger listener is on, startup
 adds a zero-cost tariff (`HA-LAB-ZERO`, EUR 0 per kWh; upstream already
 reports cost 0 without one) to every tenant-1 connector without a tariff, and

@@ -6,7 +6,7 @@ ARG BUILD_ARCH
 LABEL io.hass.name="CitrineOS Isolated Lab" \
       io.hass.description="Private laboratory server with opt-in scoped simulator controls" \
       io.hass.type="addon" \
-      io.hass.version="0.7.4" \
+      io.hass.version="0.7.5" \
       io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons"
 
@@ -20,6 +20,9 @@ RUN node /opt/citrine-ha/patch-reconnect.mjs \
 # Upstream rejects OCPP 2.1 charging needs (DC_BPT); same exact-build guard.
 RUN node /opt/citrine-ha/patch-charging-needs.mjs \
     && node /opt/citrine-ha/patch-charging-needs.mjs --check
+# Upstream omits OCPP 2.1 allowedEnergyTransfer (charging only); same guard.
+RUN node /opt/citrine-ha/patch-allowed-energy.mjs \
+    && node /opt/citrine-ha/patch-allowed-energy.mjs --check
 RUN mkdir -p /data && chown node:node /data
 USER root
 WORKDIR /opt/citrine-ha

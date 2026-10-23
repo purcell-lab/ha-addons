@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.5
+
+- Accepted OCPP 2.1 AuthorizeResponses carry `allowedEnergyTransfer`.
+  Upstream v2.0.1 never sets it, and OCPP 2.1 treats an omitted list as
+  charging only, so no session it authorised could be bidirectional: OCTT
+  (OCA, Plugfest) reported the field missing and rejected every
+  CentralSetpoint TxProfile. A build-time patch to the upstream handler
+  (`rootfs/patch-allowed-energy.mjs`, same exact-build guard) adds the lab's
+  modes (`DC`, `DC_BPT`, `AC_single_phase`, `AC_two_phase`,
+  `AC_three_phase`, `AC_BPT`) to every Accepted 2.1 AuthorizeResponse that
+  doesn't set the field already. Other statuses and OCPP 2.0.1 are
+  unchanged. CI checks the image is patched.
+
 ## 0.7.4
 
 - OCPP 2.1 charging needs are accepted. Upstream v2.0.1 matches DC needs only
