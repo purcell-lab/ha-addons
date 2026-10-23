@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.6
+
+- OCPP 2.1 V2X charging needs that carry only `v2xChargingParameters` are
+  accepted. Upstream requires `acChargingParameters` for AC needs, and the
+  0.7.4 patch covered only the DC modes, so OCTT's AC V2X needs
+  (`AC_BPT`, or AC with V2X parameters) were Rejected. The charging needs
+  patch now also accepts any needs with `v2xChargingParameters`, stores them
+  and sends no automatic profile (the lab's TxProfile keeps control). AC and
+  `DC` needs without V2X parameters keep upstream's behaviour.
+
 ## 0.7.5
 
 - Accepted OCPP 2.1 AuthorizeResponses carry `allowedEnergyTransfer`.

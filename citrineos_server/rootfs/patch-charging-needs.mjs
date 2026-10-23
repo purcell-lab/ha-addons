@@ -25,7 +25,7 @@ import {fileURLToPath} from 'node:url';
 
 export const TARGET='/usr/local/apps/citrineos/apps/ocpp-server/node_modules/@citrineos/ocpp/dist/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.js';
 export const UPSTREAM_SHA256='e8104b76a8e1a880c50c94d6db1ccb61af99a8e060d57edd15094cbffa01fc6c';
-export const PATCHED_SHA256='1106e46f464c261995380c3f029489522c189202832612f283de0cd6caa74bc7';
+export const PATCHED_SHA256='4d0bea51d590c6e7434026436dcaeb3da18b60f42959c49b0196e0825f9d3207';
 export const MARKER='ha-citrine patch (patch-charging-needs.mjs)';
 
 export const EDITS=[
@@ -35,8 +35,10 @@ export const EDITS=[
             givenNeeds.requestedEnergyTransfer === EnergyTransferModeEnum.DC) ||
 `,
     replacement:`        // ha-citrine patch (patch-charging-needs.mjs): the OCPP 2.1 DC modes
-        // (bidirectional DC_BPT, DC_ACDP, DC_ACDP_BPT) carry dcChargingParameters too.
-        const matchedChargingType = ((givenNeeds.dcChargingParameters ?? false) &&
+        // (bidirectional DC_BPT, DC_ACDP, DC_ACDP_BPT) carry dcChargingParameters too,
+        // and OCPP 2.1 V2X needs may carry only v2xChargingParameters (AC_BPT, AC).
+        const matchedChargingType = (givenNeeds.v2xChargingParameters ?? false) ||
+            ((givenNeeds.dcChargingParameters ?? false) &&
             ['DC', 'DC_BPT', 'DC_ACDP', 'DC_ACDP_BPT'].includes(givenNeeds.requestedEnergyTransfer)) ||
 `,
   },
@@ -46,9 +48,10 @@ export const EDITS=[
         try {
             chargingProfile = await this._smartChargingService.calculateChargingProfile(`,
     replacement:`        // ha-citrine patch (patch-charging-needs.mjs): upstream calculates profiles
-        // for the 2.0.1 modes only. For an OCPP 2.1 mode, store the needs and accept;
-        // no automatic profile, the lab's TxProfile sets the V2X operation mode.
-        if (!['AC_single_phase', 'AC_two_phase', 'AC_three_phase', 'DC'].includes(givenNeeds.requestedEnergyTransfer)) {
+        // for the 2.0.1 modes only. For an OCPP 2.1 mode, or any needs with
+        // v2xChargingParameters, store the needs and accept; no automatic profile,
+        // the lab's TxProfile sets the V2X operation mode.
+        if (givenNeeds.v2xChargingParameters || !['AC_single_phase', 'AC_two_phase', 'AC_three_phase', 'DC'].includes(givenNeeds.requestedEnergyTransfer)) {
             try {
                 const chargingNeeds = await this._chargingProfileRepository.createChargingNeeds(tenantId, request, ocppConnectionName);
                 this._logger.info(\`Charging needs created (\${givenNeeds.requestedEnergyTransfer}, no automatic profile): \${JSON.stringify(chargingNeeds)}\`);

@@ -104,6 +104,25 @@ test('upstream rejects DC_BPT; the patch accepts it, stores the needs and sends 
     assert.deepEqual(h.log.results,['Accepted']);
   }
 });
+test('OCPP 2.1 V2X needs with only v2xChargingParameters (OCTT AC_BPT, AC) are accepted without a profile',async()=>{
+  const Up=await load(upstream,'up-v2x.mjs');
+  const Patched=await load(patch(upstream),'patched-v2x.mjs');
+  // OCTT's NotifyEVChargingNeeds at 12:26:15 AEDT, 23 October 2026.
+  const octt={controlMode:'ScheduledControl',requestedEnergyTransfer:'AC_BPT',
+    availableEnergyTransfer:['AC_single_phase','AC_two_phase','AC_three_phase','AC_BPT','AC_BPT_DER','AC_DER'],
+    v2xChargingParameters:{maxChargePower:1234,maxDischargePower:0}};
+  const up=harness(Up);
+  await up.handler.handle(msg(octt));
+  assert.deepEqual(up.log.results,['Rejected']);
+  for(const needs of [octt,{...octt,requestedEnergyTransfer:'AC_single_phase'},
+    {...octt,requestedEnergyTransfer:'AC_single_phase',acChargingParameters:{evMaxCurrent:16}}]) {
+    const h=harness(Patched);
+    await h.handler.handle(msg(needs));
+    assert.deepEqual(h.log.results,['Accepted']);
+    assert.deepEqual(h.log.needs,[needs.requestedEnergyTransfer]);
+    assert.equal(h.log.calls.length,0);
+  }
+});
 test('the patch still rejects without a transaction or charging parameters, and accepts if storing fails',async()=>{
   const Patched=await load(patch(upstream),'patched2.mjs');
   const none=harness(Patched,{transaction:null});

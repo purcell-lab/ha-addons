@@ -112,8 +112,10 @@ station (one clean connection).
 only when `requestedEnergyTransfer` is exactly `DC`, so an OCPP 2.1 EV asking
 for bidirectional DC (`DC_BPT`) was always answered Rejected and the station
 refused the energy transfer (`ReqEnergyTransferRejected`). With the patch the
-2.1 DC modes match like `DC`; for a mode that is not an OCPP 2.0.1 mode
-CitrineOS stores the needs, answers Accepted and sends no automatic profile,
+2.1 DC modes match like `DC`, and needs with `v2xChargingParameters` (for example
+OCTT's `AC_BPT`) match whatever the mode; for a mode that is not an OCPP 2.0.1 mode,
+or any needs with `v2xChargingParameters`, CitrineOS stores the needs, answers
+Accepted and sends no automatic profile,
 so the lab's TxProfile (CentralSetpoint, discharge) stays in control. The same
 exact-build guard applies, and CI runs
 `node /opt/citrine-ha/patch-charging-needs.mjs --check`.
