@@ -340,8 +340,9 @@ export function configResult(payload,requested) {
 // read-only "operator_ro" role. With operator_commands_enabled, a fixed set
 // of OCPP 2.0.1/2.1 operational commands may target any tenant-1 station;
 // upstream AJV still validates each payload. Commands that change station
-// credentials, certificates, firmware, network profiles or variables, or
-// that make the station upload files, are never allowed.
+// credentials, certificates, firmware, network profiles or variables (except
+// the metering variables below), or that make the station upload files, are
+// never allowed.
 export const OPERATOR_COMMANDS=[
   'evdriver/requestStartTransaction','evdriver/requestStopTransaction',
   'evdriver/unlockConnector','evdriver/clearCache',
@@ -350,11 +351,35 @@ export const OPERATOR_COMMANDS=[
   'smartcharging/setChargingProfile','smartcharging/clearChargingProfile',
   'smartcharging/getChargingProfiles','smartcharging/getCompositeSchedule',
 ];
+// One exception to "never variables": SetVariables limited to the metering
+// variables below (SampledDataCtrlr, AlignedDataCtrlr), so a station that sends
+// power only when asked over OCPP (ChargeSim, Plugfest 23 October 2026) can be
+// told what to sample. Checked by meteringVariables() before it is sent.
+export const METERING_COMMAND='monitoring/setVariables';
+export const METERING_VARIABLES={
+  SampledDataCtrlr:['TxStartedMeasurands','TxUpdatedMeasurands','TxUpdatedInterval','TxEndedMeasurands','TxEndedInterval'],
+  AlignedDataCtrlr:['Measurands','Interval','TxEndedMeasurands','TxEndedInterval'],
+};
+const MEASURAND=/^[A-Z][A-Za-z]*(?:\.[A-Za-z0-9]+){0,3}$/;
+const meteringValue=(name,v)=>typeof v==='string'&&(name.endsWith('Interval')
+  ?/^(0|[1-9]\d{0,4})$/.test(v)&&Number(v)<=86400
+  :v.length<=500&&v.split(',').every(m=>MEASURAND.test(m.trim())));
+// 1-10 entries, each a listed variable of a listed controller (no EVSE,
+// connector or instance), attribute type Actual, and a valid value.
+export function meteringVariables(p) {
+  const d=p?.setVariableData;
+  return !!p&&typeof p==='object'&&!Array.isArray(p)&&Object.keys(p).every(k=>k==='setVariableData')
+    &&Array.isArray(d)&&d.length>=1&&d.length<=10&&d.every(e=>keys(e,['attributeType','attributeValue','component','variable'])
+      &&(e.attributeType===undefined||e.attributeType==='Actual')
+      &&keys(e.component,['name'])&&keys(e.variable,['name'])
+      &&(METERING_VARIABLES[e.component.name]||[]).includes(e.variable.name)
+      &&meteringValue(e.variable.name,e.attributeValue));
+}
 const OPERATOR_ROUTE=/^\/ocpp\/(2\.0\.1|2\.1)\/([a-z]+\/[A-Za-z]+)$/;
 export const OPERATOR_IDENTITY=/^[A-Za-z0-9._~*+-]{1,48}$/;
 export function operatorCommand(url) {
   const m=OPERATOR_ROUTE.exec(url.pathname);
-  if(!m||!OPERATOR_COMMANDS.includes(m[2]))return null;
+  if(!m||!(OPERATOR_COMMANDS.includes(m[2])||m[2]===METERING_COMMAND))return null;
   if([...url.searchParams.keys()].length!==2||url.searchParams.getAll('identifier').length!==1
     ||url.searchParams.getAll('tenantId').length!==1||url.searchParams.get('tenantId')!=='1')return null;
   const identifier=url.searchParams.get('identifier');

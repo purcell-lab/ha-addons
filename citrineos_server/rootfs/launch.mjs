@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rbacRules,routeProtocol,
   validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
-  OPERATOR_COMMANDS,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
+  OPERATOR_COMMANDS,METERING_COMMAND,meteringVariables,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
   CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult,
   PRICE_ROUTES,DEFAULT_TARIFF_ROUTE,priceOptions,pricePolicy,tariffStations,hasPriceSchedule,
   validateCostUpdated,costTargetAllows,tariffTarget,validateTariff,tariffTargetAllows,
@@ -352,6 +352,9 @@ export async function main() {
     }
     const cmd=o.operator_commands_enabled===true?operatorCommand(url):null;
     if(!cmd||!parsed||typeof parsed!=='object'||Array.isArray(parsed)){res.writeHead(403);res.end('{"error":"Operator route denied"}');return;}
+    if(cmd.action===METERING_COMMAND&&!meteringVariables(parsed)){
+      res.writeHead(403);res.end('{"error":"Only SampledDataCtrlr and AlignedDataCtrlr metering variables can be set"}');return;
+    }
     const state=await jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
       method:'POST',headers:{'Content-Type':'application/json',
         'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'operator_ro','x-hasura-tenant-id':'1'},

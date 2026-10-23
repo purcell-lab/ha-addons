@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validate,permitted,equalToken,buildListeners,INTERNAL_PORTS,UPSTREAM_API_PORT,upstreamExitCode,upstreamTransactions,COST_UPDATED_INTERVAL_OFF,
   priceRequest,commandRejection} from '../rootfs/launch.mjs';
-import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS} from '../rootfs/control-policy.mjs';
+import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS,METERING_COMMAND,meteringVariables} from '../rootfs/control-policy.mjs';
 const good={mode:'isolated',database_host:'citrine-db',broker_host:'citrine-broker',hasura_host:'citrine-hasura',
   database_password:'a'.repeat(64),broker_password:'b'.repeat(64),hasura_secret:'c'.repeat(64),api_token:'d'.repeat(64)};
 test('explicit mode and unique credentials required',()=>{
@@ -149,8 +149,11 @@ test('operator commands: fixed actions, both 2.x versions, one tenant-1 identity
   assert.deepEqual(operatorCommand(u('/ocpp/2.0.1/configuration/reset?identifier=PF-EVX-01&tenantId=1')),
     {protocol:'ocpp2.0.1',action:'configuration/reset',identifier:'PF-EVX-01'});
   assert.equal(operatorCommand(u('/ocpp/2.1/evdriver/requestStartTransaction?identifier=SIM-EV-G1&tenantId=1')).protocol,'ocpp2.1');
+  // SetVariables reaches the body check (metering variables only), below.
+  assert.deepEqual(operatorCommand(u('/ocpp/2.0.1/monitoring/setVariables?identifier=charger1&tenantId=1')),
+    {protocol:'ocpp2.0.1',action:METERING_COMMAND,identifier:'charger1'});
   for(const bad of [
-    '/ocpp/2.0.1/monitoring/setVariables?identifier=A1&tenantId=1',
+    '/ocpp/2.0.1/monitoring/setVariables?identifier=A1&tenantId=2',
     '/ocpp/2.0.1/certificates/installCertificate?identifier=A1&tenantId=1',
     '/ocpp/2.0.1/configuration/updateFirmware?identifier=A1&tenantId=1',
     '/ocpp/2.0.1/configuration/setNetworkProfile?identifier=A1&tenantId=1',
@@ -165,6 +168,28 @@ test('operator commands: fixed actions, both 2.x versions, one tenant-1 identity
     '/v1/metadata'])
     assert.equal(operatorCommand(u(bad)),null,bad);
   for(const c of OPERATOR_COMMANDS) assert.doesNotMatch(c,/setVariables|certificate|firmware|NetworkProfile|dataTransfer|getLog|customer/i);
+});
+test('operator SetVariables is limited to the metering variables',()=>{
+  const v=(component,variable,value,extra={})=>({component:{name:component},variable:{name:variable},attributeValue:value,...extra});
+  // ChargeSim (Plugfest, 23 October 2026) sends power only when asked over OCPP.
+  assert.equal(meteringVariables({setVariableData:[
+    v('SampledDataCtrlr','TxUpdatedMeasurands','Energy.Active.Import.Register,Power.Active.Import',{attributeType:'Actual'}),
+    v('SampledDataCtrlr','TxUpdatedInterval','10')]}),true);
+  assert.equal(meteringVariables({setVariableData:[v('AlignedDataCtrlr','Interval','0'),v('AlignedDataCtrlr','Measurands','SoC, Voltage')]}),true);
+  for(const bad of [
+    null,[],{},{setVariableData:[]},{setVariableData:Array(11).fill(v('SampledDataCtrlr','TxUpdatedInterval','10'))},
+    {setVariableData:[v('SampledDataCtrlr','TxUpdatedInterval','10')],extra:1},
+    {setVariableData:[v('SecurityCtrlr','BasicAuthPassword','x'.repeat(20))]},
+    {setVariableData:[v('OCPPCommCtrlr','NetworkConfigurationPriority','1')]},
+    {setVariableData:[v('SampledDataCtrlr','Enabled','false')]},
+    {setVariableData:[v('SampledDataCtrlr','TxUpdatedInterval','-1')]},
+    {setVariableData:[v('SampledDataCtrlr','TxUpdatedInterval','86401')]},
+    {setVariableData:[v('SampledDataCtrlr','TxUpdatedInterval',10)]},
+    {setVariableData:[v('SampledDataCtrlr','TxUpdatedMeasurands','Power.Active.Import;DROP')]},
+    {setVariableData:[v('SampledDataCtrlr','TxUpdatedInterval','10',{attributeType:'Target'})]},
+    {setVariableData:[{...v('SampledDataCtrlr','TxUpdatedInterval','10'),component:{name:'SampledDataCtrlr',evse:{id:1}}}]},
+    {setVariableData:[{...v('SampledDataCtrlr','TxUpdatedInterval','10'),variable:{name:'TxUpdatedInterval',instance:'x'}}]},
+  ]) assert.equal(meteringVariables(bad),false,JSON.stringify(bad));
 });
 test('operator commands need the station online on the same OCPP version',()=>{
   const cmd={protocol:'ocpp2.0.1',action:'configuration/reset',identifier:'PF-EVX-01'};

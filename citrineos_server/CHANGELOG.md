@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.7
+
+- Operator commands may send SetVariables for metering variables only:
+  `SampledDataCtrlr` TxStartedMeasurands, TxUpdatedMeasurands,
+  TxUpdatedInterval, TxEndedMeasurands, TxEndedInterval, and
+  `AlignedDataCtrlr` Measurands, Interval, TxEndedMeasurands,
+  TxEndedInterval (1-10 entries, attribute type Actual, no EVSE, connector or
+  instance; intervals 0-86400 s; measurands a comma list of measurand
+  names). ChargeSim (Plugfest, 23 October 2026) sends power only when asked
+  over OCPP, so without this the lab couldn't measure its charging during a
+  Cactus run. Every other SetVariables stays refused.
+
 ## 0.7.6
 
 - OCPP 2.1 V2X charging needs that carry only `v2xChargingParameters` are

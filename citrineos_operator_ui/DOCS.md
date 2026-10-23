@@ -47,12 +47,15 @@ credential profiles and webhook subscriptions are hidden.
 |---|---|
 | EV driver | RequestStartTransaction, RequestStopTransaction, UnlockConnector, ClearCache |
 | Configuration | Reset, ChangeAvailability, TriggerMessage |
-| Reporting and monitoring | GetBaseReport, GetVariables, GetTransactionStatus |
+| Reporting and monitoring | GetBaseReport, GetVariables, GetTransactionStatus, SetVariables (metering variables only, server 0.7.7) |
 | Smart charging | SetChargingProfile, ClearChargingProfile, GetChargingProfiles, GetCompositeSchedule |
 
 to any station of tenant 1, OCPP 2.0.1 or 2.1, only while it is online on
-that version. The gateway refuses everything else, including SetVariables,
-certificate, firmware, network-profile, data-transfer, log and diagnostics
+that version. SetVariables may only set the metering variables of
+`SampledDataCtrlr` (TxStarted/TxUpdated/TxEnded measurands, TxUpdated and
+TxEnded intervals) and `AlignedDataCtrlr` (Measurands, Interval, TxEnded
+measurands and interval), no EVSE or instance. The gateway refuses
+everything else, including any other SetVariables, certificate, firmware, network-profile, data-transfer, log and diagnostics
 requests. Each command is logged by the server.
 
 ## Security
