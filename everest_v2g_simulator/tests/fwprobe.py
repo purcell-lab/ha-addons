@@ -2,6 +2,7 @@
 
 usage: fwprobe.py expect-silence|expect-reachable ADDRESS [ADDRESS ...]
        fwprobe.py private-link
+       fwprobe.py dlink-drops   (inside the App: print the charger's drop count)
 
 expect-silence    from another host: no SDP reply (UDP 15118) and TCP 8099
                   (nginx listens on every address) and 50000 time out, which
@@ -9,13 +10,33 @@ expect-silence    from another host: no SDP reply (UDP 15118) and TCP 8099
 expect-reachable  negative control after the nftables table is deleted:
                   TCP 8099 must connect, proving the drop came from nftables
 private-link      inside the App: the SDP server answers on the private
-                  v2g0 link (positive control that discovery is live)
+                  v2g0 link (positive control that discovery is live).
+                  EVerest 2026.10 answers SDP only after SLAC (a plug-in)
+                  and logs each earlier request as dropped ("dlink is not
+                  ready"); app.py counts those lines in state.json. A request
+                  the charger counted is "received" and passes; one that
+                  never reached it is still "silent" and fails.
 Upstream's SDP server binds :: but only answers on its configured interface,
-so the firewall is defence in depth for UDP and the boundary for TCP.
+so the firewall is defence in depth for UDP and the boundary for TCP. Since
+the 2026.10 charger is silent before a plug-in anyway, ci_image_checks.sh
+also asserts that an expect-silence probe leaves the charger's count
+unchanged (the request never reached it).
 """
 import json
+from pathlib import Path
 import socket
 import sys
+import time
+
+STATE = Path("/run/ha-everest/state.json")
+
+
+def dlink_drops(path=STATE):
+    """The charger's count of SDP requests dropped before SLAC (app.py)."""
+    try:
+        return json.loads(path.read_text()).get("charger_sdp_dlink_ignored", 0)
+    except (OSError, ValueError):
+        return None
 
 # V2GTP v1, payload type 0x9000 (SDP request), length 2: no TLS (0x10), TCP (0x00).
 SDP_REQUEST = bytes.fromhex("01fe9000000000021000")
@@ -63,8 +84,17 @@ def main(argv):
     results, ok = {}, True
     if expectation == "private-link":
         address, via = secc_address()
-        results[f"{address}%{via}"] = {"sdp_15118_udp": sdp(address, scope=via)}
-        ok = results[f"{address}%{via}"]["sdp_15118_udp"] == "reply"
+        before = dlink_drops()
+        result = sdp(address, scope=via)
+        if result == "silent" and before is not None:
+            time.sleep(0.5)  # the App's log pump records the charger's line
+            if (dlink_drops() or 0) > before:
+                result = "received"
+        results[f"{address}%{via}"] = {"sdp_15118_udp": result}
+        ok = result in ("reply", "received")
+    elif expectation == "dlink-drops":
+        print(dlink_drops())
+        return 0
     else:
         assert expectation in ("expect-silence", "expect-reachable") and addresses, __doc__
     for address in addresses:

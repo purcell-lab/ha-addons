@@ -131,6 +131,41 @@ async function refreshStatus() {
     }
   } else { cell(body.insertRow(), "No schedule published yet").colSpan = 4; }
   showPrice(s.session_cost);
+  showDer(s.der);
+}
+
+// OCPP 2.1 DER control: the active set the CSMS's controls produce, as
+// recorded by the App's grid_support module. Recorded only, never applied.
+function showDer(der) {
+  const body = $("deractive").tBodies[0]; body.replaceChildren();
+  if (!der) {
+    $("dermeta").textContent = "No DER capability declared yet (EVerest starting, or OCPP 2.0.1).";
+    cell(body.insertRow(), "None").colSpan = 5; return;
+  }
+  const n = (der.control_types || []).length;
+  $("dermeta").textContent = "Declared: DC, " + n + " control types. Active set updated " +
+    (der.active_at ? new Date(der.active_at * 1000).toLocaleTimeString("en-AU", { hour12: false }) : "never") +
+    "; forwarded to the ISO 15118-20 charger: " + (der.relay || "–") + ". Not applied to power.";
+  for (const d of der.active || []) {
+    const row = body.insertRow();
+    cell(row, d.type || "–"); cell(row, d.id || "–"); cell(row, d.priority === undefined ? "–" : String(d.priority), "num");
+    cell(row, d.is_default ? "default" : (d.start_time ? local(d.start_time) : "now") + (d.duration_s ? " for " + duration(d.duration_s) : ""));
+    cell(row, d.detail || "–");
+  }
+  if (!(der.active || []).length) cell(body.insertRow(), "No active DER controls").colSpan = 5;
+}
+
+function showDerMessages(events) {
+  const body = $("dermsgs").tBodies[0]; body.replaceChildren();
+  for (const ev of events || []) {
+    const row = body.insertRow();
+    const p = ev.payload || {};
+    cell(row, local(ev.received));
+    cell(row, ev.status || "pending", "st-" + (ev.status || "pending"));
+    cell(row, ev.action);
+    cell(row, [p.controlType, p.controlId, p.isDefault ? "default" : null].filter(Boolean).join(", ") || "–");
+  }
+  if (!(events || []).length) cell(body.insertRow(), "None received").colSpan = 4;
 }
 
 // Dynamic pricing: session cost (CostUpdated / California Pricing) and the
@@ -260,6 +295,7 @@ async function refreshProfiles() {
   if (!(d.recent || []).length) cell(body.insertRow(), "None received").colSpan = 4;
   showPriceSchedules(d.price_schedules);
   showPricing(d.pricing);
+  showDerMessages(d.der);
 }
 
 for (const b of document.querySelectorAll("button[data-cmd]")) {

@@ -7,7 +7,10 @@ on:
       - ".github/workflows/everest-v2g-publish.yml"
       - ".github/scripts/everest_image_needed.sh"
       - ".github/scripts/everest_runtime.sh"
+      - ".github/scripts/everest_runtime_source.sh"
+      - ".github/workflows/everest-runtime-source-build.yml"
       - "everest_runtime/**"
+      - "everest_runtime_source/**"
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,10 +39,43 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update -qq && sudo apt-get install -y nginx openssl python3-yaml
       - run: python3 -m unittest discover -s everest_v2g_simulator/tests -v
+      - run: |
+          for script in everest_runtime.sh everest_runtime_source.sh everest_identical_files.sh; do
+            sh -n ".github/scripts/$script"
+          done
       - run: git diff --check
-  image:
+  runtime:
+    # Which EVerest runtime the App image builds from: the pinned public one,
+    # or a local build from everest_runtime/ (upstream image extract) or
+    # everest_runtime_source/ (compiled from source, below).
     needs: changes
     if: needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      build_local: ${{ steps.runtime.outputs.build_local }}
+      ref: ${{ steps.runtime.outputs.ref }}
+      dir: ${{ steps.runtime.outputs.dir }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve the EVerest runtime image
+        id: runtime
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: sh .github/scripts/everest_runtime.sh everest_v2g_simulator
+  runtime-source:
+    # Compile EVerest once per architecture when the runtime is the
+    # from-source one and is not published yet (or this PR changes it).
+    needs: runtime
+    if: needs.runtime.outputs.build_local == 'true' && needs.runtime.outputs.dir == 'everest_runtime_source'
+    uses: ./.github/workflows/everest-runtime-source-build.yml
+  image:
+    needs: [changes, runtime, runtime-source]
+    if: >-
+      always() && needs.changes.outputs.images == 'true' && needs.runtime.result == 'success'
+      && (needs.runtime-source.result == 'success' || needs.runtime-source.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -56,27 +92,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Resolve the EVerest runtime image
-        id: runtime
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: sh .github/scripts/everest_runtime.sh everest_v2g_simulator
       - name: Free runner disk (local runtime build pulls the 4.3 GB upstream image)
-        if: steps.runtime.outputs.build_local == 'true'
+        if: needs.runtime.outputs.build_local == 'true' && needs.runtime.outputs.dir == 'everest_runtime'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           docker system prune -af || true
           df -h /
       - name: Build the EVerest runtime locally (runtime changed or not yet published)
-        if: steps.runtime.outputs.build_local == 'true'
+        if: needs.runtime.outputs.build_local == 'true' && needs.runtime.outputs.dir == 'everest_runtime'
         run: docker build -t everest-runtime:local everest_runtime
+      - name: Fetch the EVerest runtime compiled from source (runtime-source job)
+        if: needs.runtime.outputs.build_local == 'true' && needs.runtime.outputs.dir == 'everest_runtime_source'
+        uses: actions/download-artifact@v4
+        with:
+          name: everest-runtime-source-${{ matrix.arch }}
+      - name: Load the EVerest runtime compiled from source
+        if: needs.runtime.outputs.build_local == 'true' && needs.runtime.outputs.dir == 'everest_runtime_source'
+        run: gunzip -c everest-runtime-source.tar.gz | docker load && rm everest-runtime-source.tar.gz
       - name: Build native image (no publication or deployment)
         run: |
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_v2g_simulator/config.yaml)
           docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
             --build-arg BUILD_VERSION="$version" \
-            --build-arg EVEREST_RUNTIME="${{ steps.runtime.outputs.ref }}" \
+            --build-arg EVEREST_RUNTIME="${{ needs.runtime.outputs.ref }}" \
             -t "$IMAGE" everest_v2g_simulator
           docker image ls "$IMAGE"
       - name: Minimum viable image checks (the publish job runs the full gate)

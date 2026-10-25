@@ -3,9 +3,30 @@
 `config.yaml` sets
 `image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, so Home Assistant pulls `<image>:<version>` for its architecture (about 560 to
 585 MB) instead of building locally from the 4.3 GB EVerest build image.
-The App build itself copies EVerest from the small pinned runtime image
-(`everest_runtime/README.md`), not the 4.3 GB upstream image.
+The App build itself copies EVerest from the small pinned runtime image,
+not a 4.3 GB build image. From 0.2.0 that runtime is EVerest
+2026.10.0-rc1 compiled from source (`everest_runtime_source/README.md`);
+up to 0.1.13 it was the 2025.10.0 extract (`everest_runtime/README.md`).
 Each step below is a separate operator decision; none happens automatically.
+
+## Before the first 0.2.x release: publish and pin the runtime
+
+The publish job below accepts only a runtime pinned by digest and public.
+For 0.2.0 that runtime does not exist yet:
+
+1. With approval, run `everest-runtime-source-publish.yml` with the version
+   in `everest_runtime_source/VERSION` (for example `2026.10.0-rc1-1`) and the
+   reviewed commit, or push the tag `everest_runtime_source-v<version>` on
+   that commit. A manual run tags the commit it built. The workflow compiles EVerest on both
+   architectures (a cold compile takes a long time; see the run), pushes
+   `<version>-amd64` and `<version>-aarch64`, then the multi-arch index
+   `<version>` with a provenance attestation. Its summary prints the line
+   to pin.
+2. Make the `everest-runtime` package's new version public if needed (the
+   package already exists and is public for 2025.10.0-1).
+3. Pin `ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:<version>@sha256:<index digest>`
+   in `everest_v2g_simulator/Dockerfile` and re-run the PR checks. CI then
+   pulls the published runtime instead of compiling it.
 
 ## Steps
 

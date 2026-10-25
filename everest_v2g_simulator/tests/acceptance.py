@@ -3,11 +3,15 @@
 Runs the real entrypoint (firewall, private veth link, test PKI, mosquitto,
 EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
 
-  v2g21      CSMS prefers 2.1 -> ocpp2.1; ISO 15118-20 DC_BPT session; a
-             CentralSetpoint TxProfile charges then discharges (V2G export)
-             at 380 V, including direct reversals between charge and
-             discharge; after stop and unplug a fresh session,
-             started 75 s after plug-in, charges again; dynamic pricing
+  v2g21      CSMS prefers 2.1 -> ocpp2.1; OCPP 2.1 DER control after boot
+             (DCDERCtrlr in the device model; SetDERControl accepted with
+             NotifyDERStartStop, a mismatched control rejected,
+             GetDERControl answered with ReportDERControl, ClearDERControl;
+             the active set on the Status page); ISO 15118-20 DC_BPT
+             session; a CentralSetpoint TxProfile charges then discharges
+             (V2G export) at 380 V, including direct reversals between
+             charge and discharge; after stop and unplug a fresh session,
+             started 40 s after plug-in, charges again; dynamic pricing
              (CostUpdated with California Pricing on the Status page, a
              price schedule shown, SetDefaultTariff answered NotImplemented)
   fallback   CSMS supports only 2.0.1 -> ocpp2.0.1; charging-only W limit;
@@ -20,9 +24,9 @@ EVerest manager, UI service, nginx) in a container with NET_ADMIN. Scenarios:
              plug-in, the patched module replaces that stack and a fresh
              EV stack completes discovery; unplugging before authorisation
              leaves the charger ignoring discovery, which the App reports
-  watchdog   No authorisation: after the charger's 3-minute limit the EV
-             gives up its session; the App re-plugs it, and a later start
-             still charges
+  watchdog   No authorisation: after the charger's limit (55 s from EVerest
+             2026.10) the EV gives up its session; the App re-plugs it, and
+             a later start still charges
 
 Each charging step compares mean measured DC power with the setpoint, and
 mean DC voltage with the simulated battery voltage, and metered import and
@@ -62,8 +66,14 @@ POWER_TOLERANCE = 0.03
 # runs at the EV's 900 V maximum (issue #70, UPSTREAM.md).
 DC_VOLTAGE = 380
 VOLTAGE_TOLERANCE = 0.05
-# Issue #33: before 0.1.10 the EV gave up about 60 s after plug-in.
-LATE_START_S = 75
+# Issue #33: before 0.1.10 the EV gave up about 60 s after plug-in, and the
+# charger (libiso15118 v0.9.0) waited 3 minutes, so 0.1.10 to 0.1.13 started
+# 75 s after plug-in. From EVerest 2026.10 the charger itself stops an
+# ISO 15118-20 EIM wait after 55 s ([V2G20-2102]), so a start must come
+# sooner; a later one is the watchdog scenario's case.
+LATE_START_S = 40
+# OCPP 2.1 DER control: the App declares all 22 DERControlEnum types.
+DER_TYPES = 22
 
 
 def setpoint_period(offset, watts):
@@ -186,6 +196,106 @@ async def pricing_checks(csms, txid, ocpp21, unit, limit, profile_id):
         assert events[0]["status_info"]["reasonCode"] == "NotImplemented", events
     report["pricing_log"] = [(e["action"], e["status"]) for e in events]
     return report
+
+
+def station_calls(csms, action, after=0.0):
+    """Payloads of station-initiated calls of `action` received after `after`."""
+    return [f[1][3] for f in csms.frames
+            if f[0] == "in" and f[1][0] == 2 and f[1][2] == action and f[2] > after]
+
+
+async def der_checks(csms):
+    """OCPP 2.1 DER control against the App's declared DC capability.
+
+    The App's HaGridSupport module declares the DC capability, so OCPPmulti
+    enables DCDERCtrlr on EVSE 1 and libocpp accepts every declared type. The
+    active set reaches the module (Status page); nothing changes power."""
+    report = {}
+    der = await wait_for(lambda: (http("/api/status").get("der") or {}).get("control_types"), 60,
+                         what="DER capability on the Status page")
+    assert len(der) == DER_TYPES and "LimitMaxDischarge" in der, der
+    reply = await csms.call("GetVariables", {"getVariableData": [
+        {"component": {"name": "DCDERCtrlr", "evse": {"id": 1}}, "variable": {"name": name}}
+        for name in ("Available", "Enabled", "ModesSupported")]})
+    results = {r["variable"]["name"]: (r["attributeStatus"], r.get("attributeValue"))
+               for r in reply[2]["getVariableResult"]}
+    assert results["Available"] == ("Accepted", "true"), results
+    assert results["Enabled"] == ("Accepted", "true"), results
+    assert results["ModesSupported"][0] == "Accepted", results
+    assert set(results["ModesSupported"][1].split(",")) == set(der), results
+    report["device_model"] = {k: v[1] if k != "ModesSupported" else f"{len(v[1].split(','))} types"
+                              for k, v in results.items()}
+
+    t0 = asyncio.get_running_loop().time()
+    start = utc_text(dt.datetime.now(dt.timezone.utc).replace(microsecond=0) - dt.timedelta(seconds=2))
+    reply = await csms.call("SetDERControl", {
+        "isDefault": False, "controlId": "ha-der-1", "controlType": "LimitMaxDischarge",
+        "limitMaxDischarge": {"priority": 1, "pctMaxDischargePower": 50.0, "startTime": start, "duration": 600.0}})
+    assert reply[0] == 3 and reply[2]["status"] == "Accepted", reply
+    started = await wait_for(lambda: [n for n in station_calls(csms, "NotifyDERStartStop", t0)
+                                      if n.get("controlId") == "ha-der-1"], 20, what="NotifyDERStartStop")
+    assert started[0]["started"] is True, started
+    reply = await csms.call("SetDERControl", {
+        "isDefault": True, "controlId": "ha-der-default", "controlType": "FixedPFInject",
+        "fixedPFInject": {"priority": 2, "displacement": 0.95, "excitation": False}})
+    assert reply[2]["status"] == "Accepted", reply
+    # The control field must match controlType (R04.FR.16): Rejected.
+    reply = await csms.call("SetDERControl", {
+        "isDefault": False, "controlId": "ha-der-bad", "controlType": "LimitMaxDischarge",
+        "fixedVar": {"priority": 1, "setpoint": 10.0, "unit": "PctMaxVar"}})
+    assert reply[2]["status"] == "Rejected", reply
+    active = await wait_for(
+        lambda: [d for d in (http("/api/status").get("der") or {}).get("active") or []
+                 if d["id"] in ("ha-der-1", "ha-der-default")], 30, what="active DER set on the Status page")
+    shown = {d["id"]: d for d in active}
+    assert len(shown) == 2, active
+    assert shown["ha-der-1"]["type"] == "LimitMaxDischarge", shown
+    assert shown["ha-der-1"]["detail"] == "50 % of rated discharge power", shown
+    assert shown["ha-der-default"]["type"] == "FixedPFInject" and shown["ha-der-default"]["is_default"], shown
+    report["active"] = sorted(shown)
+
+    t0 = asyncio.get_running_loop().time()
+    reply = await csms.call("GetDERControl", {"requestId": 42})
+    assert reply[2]["status"] == "Accepted", reply
+    reports = await wait_for(lambda: [r for r in station_calls(csms, "ReportDERControl", t0)
+                                      if r.get("requestId") == 42], 20, what="ReportDERControl")
+    text = json.dumps(reports)
+    assert "ha-der-1" in text and "ha-der-default" in text and "ha-der-bad" not in text, reports
+    report["reported"] = [k for k in reports[0] if isinstance(reports[0][k], list)]
+
+    reply = await csms.call("ClearDERControl", {"isDefault": False, "controlId": "ha-der-1"})
+    assert reply[2]["status"] == "Accepted", reply
+    reply = await csms.call("ClearDERControl", {"isDefault": False, "controlId": "ha-der-1"})
+    assert reply[2]["status"] == "NotFound", reply
+    reply = await csms.call("ClearDERControl", {"isDefault": True})
+    assert reply[2]["status"] == "Accepted", reply
+    await wait_for(lambda: not (http("/api/status").get("der") or {}).get("active"), 30,
+                   what="empty active DER set after ClearDERControl")
+    reply = await csms.call("GetDERControl", {"requestId": 43})
+    assert reply[2]["status"] == "NotFound", reply
+    events = http("/api/profiles")["der"]
+    assert [(e["action"], e["status"]) for e in events][:2] == [("GetDERControl", "NotFound"),
+                                                                ("ClearDERControl", "Accepted")], events
+    report["messages"] = [(e["action"], e["status"]) for e in events][::-1]
+    return report
+
+
+async def operation_mode_checks(csms):
+    """libocpp (2026.10) accepts a 2.1 profile period only for an
+    operationMode in the EVSE's V2XChargingCtrlr SupportedOperationModes;
+    EVerest builds it as ChargingOnly,Idle and the App adds CentralSetpoint."""
+    written = await wait_for(
+        lambda: ((http("/api/status").get("der") or {}).get("v2x_operation_modes") or {}).get("status"), 60,
+        what="V2X operation modes written")
+    assert written == "Accepted", written
+    reply = await csms.call("GetVariables", {"getVariableData": [
+        {"component": {"name": "V2XChargingCtrlr", "evse": {"id": 1}},
+         "variable": {"name": "SupportedOperationModes"}}]})
+    result = reply[2]["getVariableResult"][0]
+    assert result["attributeStatus"] == "Accepted", result
+    modes = set(result["attributeValue"].split(","))
+    assert {"ChargingOnly", "CentralSetpoint"} <= modes, result
+    return sorted(modes)
 
 
 def reading():
@@ -329,6 +439,8 @@ async def v2g_scenario():
         assert csms.path == "/" + CPID and csms.authorization == CPID
         await wait_for(lambda: http("/api/status")["app"].get("negotiated") == "ocpp2.1", 20,
                        what="UI negotiated version")
+        report["der"] = await der_checks(csms)
+        report["v2x_operation_modes"] = await operation_mode_checks(csms)
         txid = await start_session(csms)
         start, start_text = iso_start()
         periods = []

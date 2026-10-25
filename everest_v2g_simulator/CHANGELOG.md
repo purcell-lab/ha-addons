@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.2.0
+
+- **EVerest 2026.10.0-rc1, compiled from source.** There is no prebuilt
+  everest-demo image for 2026.x, so the runtime
+  (`ghcr.io/purcell-lab/everest-runtime:2026.10.0-rc1-1`,
+  `everest_runtime_source/`) compiles everest-core at the tag (commit
+  `f45ba0d`) in EVerest's own CI build image, with only the modules the App
+  runs, and is extracted and stripped by the unchanged
+  `everest_runtime/Dockerfile`. This is a release candidate. The AC App
+  keeps the 2025.10.0 runtime.
+- **OCPPmulti replaces OCPP201** (OCPP 2.0.1 and 2.1, `Mode: Only2`).
+  The CSMS URL, Security Profile 1 with Basic Auth, the device-model
+  overrides (rating, sampling, pricing), CentralSetpoint profiles, the
+  25 kW / 380 V settings and the API module carry over. The databases keep
+  their paths (`/data/everest/ocpp201/`).
+- **OCPP 2.1 DER control** (DOCS.md, DER control). SetDERControl,
+  GetDERControl (with ReportDERControl), ClearDERControl and
+  NotifyDERStartStop for all 22 control types; `DCDERCtrlr` on EVSE 1 in
+  the device model. The App's new `HaGridSupport` EVerest module declares
+  the DC capability (EVerest enables DER only for a declared capability,
+  and no upstream module declares one), records the active set for the new
+  **DER control** panel and `der` in `/api/status` and `/api/profiles`,
+  and forwards it to the ISO 15118-20 charger module. Nothing is applied to
+  power.
+- **Upgrade:** libocpp migrates the core database from schema 6 to 7 on
+  the first start; the App keeps a copy of the old file
+  (`cp-schema6.db.bak`). A rollback to 0.1.13 needs `archive_and_rebind`
+  once (DOCS.md, Upgrading from 0.1.x).
+- **Authorisation window is 55 s.** EVerest 2026.10's ISO 15118-20 charger
+  stops an EIM authorisation wait after 55 s
+  (V2G_SECC_Ongoing_Performance_Time), not 3 minutes. Start transactions
+  sooner; the EV watchdog still re-plugs after a missed window.
+- Patches: the YetiSimulator binary patch is gone (its
+  `caps_max_current_A` option now sets the board limit to the per-phase
+  rating); Josev's SDP interface fix is upstream; the PyEvJosev restart,
+  25 kW discharge and authorisation-wait patches are rebased onto 2026.10.
+  The admin-panel controller stub is gone (the manager no longer starts
+  one).
+- **CentralSetpoint profiles keep working.** libocpp 2026.10 rejects an
+  OCPP 2.1 profile period whose `operationMode` is not in the EVSE's
+  `V2XChargingCtrlr` `SupportedOperationModes` (`InvalidOperationMode`),
+  and EVerest builds that variable as `ChargingOnly,Idle`. HaGridSupport
+  writes `Idle,ChargingOnly,CentralSetpoint` once OCPP has started
+  (GetVariables shows it; the Status API carries the write result).
+- **A 0 W setpoint keeps the session.** EvseManager 2026.10 ends the
+  ISO 15118 session after `hlc_charge_loop_without_energy_timeout_s`
+  (default 5 s) without available energy, and the session came back only
+  after a re-plug about a minute later, so the setpoints after a 0 W step
+  were missed (a 47 kW sample at the restart). The App sets 86,400 s, the
+  EV session's own limit.
+- **EIM only.** libocpp's default ISO15118Ctrlr `PnCEnabled` true made the
+  charger offer Contract (Plug and Charge); when the start had not arrived
+  yet the simulated EV chose it, and the 2026.10 charger rejected Josev's
+  ecdsa-sha256 signature, ending every session before charging (CitrineOS
+  trial). `PnCEnabled` is now false and EvseManager offers EIM only.
+- **Discovery self-test:** the 2026.10 charger answers SDP only after SLAC
+  (a plug-in) and logs each earlier request as dropped. A probe it logged is
+  now `received` and passes; a probe it never saw is still `silent` and
+  fails (DOCS.md, Discovery diagnostics).
+- `environs` 14.5.0 (Josev now asks for 14.5 or later, as the everest-ci
+  build image installs).
+- Image checks: every EVerest ELF file must resolve its libraries, the
+  OCPPmulti and HaGridSupport modules and libocpp's DER migration must be
+  present, and the PR acceptance run adds the DER scenario. The start
+  window of the late-start session check is now 40 s (was 75 s).
+
 ## 0.1.13
 
 - The device model reports the rating per station. EVerest 2025.10.0

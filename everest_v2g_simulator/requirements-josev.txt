@@ -1,5 +1,6 @@
 # Josev (PyEvJosev) Python dependencies not packaged in Debian 12.
-# environs, py4j and aiofile match the upstream everest-ci build-kit pins;
+# environs, py4j and aiofile match the upstream everest-ci build-kit pins
+# (build-kit-base v1.6.0, EVerest 2026.10.0-rc1: environs 14.5.0);
 # their dependencies are the versions resolved on 2026-10-10. Wheels only,
 # hash-pinned (caio has an x86_64 wheel and a pure-Python fallback).
 
@@ -8,8 +9,8 @@ aiofile==3.9.0 \
 caio==0.9.25 \
     --hash=sha256:06c0bb02d6b929119b1cfbe1ca403c768b2013a369e2db46bfa2a5761cf82e40 \
     --hash=sha256:bf84bfa039f25ad91f4f52944452a5f6f405e8afab4d445450978cd6241d1478
-environs==14.1.1 \
-    --hash=sha256:45bc56f1d53bbc59d8dd69bba97377dd88ec28b8229d81cedbd455b21789445b
+environs==14.5.0 \
+    --hash=sha256:1abd3e3a5721fb09797438d6c902bc2f35d4580dfaffe68b8ee588b67b504e13
 marshmallow==4.3.1 \
     --hash=sha256:e65accfbe277546df92ed7996a678c90e063e9a7c2a2f5e03f7d0b90e3768c42
 py4j==0.10.9.7 \

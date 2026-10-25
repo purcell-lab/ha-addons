@@ -23,18 +23,20 @@ installation. A staged manifest is not proof that its image is available.
 
 A simulated bidirectional DC charging station built from
 [EVerest](https://everest.github.io/latest/how-to-guides/getting-started/get-started-sw.html)
-2025.10.0, with one EVSE, one CCS2 connector and a simulated EV. The charger
-and the EV talk **ISO 15118-20 with the DC_BPT (bidirectional power
-transfer) service over mutual TLS 1.3**, so a central system (CSMS) can both
-charge and discharge the vehicle.
+**2026.10.0-rc1** (a release candidate, compiled from source; 0.1.13 and
+earlier used the 2025.10.0 demo image), with one EVSE, one CCS2 connector
+and a simulated EV. The charger and the EV talk **ISO 15118-20 with the
+DC_BPT (bidirectional power transfer) service over mutual TLS 1.3**, so a
+central system (CSMS) can both charge and discharge the vehicle.
 
 The station offers **OCPP 2.1 first and falls back to OCPP 2.0.1** when the
 CSMS only supports 2.0.1. The Status page shows the negotiated version.
+From 0.2.0 EVerest's OCPPmulti module runs OCPP (it replaces OCPP201).
 
 | Negotiated | What the CSMS can do |
 |---|---|
-| `ocpp2.1` | Charge and discharge. Send a TxProfile in W with `operationMode: CentralSetpoint` and a signed `setpoint` (negative is discharge, V2G export to the grid). |
-| `ocpp2.0.1` | **Charging only.** OCPP 2.0.1 has no discharge or setpoint fields, so the station only applies charging limits. |
+| `ocpp2.1` | Charge and discharge. Send a TxProfile in W with `operationMode: CentralSetpoint` and a signed `setpoint` (negative is discharge, V2G export to the grid). Send DER controls (SetDERControl, GetDERControl, ClearDERControl); the station accepts, reports and records them but does not apply them to power (see DER control). |
+| `ocpp2.0.1` | **Charging only.** OCPP 2.0.1 has no discharge or setpoint fields, so the station only applies charging limits. No DER messages. |
 
 This is a test tool, not a physical charger. It sits beside the AC
 **EVerest OCPP 2.1 Test Charger** App and does not replace it.
@@ -45,6 +47,8 @@ This is a test tool, not a physical charger. It sits beside the AC
   the ISO 15118-20 Dynamic control mode. Power, voltage and energy come
   from EVerest's DC supply simulator, not from real hardware.
 - OCPP over `ws://` with Security Profile 1. No TLS to the CSMS.
+- OCPP 2.1 DER control messages are accepted, reported and shown, never
+  applied to power.
 - No Plug and Charge. The test PKI only secures the ISO 15118 link inside
   the App.
 - Negotiating `ocpp2.1` and passing the tests in VALIDATION.md proves the
@@ -90,7 +94,7 @@ still needs `archive_and_rebind` once.
 | `csms_url` | Empty | OCPP base URL without the station ID. `ws://` on an explicit port, no credentials, query or `%` encoding. |
 | `charge_point_id` | `SIM-EV-EVEREST-V2G-01` | Required `SIM-EV-` namespace, up to 36 suffix characters. Also the Basic Auth user. |
 | `ocpp_version` | `2.1` | `2.1` offers `ocpp2.1, ocpp2.0.1`. `2.0.1` offers only `ocpp2.0.1`. |
-| `max_power_kw` | `25` | Charger rating in both directions, 3 to 25 kW. Also the default composite limit. The simulated battery is at 380 V, so 25 kW is 66 A DC. Upstream's simulated board allows only 11.04 kW discharge and 22.08 kW charge; the image raises its limits (UPSTREAM.md, local patches). |
+| `max_power_kw` | `25` | Charger rating in both directions, 3 to 25 kW. Also the default composite limit and the DER nameplate. The simulated battery is at 380 V, so 25 kW is 66 A DC. Upstream's simulated board allows only 11.04 kW discharge and 22.08 kW charge by default; the App sets its limits to the rating (`caps_max_current_A`, up to 109 A per phase). |
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty `csms_url`. |
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 | `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |
@@ -108,7 +112,10 @@ and power come only from the CSMS.
 
 - **Plug in**: the EV runs SLAC, opens the ISO 15118-20 TLS session, offers
   DC_BPT and waits for authorisation. Start the transaction from the CSMS
-  with RequestStartTransaction within 3 minutes (60 s before 0.1.10).
+  with RequestStartTransaction within 55 s: from 0.2.0 (EVerest 2026.10)
+  the charger stops an ISO 15118-20 authorisation wait after 55 s
+  (V2G_SECC_Ongoing_Performance_Time); 0.1.10 to 0.1.13 waited 3 minutes,
+  earlier versions 60 s. A later start is handled by the EV watchdog below.
   Cable check and pre-charge take about 15 s.
 - **EV stop session**: the EV ends the ISO 15118 session and unplugs.
 - **Unplug now**: immediate unplug, which ends any transaction.
@@ -139,8 +146,8 @@ status object count these restarts as `ev_stack_restarts`.
 EV gives up for the rest of that plug-in and logs `maximum number of SDP
 retry cycles (1) is now reached`; the charger keeps the connector in
 `Preparing` at 0 W and a new plug-in is refused. The usual cause is no
-authorisation within 3 minutes: the charger (libiso15118) then fails the
-session. 5 s after that line the App unplugs the EV, waits 10 s and plugs
+authorisation within 55 s (3 minutes up to 0.1.13): the charger then fails
+the session. 5 s after that line the App unplugs the EV, waits 10 s and plugs
 it in again, as you would by hand, so a later RequestStartTransaction
 still charges. It logs `EV watchdog: ...` and never acts while power flows,
 while unplugged, or when an EV command from the UI or HA came at about the
@@ -157,8 +164,17 @@ About 3 s after the charger's SDP server starts, the App runs a discovery
 self-test across the private link and logs one line, for example:
 
 ```
-Discovery self-test PASSED: unicast=reply multicast=reply v2g0=[in:request,out:response] v2g1=[out:request,in:response] (at start)
+Discovery self-test PASSED: unicast=received multicast=received v2g0=[in:request in:request] v2g1=[out:request out:request] charger=dlink-not-ready(answers after plug-in) (at start)
 ```
+
+From 0.2.0 (EVerest 2026.10) the charger answers SDP only once SLAC has
+matched, that is after a plug-in; before that it drops each request and logs
+`Ignoring SDP request because dlink is not ready`. A probe the charger
+logged that way is **received**: it crossed the private link to the
+charger's SDP socket, which is what the self-test checks (the failure it was
+added for, SDP leaving by `eth0` on HA OS, or the firewall dropping it,
+still gives **silent** and FAILED). **reply** (a full SDP answer) is also a
+pass; 0.1.x always got one.
 
 - **multicast** sends an SDP request to `ff02::1` via `v2g1`, as the
   simulated EV does. It runs first.
@@ -280,10 +296,13 @@ reply, and **Effective limit** shows EVerest's composite schedule for EVSE
 1, including limit, discharge limit and setpoint. A ChargingStationMaxProfile
 on EVSE 0 is merged into that composite by libocpp.
 
-### Known EVerest 2025.10.0 limitations
+### Known EVerest limitations
 
-These are upstream behaviours, found in testing and recorded in
-VALIDATION.md. The App does not hide them.
+These are upstream behaviours, found in testing on EVerest 2025.10.0 and
+recorded in VALIDATION.md. The App does not hide them. 0.2.0 runs EVerest
+2026.10.0-rc1: its CI acceptance run repeats the TxProfile steps
+(charge, 0 W, discharge, reversals) and they must still pass, but the other
+items have not been re-measured on 2026.10 yet; treat them as possible.
 
 - **Charging-only periods do not limit discharge.** OCPP201 in EVerest
   2025.10.0 turns `limit` into an import limit and `setpoint` into a
@@ -309,33 +328,38 @@ VALIDATION.md. The App does not hide them.
   EVSE 0 composite as per-phase shares, and EVerest 2025.10.0 reads the L1
   share as the total, which capped every target at a third of the rating.
   The App therefore applies OCPP limits through EVSE 1, whose composite
-  already includes station-level profiles. OCPP201 still computes the EVSE 0
-  composite every 10 s and warns `Can not apply external limits! No evse
-  energy sink configured for evse_id: 0`; neither module can skip EVSE 0,
-  so from 0.1.10 the App drops only that line from its log.
+  already includes station-level profiles. OCPP201 (up to 0.1.13) computed
+  the EVSE 0 composite every 10 s and warned `Can not apply external limits!
+  No evse energy sink configured for evse_id: 0`, which 0.1.10 to 0.1.13
+  dropped from the log. OCPPmulti (0.2.0) warns once at start (`No evse
+  energy sink configured for evse_id 0, composite schedules for it are not
+  applied as external limits`); that line is expected.
 
 ### Power rating in the device model
 
 A CSMS learns the rating from GetBaseReport (CitrineOS-HA from 0.7.2 asks
-when the station comes online). EVerest 2025.10.0 builds the EVSE component
-itself: EVSE 1 `Power` reports only an `Actual` attribute and a `maxLimit`
-taken from the simulated board (128 A x 3 x 230 V = 88,320 W after the
-board patch), whatever `max_power_kw` is, and the App cannot change it. The
+when the station comes online). EVerest builds the EVSE component itself
+(2025.10.0 and 2026.10.0-rc1): EVSE 1 `Power` reports only an `Actual`
+attribute and a `maxLimit` taken from the simulated board's AC limits (from
+0.2.0 the per-phase allowance x 3 x 230 V, 75,210 W at 25 kW; 88,320 W up
+to 0.1.13), not `max_power_kw`, and the App cannot change it. The
 App therefore adds `Power` to the `ChargingStation` component, from
 `max_power_kw`: `MaxSet` = rating in W (charging), `MinSet` = minus the
 rating (discharge, negative as in OCPP 2.1), and the same values as
 `maxLimit` and `minLimit`. Read the per-station `MaxSet`/`MinSet`
 attributes: CitrineOS v2.0.1 keeps a single `maxLimit` per variable name for
-all stations, and within this station's report EVSE `Power` (88,320 W)
-comes later and overwrites it.
+all stations, and within this station's report EVSE `Power` comes later
+and overwrites it. The DER nameplate (`DCDERCtrlr` `MaxW`, `MaxVA`,
+`MaxChargeRateW`, see DER control) carries the rating too.
 
 ### EV charging needs
 
 The station sends no NotifyEVChargingNeeds, by design. EVerest's
 ISO 15118-20 module (Evse15118D20) publishes the EV's needs on its
-`extensions` interface, and OCPP201 sends them only when its
-`extensions_15118` requirement is connected to it (with an EVSE mapping on
-the ISO 15118 module); the App does not connect it. CitrineOS v2.0.1
+`extensions` interface, and the OCPP module (OCPP201, OCPPmulti from 0.2.0)
+sends them only when its `extensions_15118` requirement is connected to it
+(with an EVSE mapping on the ISO 15118 module); the App does not connect
+it. CitrineOS v2.0.1
 accepts charging needs only for AC with `acChargingParameters` or DC with
 `dcChargingParameters`. For ISO 15118-20 EVerest sends `DC_BPT` (or `DC`)
 with `v2xChargingParameters` only, so CitrineOS answers Rejected and stores
@@ -349,8 +373,9 @@ discharge limits (Josev: 66 A, 25 kW) are therefore not reported over OCPP.
 
 The station asks the CSMS for the certificate status of the ISO 15118
 chain. The CSMS must answer GetCertificateStatus with a valid
-`status` field (for example `Failed`). libocpp 2025.10.0 aborts the station
-process on a reply without one.
+`status` field (for example `Failed`). libocpp in EVerest 2025.10.0 aborted
+the station process on a reply without one; this has not been re-checked on
+2026.10.0-rc1, so keep answering with a status.
 
 ## Dynamic pricing
 
@@ -368,7 +393,8 @@ The station shows prices; it never changes charging because of them. From
 The device model is rebuilt on every start, so a CSMS SetVariables change
 to these lasts until the next restart.
 
-What works (libocpp v0.30.3, OCPP 2.1 and 2.0.1):
+What works (libocpp v0.30.3 and EVerest 2026.10.0-rc1, OCPP 2.1 and 2.0.1;
+the CI acceptance run checks the items below on both):
 
 - **CostUpdated** is accepted during a transaction. With California Pricing
   `customData` (vendor `org.openchargealliance.costmsg`) the station also
@@ -398,9 +424,10 @@ What works (libocpp v0.30.3, OCPP 2.1 and 2.0.1):
   13 KiB) is shown under **Last received charging profile** without its
   price information, so the power setpoint schedule stays readable; the
   note above it names what was left out and the full size.
-- **OCPP 2.1 tariffs are not implemented.** libocpp v0.30.3 answers
-  SetDefaultTariff, GetTariffs, ClearTariffs and ChangeTransactionTariff
-  with the CALLERROR `NotImplemented`, whatever the device model says.
+- **OCPP 2.1 tariffs are not implemented.** libocpp (v0.30.3, and still in
+  EVerest 2026.10.0-rc1) answers SetDefaultTariff, GetTariffs, ClearTariffs
+  and ChangeTransactionTariff with the CALLERROR `NotImplemented`, whatever
+  the device model says.
 
 **Recent pricing messages** on the Status page (and `pricing` in
 `/api/profiles`) lists the last ten CostUpdated and tariff requests with
@@ -420,6 +447,78 @@ Enabling Tariff and Cost does not change authorisation, transactions or
 smart charging: libocpp uses these variables only when it handles
 CostUpdated and the cost fields of a TransactionEventResponse, and passes
 the result to EVerest's session cost.
+
+## DER control (OCPP 2.1)
+
+From 0.2.0 the station implements OCPP 2.1 DER control (functional block R,
+libocpp in EVerest 2026.10.0-rc1) for EVSE 1, whenever `ocpp2.1` is
+negotiated. It is a test target for a CSMS's DER messages: the station
+answers, stores and reports DER controls, and the Status page shows the
+active ones, but **no DER control changes charging or discharging power**.
+Use TxProfile setpoints for power.
+
+What a CSMS can send:
+
+| Message | Station reply |
+|---|---|
+| SetDERControl | `Accepted` for any of the 22 OCPP 2.1 control types (`EnterService`, `FreqDroop`, `FreqWatt`, `FixedPFAbsorb`, `FixedPFInject`, `FixedVar`, `Gradients`, `HFMustTrip`, `HFMayTrip`, `HVMustTrip`, `HVMomCess`, `HVMayTrip`, `LimitMaxDischarge`, `LFMustTrip`, `LVMustTrip`, `LVMomCess`, `LVMayTrip`, `PowerMonitoringMustTrip`, `VoltVar`, `VoltWatt`, `WattPF`, `WattVar`), with `supersededIds` when it replaces a lower-priority control of the same type. `Rejected` with reason `InvalidValue` when the control field does not match `controlType` (`ControlFieldMismatch`), a default control has `startTime` or `duration`, or `EnterService` or `Gradients` is not a default. When a scheduled control starts or ends, the station sends NotifyDERStartStop (`started` true or false); a control whose `startTime` has already passed starts at once. |
+| GetDERControl | `Accepted`, then a ReportDERControl with the matching controls (by `isDefault`, `controlType`, `controlId`) and the same `requestId`; `NotFound` when nothing matches. |
+| ClearDERControl | `Accepted` or `NotFound`, by `controlId`, or by `controlType`; with neither, every control with the given `isDefault` (always `Accepted`). |
+
+The device model has the DER component (GetBaseReport, GetVariables):
+`DCDERCtrlr` on EVSE 1 with `Available` and `Enabled` `true`
+(`Enabled` is ReadWrite: `false` stops the station passing the active set
+on, until the next restart), `ModesSupported` (the 22 types), `MaxW`,
+`MaxVA` and `MaxChargeRateW` (the rating, `max_power_kw`), and
+`InverterManufacturer` `purcell-lab`, `InverterModel` `EVerest-SIL-DC-V2G`.
+
+What the simulator does with them: libocpp keeps the controls in the core
+database (`/data/everest/ocpp201/cp.db`, so they survive restarts and
+upgrades until cleared) and computes the active set. EVerest's OCPPmulti
+module passes that set, on every change and every 60 s
+(`GridSupportHeartbeatS`), to the App's `HaGridSupport` module, which
+records it and forwards it unchanged to EVerest's ISO 15118-20 charger
+module (Evse15118D20). The **DER control** panel on the Status page shows
+the declared types, the active controls (type, id, priority, start and
+duration, for example `50 % of rated discharge power`) and the last ten
+DER requests with the station's replies; `/api/status` carries `der` and
+`/api/profiles` `der`.
+
+Limits:
+
+- **Not applied to power.** Evse15118D20 relays only curve controls
+  (`VoltVar`, `WattVar`, `WattPF`), and only to an EV in an ISO 15118-20 AC
+  DER session (`AC_DER_IEC` or `AC_DER_SAE`), at the next session. This
+  charger is DC and the simulated EV (Josev) has no DER support, so a
+  `LimitMaxDischarge` of 50 % does not reduce discharge.
+- **The capability is the App's declaration.** EVerest enables DER only
+  when a device declares a DER capability, and no upstream module declares
+  one (Evse15118D20 does not). Wired directly, every SetDERControl on this
+  DC station would be answered `NotSupported`. `HaGridSupport` (App code,
+  not EVerest) declares a DC capability with all 22 types and the rating
+  as nameplate, for testing a CSMS; it is not a measured inverter
+  capability.
+- **No DER alarms.** NotifyDERAlarm is sent only for grid events an EV
+  reports in an AC DER session, which never happens here.
+- **OCPP 2.0.1** has no DER messages.
+- **Release candidate.** DER control is new in EVerest 2026.10.0-rc1.
+  Passing the CI scenario (VALIDATION.md) proves those messages; it is not
+  OCPP 2.1 conformance.
+
+## Upgrading from 0.1.x
+
+0.2.0 keeps `/data`: the identity binding, the Basic Auth password, the
+test PKI and the core database. On the first start, libocpp migrates the
+core database from schema 6 (EVerest 2025.10.0) to 7 (adds the DER
+controls table); it does this itself when it opens the database. Before
+that, the App copies the old file once to
+`/data/everest/ocpp201/cp-schema6.db.bak` and logs it. The device model
+database is rebuilt on every start, as before.
+
+Rolling back to 0.1.13: EVerest 2025.10.0 cannot open a schema 7 core
+database (it has no step back from 7), so OCPP would not start. Set
+`archive_and_rebind: true` for the first 0.1.13 start (state is moved to
+`/data/archive-<time>/`, never deleted), then set it back to `false`.
 
 ## Security boundaries
 
@@ -461,9 +560,11 @@ real vehicles or chargers.
 
 All state is in the App's `/data`: OCPP message logs
 (`everest/ocpp_logs`, rotated at 1 MiB, 3 files), the core database with
-transactions and installed charging profiles (`everest/ocpp201/cp.db`),
-the test PKI (`pki/`) and the generated EVerest configuration. The device
-model is rebuilt from the options on every start.
+transactions, installed charging profiles and DER controls
+(`everest/ocpp201/cp.db`), the test PKI (`pki/`) and the generated EVerest
+configuration. The device model is rebuilt from the options on every start.
+The DER panel's copy of the active set (`/run/ha-everest/der.json`) is not
+kept across restarts.
 
 ## Install size
 
@@ -472,5 +573,7 @@ Home Assistant pulls a prebuilt image for its architecture
 locally from EVerest's 4.3 GB build image. From 0.1.6 the Java runtime for
 the EV simulator's EXI codec is a 50 MB jlink image instead of the 184 MB
 OpenJDK package, so the image is about 135 MB smaller than 0.1.5 (about
-560 MB on amd64 and 585 MB on aarch64). The image is published only through the approval-gated tag process
+560 MB on amd64 and 585 MB on aarch64). The 0.2.0 image, on the
+from-source EVerest 2026.10.0-rc1 runtime, has not been measured yet
+(VALIDATION.md records it once published). The image is published only through the approval-gated tag process
 in `RELEASE.md`.

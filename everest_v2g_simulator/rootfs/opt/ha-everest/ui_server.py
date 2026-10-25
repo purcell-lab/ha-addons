@@ -26,7 +26,11 @@ DATA = Path(os.environ.get("HA_EVEREST_DATA", "/data"))
 RUN = Path(os.environ.get("HA_EVEREST_RUN", "/run/ha-everest"))
 LOGS = DATA / "everest" / "ocpp_logs"
 EVSE = "evse_manager_1"
-SESSION_COST_TOPIC = "everest/modules/ocpp/impl/session_cost/var"
+# The OCPP module's session_cost implementation (framework topic, not the API
+# module). EVerest 2026.10 publishes each var on .../var/<name> as
+# {"msg_type": "Var", "data": {"data": <value>}} (2025.10.0: one .../var
+# topic with {"name": <name>, "data": <value>}).
+SESSION_COST_TOPIC = "everest/modules/ocpp/impl/session_cost/var/session_cost"
 TOPICS = {
     f"everest_api/{EVSE}/var/session_info": "session_info",
     f"everest_api/{EVSE}/var/powermeter": "powermeter",
@@ -34,8 +38,6 @@ TOPICS = {
     f"everest_api/{EVSE}/var/hardware_capabilities": "hardware_capabilities",
     "everest_api/ocpp/var/connection_status": "ocpp_connection",
     "everest_api/ocpp/var/charging_schedules": "charging_schedules",
-    # The OCPP201 module's session_cost implementation (framework topic, not
-    # the API module), wrapped as {"name": "session_cost", "data": <value>}.
     SESSION_COST_TOPIC: "session_cost",
 }
 CARSIM = "everest_external/nodered/1/carsim/cmd/"
@@ -103,10 +105,12 @@ class Bus:
 
 
 def unwrap_var(message):
-    """("session_cost", value) of an EVerest framework var message, or
-    (None, None) for any other var on that topic (tariff_message)."""
-    if isinstance(message, dict) and message.get("name") == "session_cost" and "data" in message:
-        return "session_cost", message["data"]
+    """("session_cost", value) of an EVerest framework var message on the
+    session_cost topic, or (None, None) for anything else."""
+    if not isinstance(message, dict):
+        return None, None
+    if message.get("msg_type") == "Var" and isinstance(message.get("data"), dict) and "data" in message["data"]:
+        return "session_cost", message["data"]["data"]
     return None, None
 
 
@@ -133,7 +137,7 @@ def _prices(components):
 
 
 def session_price(cost):
-    """Readable summary of an EVerest SessionCost (OCPP201 publishes one for
+    """Readable summary of an EVerest SessionCost (the OCPP module publishes one for
     each CostUpdated, and for a TransactionEventResponse with totalCost, when
     TariffCostCtrlr Cost is enabled). California Pricing customData supplies
     the current and next-period prices and the price text."""
@@ -183,6 +187,57 @@ def price_status(entry):
     return {"value": session_price(entry.get("value")), "age_s": entry.get("age_s")}
 
 
+DER_PAYLOADS = ("curve", "enter_service", "freq_droop", "fixed_pf", "fixed_var", "gradient",
+                "limit_max_discharge")
+
+
+def der_directive(directive):
+    """One grid_support Directive (types/grid_support.yaml) for display."""
+    payload = next(((k, directive[k]) for k in DER_PAYLOADS if k in directive), (None, None))
+    detail = None
+    if payload[0] == "limit_max_discharge":
+        pct = (payload[1] or {}).get("pct_max_discharge_power")
+        detail = f"{pct:g} % of rated discharge power" if isinstance(pct, (int, float)) else "limit"
+    elif payload[0] == "curve":
+        detail = f"curve, {len((payload[1] or {}).get('curve_data') or [])} points"
+    elif payload[0] == "fixed_pf":
+        detail = f"power factor {(payload[1] or {}).get('displacement')}"
+    elif payload[0] == "fixed_var":
+        value = payload[1] or {}
+        detail = f"{value.get('setpoint')} {value.get('unit')}"
+    elif payload[0]:
+        detail = payload[0].replace("_", " ")
+    return {"id": directive.get("id"), "type": directive.get("directive_type"),
+            "priority": directive.get("priority"), "is_default": directive.get("is_default"),
+            "start_time": directive.get("start_time"), "duration_s": directive.get("duration_s"),
+            "detail": detail}
+
+
+def der_status(path=None):
+    """What the HaGridSupport module recorded: the declared capability and the
+    active DER directive set OCPPmulti pushed (recorded, never applied)."""
+    try:
+        state = json.loads((path or RUN / configure.DER_STATE).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(state, dict):
+        return None
+    capability = ((state.get("capability") or {}).get("capability") or {})
+    active = state.get("active") or {}
+    return {
+        "control_types": capability.get("supported_types") or [],
+        "nameplate": capability.get("nameplate"),
+        "capability_at": state.get("capability_at"),
+        "active": [der_directive(d) for d in active.get("directives") or [] if isinstance(d, dict)],
+        "active_at": state.get("active_at"),
+        "updates": state.get("updates"),
+        "relay": state.get("relay"),
+        "alarms": state.get("alarms") or [],
+        # V2XChargingCtrlr SupportedOperationModes as written at start.
+        "v2x_operation_modes": state.get("v2x_operation_modes"),
+    }
+
+
 def status(bus, watchdog=None):
     data = bus.snapshot()
     schedules = (data.get("charging_schedules", {}).get("value") or {})
@@ -196,6 +251,7 @@ def status(bus, watchdog=None):
         "ocpp_connection": data.get("ocpp_connection"),
         "composite_schedule": evse_schedules[0] if evse_schedules else None,
         "session_cost": price_status(data.get("session_cost")),
+        "der": der_status(),
         "last_command": bus.last_command,
         "ev_watchdog": watchdog.snapshot() if watchdog else None,
         "server_time": time.time(),
@@ -247,7 +303,8 @@ def run_selftest(source, lock_held=False):
 
 def _selftest(source):
     """Run the probes, then record and log the result."""
-    result = diag.selftest()
+    # app.py counts the charger's "dlink is not ready" drops (diag.DLINK_NOT_READY).
+    result = diag.selftest(ignored=lambda: read_state().get("charger_sdp_dlink_ignored", 0))
     result["charger_sdp_blocked"] = bool(read_state().get("charger_sdp_blocked"))
     result["summary"] = diag.summary(result)
     result["source"] = source
@@ -274,11 +331,13 @@ def profiles():
             # Price information in the latest profile (stored by libocpp, not acted on).
             "price_schedules": ocpp_log.price_schedules(latest),
             # CostUpdated and OCPP 2.1 tariff requests with the station's replies.
-            "pricing": ocpp_log.pricing_events(text)}
+            "pricing": ocpp_log.pricing_events(text),
+            # OCPP 2.1 DER control requests with the station's replies.
+            "der": ocpp_log.der_events(text)}
 
 
 # Issue #33: when the simulated EV's ISO 15118 session ends before charging
-# (for example at the charger's 3-minute limit for authorisation), Josev
+# (for example at the charger's 55 s limit for authorisation), Josev
 # starts no new session and EvManager refuses a new plug-in until the EV is
 # unplugged. app.py records Josev's give-up line (ev_gave_up_at); this
 # watchdog then does the manual recovery: unplug, wait, plug in. It never
