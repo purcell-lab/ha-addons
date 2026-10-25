@@ -12,7 +12,7 @@
 # Until the runtime is published and pinned by digest, CI compiles it
 # (everest-runtime-source-build.yml) and builds this App from that local
 # image; releases accept only the pinned, public runtime.
-ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:2026.10.0-rc1-1
+ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:2026.10.0-rc1-1@sha256:49a1d5acf22b5368d2d92dac4d5818bb0d6266f4dfcc49817aac4b137f32efa7
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 FROM ${EVEREST_RUNTIME} AS runtime

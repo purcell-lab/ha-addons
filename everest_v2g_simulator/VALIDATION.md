@@ -80,7 +80,13 @@ sandbox), against everest-core `2026.10.0-rc1` (`f45ba0d`) and Josev
 | Unit tests (`python3 -m unittest discover -s everest_v2g_simulator/tests`) | 107 tests pass; the one IPv6 socket test needs IPv6, absent in the sandbox (CI has it) |
 
 Image build and acceptance (CI, both architectures; `CHECKS=minimal`
-on pull requests): **pending**, recorded here from the PR runs. The PR
+on pull requests): **pass** on `c04556e`
+([image jobs](https://github.com/purcell-lab/ha-addons/actions/runs/40170336871),
+[native-v2g with CitrineOS](https://github.com/purcell-lab/ha-addons/actions/runs/40170336861)),
+with the runtime compiled in the run. The runtime was then published from
+`4086cdf` as `everest-runtime:2026.10.0-rc1-1@sha256:49a1d5acf22b5368d2d92dac4d5818bb0d6266f4dfcc49817aac4b137f32efa7`
+([publish run](https://github.com/purcell-lab/ha-addons/actions/runs/40174763359))
+and pinned; the PR checks on the pinning commit pull it. The PR
 acceptance run (v2g21) adds the DER scenario: DCDERCtrlr `Available`,
 `Enabled` and `ModesSupported` (22 types) by GetVariables; SetDERControl
 `LimitMaxDischarge` 50 % with a past `startTime` Accepted and
