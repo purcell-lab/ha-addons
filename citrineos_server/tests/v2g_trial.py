@@ -45,6 +45,41 @@ def evaluate_steps(targets, samples, step):
     return steps, failures, known
 
 
+def der_round_trip(request, until, commander):
+    """OCPP 2.1 DER control through the gateway (source patch 0003) during the session."""
+    auth = {"Authorization": "Bearer " + commander}
+    query = "?identifier=" + STATION + "&tenantId=1"
+    route = lambda name: "/ocpp/2.1/smartcharging/" + name + "DERControl" + query
+    status, policy = request("/lab/control-policy", extra=auth)
+    der = policy["der_commands"]
+    assert status == 200 and der["enabled"] and der["station_id"] == STATION, policy
+    control = {"isDefault": False, "controlId": "ha-ci-der-1", "controlType": "LimitMaxDischarge",
+               "limitMaxDischarge": {"priority": 1, "pctMaxDischargePower": 50, "duration": 600}}
+    assert request(route("set"), body=control)[0] == 403, "Reader must not send DER controls"
+    over = {**control, "limitMaxDischarge": {"priority": 1, "pctMaxDischargePower": 101}}
+    assert request(route("set"), body=over, extra=auth)[0] == 400, "DER control outside lab bounds"
+    status, sent = request(route("set"), body=control, extra=auth)
+    assert status == 200 and sent.get("status") == "Accepted", sent
+    def started():
+        status, body = request("/lab/der-events", extra=auth)
+        return next((e for e in body.get("events", []) if e["action"] == "NotifyDERStartStop"
+                     and e["payload"].get("controlId") == "ha-ci-der-1" and e["payload"].get("started")), None)
+    notified = until(started, "NotifyDERStartStop for the control", 30)
+    request_id = secrets.randbelow(2**31)
+    status, got = request(route("get"), body={"requestId": request_id, "controlType": "LimitMaxDischarge"},
+                          extra=auth)
+    assert status == 200 and got.get("status") == "Accepted", got
+    reported = [x for r in got.get("reports", []) for x in (r.get("limitMaxDischarge") or [])]
+    assert any(x.get("id") == "ha-ci-der-1" and x["limitMaxDischarge"]["pctMaxDischargePower"] == 50
+               for x in reported), got
+    clear = {"isDefault": False, "controlId": "ha-ci-der-1"}
+    status, cleared = request(route("clear"), body=clear, extra=auth)
+    assert status == 200 and cleared.get("status") == "Accepted", cleared
+    status, again = request(route("clear"), body=clear, extra=auth)
+    assert status == 200 and again.get("status") == "NotFound", again
+    return {"set": sent, "notified": notified, "get": got, "clear": cleared, "clear_again": again}
+
+
 def trial(docker, request, server_options, names, secret_values, temporary):
     password, commander = secrets.token_hex(16), secrets.token_hex(32)
     secret_values.extend([password, commander,
@@ -119,7 +154,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
 
     server_options.update(profile_simulator_enabled=True, profile_simulator_password=password,
                           command_control_enabled=True, command_token=commander,
-                          price_commands_enabled=True)
+                          price_commands_enabled=True, der_commands_enabled=True)
     p = temporary / "lab-server.json"
     p.write_text(json.dumps(server_options)); p.chmod(0o600)
     docker("cp", str(p), "lab-server:/data/options.json")
@@ -248,6 +283,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         tariff = probe("tariff")
         report["tariff_evidence"] = tariff
         assert tariff["dispatch"]["station_status"] == "CALLERROR NotImplemented", tariff
+        report["der"] = der_round_trip(request, until, commander)
         report["client_meter"] = probe("meter")
         for key, expected in (("meter_transaction_id", txid), ("meter_fresh", True)):
             if report["client_meter"].get(key) != expected:

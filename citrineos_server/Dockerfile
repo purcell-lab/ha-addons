@@ -35,14 +35,18 @@ RUN cd /deploy && for f in dist/index.js dist/scripts/provision-partitions.js di
     && grep -q "ha-citrine patch (0001-ocpp21-charging-needs)" \
       node_modules/@citrineos/ocpp/dist/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.js \
     && grep -q "ha-citrine patch (0002-ocpp21-allowed-energy-transfer)" \
-      node_modules/@citrineos/ocpp/dist/src/handlers/requests/2/authorize-request-ocpp-21-handler.js
+      node_modules/@citrineos/ocpp/dist/src/handlers/requests/2/authorize-request-ocpp-21-handler.js \
+    && grep -q "ha-citrine patch (0003-ocpp21-der-control)" \
+      node_modules/@citrineos/ocpp/dist/src/apis/ocpp/2/smart-charging.js \
+    && grep -q "ha-citrine patch (0003-ocpp21-der-control)" \
+      node_modules/@citrineos/base/dist/src/interfaces/schema/mapping-schema.js
 
 FROM node:24.16.0-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
 ARG BUILD_ARCH
 LABEL io.hass.name="CitrineOS Isolated Lab" \
       io.hass.description="Private laboratory server with opt-in scoped simulator controls" \
       io.hass.type="addon" \
-      io.hass.version="0.8.0" \
+      io.hass.version="0.10.0" \
       io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons" \
       org.opencontainers.image.licenses="Apache-2.0"

@@ -1908,6 +1908,50 @@
         },
         "allow_aggregations": true
        }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "origin",
+         "type",
+         "action",
+         "payload",
+         "timestamp"
+        ],
+        "filter": {
+         "_and": [
+          {
+           "tenantId": {
+            "_eq": "X-Hasura-Tenant-Id"
+           }
+          },
+          {
+           "origin": {
+            "_eq": "cs"
+           }
+          },
+          {
+           "type": {
+            "_eq": 2
+           }
+          },
+          {
+           "action": {
+            "_in": [
+             "ReportDERControl",
+             "NotifyDERStartStop",
+             "NotifyDERAlarm"
+            ]
+           }
+          }
+         ]
+        },
+        "limit": 20,
+        "allow_aggregations": false
+       }
       }
      ]
     },

@@ -296,3 +296,11 @@ test('device model reports: on by default, a boolean option',()=>{
   for(const v of [true,false])assert.doesNotThrow(()=>validate({...good,device_model_reports:v}));
   for(const v of ['true',1,null])assert.throws(()=>validate({...good,device_model_reports:v}));
 });
+test('DER commands need scoped commands and a boolean flag',()=>{
+  const v2g={...good,profile_simulator_enabled:true,profile_simulator_password:'a'.repeat(32)};
+  const control={...v2g,command_control_enabled:true,command_token:'e'.repeat(64)};
+  assert.doesNotThrow(()=>validate({...control,der_commands_enabled:true}));
+  assert.doesNotThrow(()=>validate({...v2g,der_commands_enabled:false}));
+  assert.throws(()=>validate({...v2g,der_commands_enabled:true}),/needs command_control_enabled/);
+  assert.throws(()=>validate({...control,der_commands_enabled:'yes'}),/Invalid DER flag/);
+});

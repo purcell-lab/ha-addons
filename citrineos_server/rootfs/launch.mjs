@@ -11,7 +11,9 @@ import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_I
   PRICE_ROUTES,DEFAULT_TARIFF_ROUTE,priceOptions,pricePolicy,tariffStations,hasPriceSchedule,
   validateCostUpdated,costTargetAllows,tariffTarget,validateTariff,tariffTargetAllows,
   startRoute,RECONCILE_ROUTE,RECONCILE_EVERY_MS,reconcileTarget,reconcileDue,
-  REPORT_ROLE,REPORT_STATIONS_QUERY,deviceModelReports,reportState,reportsDue,reportDone} from './control-policy.mjs';
+  REPORT_ROLE,REPORT_STATIONS_QUERY,deviceModelReports,reportState,reportsDue,reportDone,
+  DER_ROUTES,DER_EVENTS_ROUTE,DER_EVENT_ACTIONS,DER_EVENT_LIMIT,DER_REPORT_WAIT_MS,DER_EVENTS_QUERY,
+  derEnabled,derRoute,derPolicy,validateDer,derTargetAllows,derStationId,derEvents,derReports} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -48,12 +50,18 @@ export function validate(o) {
   validateOperator(o);
   validatePlugfest(o);
   validatePrice(o);
+  validateDerOption(o);
 }
 // Dynamic pricing (B/C/D) uses the command credential, so it needs scoped commands.
 export function validatePrice(o) {
   if(o.price_commands_enabled!==undefined&&typeof o.price_commands_enabled!=='boolean')throw new Error('Invalid price flag');
   if(o.price_currency!==undefined&&!/^[A-Z]{3}$/.test(o.price_currency))throw new Error('price_currency must be an ISO 4217 code such as AUD');
   if(o.price_commands_enabled&&!o.command_control_enabled)throw new Error('price_commands_enabled needs command_control_enabled');
+}
+// DER control uses the command credential, so it needs scoped commands.
+export function validateDerOption(o) {
+  if(o.der_commands_enabled!==undefined&&typeof o.der_commands_enabled!=='boolean')throw new Error('Invalid DER flag');
+  if(o.der_commands_enabled&&!o.command_control_enabled)throw new Error('der_commands_enabled needs command_control_enabled');
 }
 // CitrineOS sends its own CostUpdated (from its Tariffs table, zero for the
 // lab tariff) every costUpdatedInterval seconds of a transaction; that would
@@ -250,7 +258,7 @@ export async function main() {
       // gateway's route lists while still root (the app folder is root-owned), so
       // the upstream process (uid 1000) can read it but not change it.
       fs.writeFileSync(ROLES_SEED,JSON.stringify(rolesSeed(o.command_control_enabled===true,o.price_commands_enabled===true,
-        deviceModelReports(o))));
+        deviceModelReports(o),derEnabled(o))));
       fs.chmodSync(ROLES_SEED,0o644);
     }
     process.setgid(1000);process.setuid(1000);
@@ -499,6 +507,51 @@ export async function main() {
       signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${signer.token(true)}`}});
     res.writeHead(r.status);res.end(await r.text());
   }
+  // DER control (der_commands_enabled): OCPP 2.1 Set, Get and ClearDERControl
+  // to the command station. A Get also returns the station's ReportDERControl
+  // messages for its requestId, read back from OCPPMessages.
+  function derMessages(stationId) {
+    return jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+      method:'POST',headers:{'Content-Type':'application/json',
+        'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
+      body:JSON.stringify({query:DER_EVENTS_QUERY,variables:{stationId,actions:DER_EVENT_ACTIONS,limit:DER_EVENT_LIMIT}}),
+    });
+  }
+  async function derCommand(req,res,url,controller) {
+    if(!derEnabled(o)){res.writeHead(403);res.end('{"error":"DER commands are off (der_commands_enabled)"}');return;}
+    if(!controller){res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
+    let size=0;const chunks=[];
+    for await(const c of req) {size+=c.length;if(size>65536){res.writeHead(413);res.end('{}');return;}chunks.push(c);}
+    let parsed;
+    try{parsed=JSON.parse(Buffer.concat(chunks).toString());}catch{parsed=undefined;}
+    if(!validateDer(url,parsed,station,real)){res.writeHead(400);res.end('{"error":"DER control outside lab bounds"}');return;}
+    const state=await observe(station);
+    if(!derTargetAllows(state,station)){res.writeHead(409);res.end('{"error":"The command station must be online on OCPP 2.1"}');return;}
+    const name=Object.keys(DER_ROUTES).find(k=>DER_ROUTES[k]===url.pathname);
+    console.log(`DER ${name} (${parsed.controlType??'any type'}${parsed.controlId?` ${parsed.controlId}`:''}) to ${station}.`);
+    // The station's reply, or the CALLERROR as CitrineOS reports it, unchanged.
+    const payload=await callAndWait(res,url.pathname,station,parsed);
+    if(!payload)return;
+    if(url.pathname!==DER_ROUTES.get||payload.status!=='Accepted'){res.end(JSON.stringify(payload));return;}
+    let found={reports:[],complete:false};
+    for(const until=Date.now()+DER_REPORT_WAIT_MS;!found.complete&&Date.now()<until;) {
+      await delay(500);
+      const events=derEvents(await derMessages(derStationId(state)).catch(()=>null));
+      if(events)found=derReports(events,parsed.requestId);
+    }
+    res.end(JSON.stringify({...payload,reports:found.reports}));
+  }
+  async function derEventsRequest(req,res) {
+    if(req.method!=='GET'){res.writeHead(405);res.end('{"error":"GET required"}');return;}
+    if(!derEnabled(o)){res.writeHead(403);res.end('{"error":"DER commands are off (der_commands_enabled)"}');return;}
+    const s=(await observe(station))?.data?.ChargingStations;
+    if(!Array.isArray(s)||s.length!==1||s[0].ocppConnectionName!==station||s[0].tenantId!==1){
+      res.writeHead(409);res.end('{"error":"The command station is not known"}');return;
+    }
+    const events=derEvents(await derMessages(s[0].id));
+    if(!events)throw new Error('Unexpected DER events');
+    res.end(JSON.stringify({station_id:station,events}));
+  }
   const gateway=http.createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
     try {
@@ -514,6 +567,8 @@ export async function main() {
       if(url.pathname===CONFIG_ROUTE) {await stationConfiguration(req,res,controller);return;}
       if(url.pathname===RECONCILE_ROUTE) {await reconcileRequest(req,res,controller);return;}
       if(req.method==='POST'&&PRICE_ROUTES.includes(url.pathname)) {await priceCommand(req,res,url,controller);return;}
+      if(req.method==='POST'&&derRoute(url.pathname)) {await derCommand(req,res,url,controller);return;}
+      if(url.pathname===DER_EVENTS_ROUTE) {await derEventsRequest(req,res);return;}
       const command=req.method==='POST'&&ALL_ROUTES.includes(url.pathname);
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
@@ -526,7 +581,7 @@ export async function main() {
           transaction_reconcile:{route:RECONCILE_ROUTE,protocols:['ocpp2.1','ocpp2.0.1'],
             automatic:o.command_control_enabled===true,every_s:RECONCILE_EVERY_MS/1000},
           clear_requires_closed_transaction:true,real_devices_enabled:o.command_real_stations_enabled===true,
-          open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o)}));return;
+          open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o),der_commands:derPolicy(o)}));return;
       }
       if(url.pathname==='/lab/status') {
         res.end(JSON.stringify({release:RELEASE,mode:'isolated',tenant:1,charger_listeners:listeners.length,
@@ -538,7 +593,7 @@ export async function main() {
           plugfest_protocols:o.plugfest_enabled?PLUGFEST_PROTOCOLS:[],
           read_only:!controller,operator_ui:o.operator_ui_enabled===true,
           operator_commands:o.operator_ui_enabled===true&&o.operator_commands_enabled===true,
-          device_model_reports:deviceModelReports(o)}));return;
+          device_model_reports:deviceModelReports(o),der_commands:derEnabled(o)}));return;
       }
       let target,headers={},body;
       if(url.pathname==='/v1/graphql'||command) {

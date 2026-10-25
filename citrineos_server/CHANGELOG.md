@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0
+
+- OCPP 2.1 DER control (lab, opt-in): `der_commands_enabled` (default
+  `false`, needs `command_control_enabled`). Source patch
+  `0003-ocpp21-der-control.patch` adds the DER schemas, the
+  `smartcharging/setDERControl`, `getDERControl` and `clearDERControl` routes
+  (OCPP 2.1 only) and handlers for the station's `ReportDERControl`,
+  `NotifyDERStartStop` and `NotifyDERAlarm`, which upstream v2.1.0 answered
+  with a FormatViolation. The gateway sends them to the command station only,
+  online on OCPP 2.1, within lab bounds for `LimitMaxDischarge`,
+  `FixedPFInject`, `FixedPFAbsorb` and `FixedVar`; a GetDERControl also returns
+  the station's reports. `GET /lab/der-events` lists the station's last 20 DER
+  messages, and `ha_reader` may read exactly those three actions in
+  `OCPPMessages`. `lab-controller` gets the three routes only with the option on.
+- Patch tests cover a patch that changes several upstream files; the upstream
+  route list fixture includes the three DER routes. CI runs upstream's tests for
+  the new handlers and endpoints, and the EVerest V2G trial sets, reads and
+  clears a LimitMaxDischarge 50 % control during the session.
+- Version 0.9.0 is skipped: it stays reserved for the LocalGeneration and EMS
+  limits work.
+
 ## 0.8.0
 
 - CitrineOS **v2.1.0**, built from source. The image no longer starts from

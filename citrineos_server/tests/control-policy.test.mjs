@@ -603,3 +603,95 @@ test('device model reports: once per online transition, OCPP 2.x only, rate-limi
     assert.deepEqual(reportsDue(bad,s4,now),[]);
   assert.equal(s4.online.size,7);
 });
+test('DER control: the command role gets the three OCPP 2.1 DER routes only when enabled',async()=>{
+  const {DER_ROUTES}=await import('../rootfs/control-policy.mjs');
+  const {routes:upstream}=await fixture('citrineos-routes.v2.1.0.json');
+  const der=Object.values(DER_ROUTES).map(route=>`POST ${route}`);
+  for(const flags of FLAGS) {
+    assert.deepEqual([...asSet(roleRoutes(...flags,false)[COMMAND_ROLE])].filter(r=>der.includes(r)),[]);
+    const on=asSet(roleRoutes(...flags,true)[COMMAND_ROLE]);
+    assert.deepEqual(der.filter(r=>on.has(r)),flags[0]?der:[]);
+    // Upstream (patch 0003) has each route, on OCPP 2.1 only, under the permission the seed grants.
+    const seed=rolesSeed(...flags,true)[COMMAND_ROLE].permissions;
+    const granted=Object.entries(upstream).filter(([k,p])=>seed.includes(p)&&/DER/.test(k)).map(([k])=>k).sort();
+    assert.deepEqual(granted,flags[0]?[...der].sort():[]);
+  }
+  for(const r of der) assert.equal(upstream[r],permissionName({method:'POST',route:r.slice(5)}));
+});
+test('DER control: Set within the lab bounds for each control type, to the command station only',async()=>{
+  const {DER_ROUTES,validateDer}=await import('../rootfs/control-policy.mjs');
+  const at=(route,id=STATION)=>new URL(`http://lab${route}?identifier=${id}&tenantId=1`);
+  const set=(controlType,field,c,extra={})=>({isDefault:false,controlId:'ha-der-1',controlType,[field]:{priority:1,...c},...extra});
+  const lmd=set('LimitMaxDischarge','limitMaxDischarge',{pctMaxDischargePower:50,duration:600});
+  for(const p of [lmd,
+    set('LimitMaxDischarge','limitMaxDischarge',{pctMaxDischargePower:0,startTime:'2026-10-25T12:00:00Z'}),
+    set('FixedPFInject','fixedPFInject',{displacement:0.95,excitation:true}),
+    set('FixedPFAbsorb','fixedPFAbsorb',{displacement:1,excitation:false,duration:86400}),
+    set('FixedVar','fixedVar',{setpoint:-40,unit:'PctMaxVar'}),
+    {...lmd,isDefault:true}])
+    assert.equal(validateDer(at(DER_ROUTES.set),p),true,JSON.stringify(p));
+  for(const p of [
+    set('LimitMaxDischarge','limitMaxDischarge',{pctMaxDischargePower:101}),
+    set('LimitMaxDischarge','limitMaxDischarge',{}),
+    set('LimitMaxDischarge','limitMaxDischarge',{pctMaxDischargePower:50,duration:86401}),
+    set('LimitMaxDischarge','limitMaxDischarge',{pctMaxDischargePower:50,startTime:'soon'}),
+    set('LimitMaxDischarge','limitMaxDischarge',{pctMaxDischargePower:50,powerMonitoringMustTrip:{}}),
+    set('LimitMaxDischarge','fixedPFInject',{displacement:0.9,excitation:true}),
+    set('FixedPFInject','fixedPFInject',{displacement:0,excitation:true}),
+    set('FixedPFInject','fixedPFInject',{displacement:0.9}),
+    set('FixedVar','fixedVar',{setpoint:120,unit:'PctMaxVar'}),
+    set('FixedVar','fixedVar',{setpoint:10,unit:'Not_Applicable'}),
+    set('VoltWatt','curve',{}),
+    {...lmd,limitMaxDischarge:{...lmd.limitMaxDischarge,priority:-1}},
+    {...lmd,controlId:''},{...lmd,controlId:'x'.repeat(37)},{...lmd,isDefault:'no'},
+    {...lmd,customData:{vendorId:'x'}},{...lmd,fixedVar:{priority:1,setpoint:1,unit:'PctMaxW'}},
+    null,[]])
+    assert.equal(validateDer(at(DER_ROUTES.set),p),false,JSON.stringify(p));
+  // Another station, a second identifier, a callback, or a route of another feature.
+  assert.equal(validateDer(at(DER_ROUTES.set,'SIM-EV-OTHER'),lmd),false);
+  assert.equal(validateDer(new URL(`http://lab${DER_ROUTES.set}?identifier=${STATION}&identifier=X&tenantId=1`),lmd),false);
+  assert.equal(validateDer(new URL(`http://lab${DER_ROUTES.set}?identifier=${STATION}&tenantId=1&callbackUrl=http://x`),lmd),false);
+  assert.equal(validateDer(at(ROUTES[2]),lmd),false);
+  assert.equal(validateDer(at(DER_ROUTES.set,'CP-REAL-1'),lmd,'CP-REAL-1',false),false);
+  assert.equal(validateDer(at(DER_ROUTES.set,'CP-REAL-1'),lmd,'CP-REAL-1',true),true);
+});
+test('DER control: Get and Clear filters',async()=>{
+  const {DER_ROUTES,validateDer}=await import('../rootfs/control-policy.mjs');
+  const at=route=>new URL(`http://lab${route}?identifier=${STATION}&tenantId=1`);
+  for(const p of [{requestId:1},{requestId:0,isDefault:true,controlType:'VoltVar'},{requestId:2147483647,controlId:'ha-der-1'}])
+    assert.equal(validateDer(at(DER_ROUTES.get),p),true,JSON.stringify(p));
+  for(const p of [{},{requestId:-1},{requestId:1.5},{requestId:1,controlType:'Bogus'},{requestId:1,extra:1}])
+    assert.equal(validateDer(at(DER_ROUTES.get),p),false,JSON.stringify(p));
+  for(const p of [{isDefault:false},{isDefault:true,controlType:'LimitMaxDischarge'},{isDefault:false,controlId:'ha-der-1'}])
+    assert.equal(validateDer(at(DER_ROUTES.clear),p),true,JSON.stringify(p));
+  for(const p of [{},{controlId:'ha-der-1'},{isDefault:false,requestId:1}])
+    assert.equal(validateDer(at(DER_ROUTES.clear),p),false,JSON.stringify(p));
+});
+test('DER control: policy, target and the DER messages read back',async()=>{
+  const {derPolicy,derTargetAllows,derStationId,derEvents,derReports,DER_EVENT_LIMIT}=await import('../rootfs/control-policy.mjs');
+  assert.deepEqual(derPolicy({}),{enabled:false});
+  assert.deepEqual(derPolicy({der_commands_enabled:true,command_station_id:'SIM-EV-EVEREST-V2G-03'}),{enabled:true,
+    station_id:'SIM-EV-EVEREST-V2G-03',protocol:'ocpp2.1',
+    routes:{set:'/ocpp/2.1/smartcharging/setDERControl',get:'/ocpp/2.1/smartcharging/getDERControl',
+      clear:'/ocpp/2.1/smartcharging/clearDERControl'},events:'/lab/der-events',
+    control_types:['LimitMaxDischarge','FixedPFInject','FixedPFAbsorb','FixedVar'],
+    limits:{pct_max_discharge_power:[0,100],displacement:[0,1],var_setpoint_pct:[-100,100],max_duration_s:86400}});
+  const online=protocol=>({data:{ChargingStations:[{id:7,tenantId:1,ocppConnectionName:STATION,protocol,isOnline:true}],
+    Transactions:[]}});
+  assert.equal(derTargetAllows(online('ocpp2.1'),STATION),true);
+  assert.equal(derTargetAllows(online('ocpp2.0.1'),STATION),false);
+  assert.equal(derTargetAllows(online('ocpp2.1'),'SIM-EV-OTHER'),false);
+  assert.equal(derStationId(online('ocpp2.1')),7);
+  const row=(action,payload,timestamp='2026-10-25T11:00:00.000Z')=>({id:1,action,timestamp,payload});
+  const rows=[row('ReportDERControl',{requestId:5,tbc:false}),row('NotifyDERStartStop',{controlId:'a',started:true}),
+    row('ReportDERControl',{requestId:5,tbc:true}),row('ReportDERControl',{requestId:4})];
+  const events=derEvents({data:{OCPPMessages:rows}});
+  assert.deepEqual(events.map(e=>e.action),['ReportDERControl','NotifyDERStartStop','ReportDERControl','ReportDERControl']);
+  assert.equal('id' in events[0],false);
+  assert.deepEqual(derReports(events,5),{reports:[{requestId:5,tbc:true},{requestId:5,tbc:false}],complete:true});
+  assert.deepEqual(derReports(events.slice(1),5),{reports:[{requestId:5,tbc:true}],complete:false});
+  assert.deepEqual(derReports(events,9),{reports:[],complete:false});
+  for(const bad of [{},{data:{OCPPMessages:[row('Authorize',{})]}},{data:{OCPPMessages:[row('ReportDERControl',null)]}},
+    {data:{OCPPMessages:Array(DER_EVENT_LIMIT+1).fill(row('ReportDERControl',{}))}}])
+    assert.equal(derEvents(bad),null);
+});

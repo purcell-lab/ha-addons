@@ -76,7 +76,7 @@ the gateway's route lists:
 | Role | Used for | May call |
 | --- | --- | --- |
 | `lab-reader` | gateway reads | the tariff read |
-| `lab-controller` | scoped commands | the tariff read; with `command_control_enabled`, exactly the scoped start, stop, profile and clear routes for OCPP 2.1, 2.0.1 and 1.6, the OCPP 1.6 configuration read and GetTransactionStatus; with `price_commands_enabled` too, the price routes |
+| `lab-controller` | scoped commands | the tariff read; with `command_control_enabled`, exactly the scoped start, stop, profile and clear routes for OCPP 2.1, 2.0.1 and 1.6, the OCPP 1.6 configuration read and GetTransactionStatus; with `price_commands_enabled` too, the price routes; with `der_commands_enabled` too, the three DER routes |
 | `lab-operator` | Operator UI commands | the operator command set (below) |
 | `lab-reporter` | device model reports | GetBaseReport, when `device_model_reports` is on |
 
@@ -151,6 +151,18 @@ discharge) session could not be negotiated. With the patch every Accepted OCPP
 2.1 AuthorizeResponse lists `DC`, `DC_BPT`, `AC_single_phase`, `AC_two_phase`,
 `AC_three_phase` and `AC_BPT`, unless the response already has a list. Other
 statuses and OCPP 2.0.1 are unchanged.
+
+**DER control patch (OCPP 2.1)** (`patches/0003-ocpp21-der-control.patch`).
+Upstream v2.1.0 knows the OCPP 2.1 DER actions by name only: it has no schemas,
+routes or handlers for them, so a station's `ReportDERControl`,
+`NotifyDERStartStop` or `NotifyDERAlarm` is answered with a FormatViolation
+CALLERROR and nothing can send `SetDERControl`, `GetDERControl` or
+`ClearDERControl`. The patch adds the six actions' schemas to the OCPP 2.1
+schema records, the three OCPP 2.1 routes under `smartcharging`, handlers that
+acknowledge the three station messages (with the empty response the schema
+defines; CitrineOS keeps every message in `OCPPMessages`) and handlers that log
+the station's status for the three CSMS requests. No database change. The
+gateway decides who may use the routes (see DER control below).
 
 **Reconnect (#67), fixed upstream.** CitrineOS v2.0.1 freed a closing
 station's connection slot before it deregistered the station from the message
@@ -483,6 +495,41 @@ put a zero `totalCost` into every TransactionEventResponse instead. CitrineOS
 still fills `totalCost` in the TransactionEventResponse that ends a
 transaction (zero with the lab tariff), and 0 for a 2.1 transaction cancelled
 before any energy was delivered.
+
+## DER control (lab)
+
+Off unless `der_commands_enabled: true` (default `false`; needs
+`command_control_enabled`). OCPP 2.1 DER control of the command station only,
+which must be online on OCPP 2.1. The three routes use the command token and
+`?identifier=<command station>&tenantId=1`, like the scoped commands, and
+answer with the station's reply (or CitrineOS's CALLERROR) unchanged.
+
+| Route | Body |
+|---|---|
+| `POST /ocpp/2.1/smartcharging/setDERControl` | `isDefault`, `controlId` (1 to 36 of `A-Za-z0-9._:-`), `controlType` and its one control |
+| `POST /ocpp/2.1/smartcharging/getDERControl` | `requestId`, optional `isDefault`, `controlType`, `controlId` |
+| `POST /ocpp/2.1/smartcharging/clearDERControl` | `isDefault`, optional `controlType`, `controlId` |
+| `GET /lab/der-events` | none (api or command token): the station's last 20 DER messages, newest first |
+
+- **Set**: four control types, each with `priority` (integer, 0 or more) and
+  optional `startTime` and `duration` (1 to 86400 s):
+  `LimitMaxDischarge` with `limitMaxDischarge.pctMaxDischargePower` 0 to 100
+  (no `powerMonitoringMustTrip` curve); `FixedPFInject` and `FixedPFAbsorb`
+  with `displacement` above 0 and at most 1 and `excitation`; `FixedVar` with
+  `setpoint` -100 to 100 and `unit` `PctMaxW`, `PctMaxVar` or `PctVarAvail`.
+  Curves, trip settings, `EnterService`, `FreqDroop` and `Gradients` are
+  refused (400), as is any other key or `customData`.
+- **Get**: after an Accepted status the gateway waits up to 5 s for the
+  station's `ReportDERControl` messages with that `requestId` (until one has
+  no `tbc`) and returns them as `reports`, oldest first.
+- **Events**: `ReportDERControl`, `NotifyDERStartStop` and `NotifyDERAlarm`
+  from `OCPPMessages`. Home Assistant's `ha_reader` role may read only these
+  three station messages there (20 rows, the payload but not the raw frame).
+- `/lab/control-policy` lists the routes, control types and limits as
+  `der_commands`, and `/lab/status` shows `der_commands`.
+
+A DER control is information for the station's own DER function. The gateway
+does not change any charging profile or power bound because of it.
 
 ## Operator UI scope (opt-in)
 

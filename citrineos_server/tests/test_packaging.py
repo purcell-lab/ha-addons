@@ -140,7 +140,7 @@ class PackagingSafety(unittest.TestCase):
     def test_metadata_has_no_write_permissions_or_sensitive_columns(self):
         metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())
         tables = metadata["sources"][0]["tables"]
-        self.assertEqual(len(tables), 12)
+        self.assertEqual(len(tables), 13)
         tenant = {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}
         for table in tables:
             self.assertFalse(set(table) & {"insert_permissions", "update_permissions", "delete_permissions"})
@@ -150,6 +150,18 @@ class PackagingSafety(unittest.TestCase):
             self.assertIn(p["filter"], (tenant, {"_and": [tenant, *p["filter"].get("_and", [])[1:]]}))
             self.assertLessEqual(p["limit"], 501)
             self.assertNotIn("*", p["columns"])
+
+    def test_der_messages_for_ha_reader(self):
+        """DER control (DOCS.md): only the station's three DER messages, never another action."""
+        metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())
+        tables = {t["table"]["name"]: t for t in metadata["sources"][0]["tables"]}
+        p = tables["OCPPMessages"]["select_permissions"][0]["permission"]
+        self.assertEqual(p["columns"], ["id", "stationId", "origin", "type", "action", "payload", "timestamp"])
+        self.assertNotIn("raw", p["columns"])
+        self.assertEqual(p["filter"], {"_and": [
+            {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}, {"origin": {"_eq": "cs"}}, {"type": {"_eq": 2}},
+            {"action": {"_in": ["ReportDERControl", "NotifyDERStartStop", "NotifyDERAlarm"]}}]})
+        self.assertEqual(p["limit"], 20)
 
     def test_device_model_and_charging_needs_for_ha_reader(self):
         """The Home Assistant contract (DOCS.md, Device model and charging needs)."""
