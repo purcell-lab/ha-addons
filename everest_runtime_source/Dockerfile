@@ -41,8 +41,13 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     git clone --depth 1 --branch "${EVEREST_CORE_TAG}" "${EVEREST_CORE_REPOSITORY}" /ext/source; \
     test "$(git -C /ext/source rev-parse HEAD)" = "${EVEREST_CORE_COMMIT}"; \
+    # MinSizeRel, the build type everest-core's own CI uses (with GCC 12 in
+    # this image). Release (-O3) trips a GCC 12 -Warray-bounds false positive
+    # in lib/everest/io (mdns.cpp) under the module's -Werror; that one
+    # warning is also kept from failing the build.
     cmake -S /ext/source -B /ext/build -G Ninja \
-      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_BUILD_TYPE=MinSizeRel \
+      -DCMAKE_CXX_FLAGS="-Wno-error=array-bounds -Wno-error=stringop-overflow" \
       -DCMAKE_INSTALL_PREFIX=/ext/dist \
       -DWHEEL_INSTALL_PREFIX=/ext/wheels \
       -DCPM_SOURCE_CACHE=/ext/cache/cpm \

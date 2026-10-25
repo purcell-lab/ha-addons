@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: ""
+      arches:
+        description: 'JSON list of {"runner", "arch"} to build (default: amd64 and aarch64).'
+        required: false
+        type: string
+        default: '[{"runner": "ubuntu-24.04", "arch": "amd64"}, {"runner": "ubuntu-24.04-arm", "arch": "aarch64"}]'
 permissions:
   contents: read
 jobs:
@@ -24,11 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: ubuntu-24.04
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
+        include: ${{ fromJSON(inputs.arches) }}
     runs-on: ${{ matrix.runner }}
     # A cold compile of the selected modules takes most of this; a cache hit
     # takes a few minutes.
