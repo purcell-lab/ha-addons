@@ -27,30 +27,56 @@ export const routesFor=protocol=>(protocol==='ocpp1.6'?ACTIONS_16:ACTIONS)
 export const ROUTES=routesFor(PROTOCOL);
 export const COMMANDS_BY_PROTOCOL=Object.fromEntries(PROTOCOLS.map(p=>[p,routesFor(p)]));
 export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
-// CitrineOS role-based access for the scoped command role, derived from the
-// same route list the gateway enforces so the two cannot drift apart (0.6.0
+// CitrineOS role-based access for the internal JWT roles, derived from the
+// same route lists the gateway enforces so the two cannot drift apart (0.6.0
 // accepted 2.0.1 and 1.6 routes at the gateway but CitrineOS refused them).
-// Starts from the shipped rules (reader and Operator UI roles unchanged),
-// removes the command role from every scoped route, then grants it exactly
-// ALL_ROUTES, the read-only configuration route and the transaction status
-// routes (STATUS_ROUTES, sent only by the gateway itself) when scoped commands
-// are enabled, plus the price routes (PRICE_ROUTES) when price commands are enabled too.
-// The report role (REPORT_ROLE) gets exactly the two GetBaseReport routes
-// when device model reports are on; no other role changes there.
+// roleRoutes() lists the upstream routes each role may call:
+// - lab-reader: GET /commands/tariff only;
+// - lab-controller (COMMAND_ROLE): the tariff read, plus, when scoped commands
+//   are enabled, exactly ALL_ROUTES, the read-only configuration route and the
+//   transaction status routes (STATUS_ROUTES, sent only by the gateway itself),
+//   plus the price routes (PRICE_ROUTES) when price commands are enabled too;
+// - lab-operator (OPERATOR_ROLE): the Operator UI command set on OCPP 2.0.1 and
+//   2.1 (OPERATOR_COMMANDS and the metering SetVariables);
+// - lab-reporter (REPORT_ROLE): the two GetBaseReport routes when device model
+//   reports are on.
+// CitrineOS v2.1.0 checks a permission per route, named from the route without
+// its OCPP version (permissionName); rolesSeed() turns the route lists into
+// its roles seed file. A permission therefore also covers the same action on
+// the other OCPP versions: the gateway's version checks (validateCommand,
+// targetAllows, operatorCommand, operatorTargetAllows, the price and report
+// targets) remain what scopes a role to an OCPP version.
 export const COMMAND_ROLE='lab-controller';
-export function rbacRules(base,commandsEnabled,priceEnabled=false,reportsEnabled=false) {
-  const rules=JSON.parse(JSON.stringify(base));
-  const tenant=rules['1'];
-  const grant=(route,role,on)=>{
-    const roles=(tenant[route]?.POST||[]).filter(r=>r!==role);
-    if(on) roles.unshift(role);
-    if(roles.length) tenant[route]={...tenant[route],POST:roles};
-    else if(tenant[route]) { delete tenant[route].POST; if(!Object.keys(tenant[route]).length) delete tenant[route]; }
+export const READER_ROLE='lab-reader';
+export const OPERATOR_ROLE='lab-operator';
+export const TARIFF_READ={method:'GET',route:'/commands/tariff'};
+export function roleRoutes(commandsEnabled,priceEnabled=false,reportsEnabled=false) {
+  const post=routes=>routes.map(route=>({method:'POST',route}));
+  const commands=commandsEnabled===true
+    ?[...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...(priceEnabled===true?PRICE_ROUTES:[])]:[];
+  return {
+    [READER_ROLE]:[TARIFF_READ],
+    [COMMAND_ROLE]:[TARIFF_READ,...post(commands)],
+    [OPERATOR_ROLE]:post(OPERATOR_PROTOCOLS.flatMap(p=>[...OPERATOR_COMMANDS,METERING_COMMAND]
+      .map(a=>`/ocpp/${p.slice(4)}/${a}`))),
+    [REPORT_ROLE]:post(reportsEnabled===true?Object.values(REPORT_ROUTES):[]),
   };
-  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...PRICE_ROUTES])
-    grant(route,COMMAND_ROLE,commandsEnabled===true&&(!PRICE_ROUTES.includes(route)||priceEnabled===true));
-  for(const route of Object.values(REPORT_ROUTES)) grant(route,REPORT_ROLE,reportsEnabled===true);
-  return rules;
+}
+// CitrineOS v2.1.0 permission names (packages/base permission-name.ts): an
+// OCPP message route /ocpp/<version>/<eventGroup>/<action> needs
+// ocpp.<eventGroup>.<action>; a command route <prefix>/<path> with method M
+// needs <prefix>.<path>.<m>. null for anything else.
+export function permissionName({method,route}) {
+  const ocpp=/^\/ocpp\/(?:1\.6|2\.0\.1|2\.1)\/([a-z]+)\/([a-z][A-Za-z0-9]*)$/.exec(route);
+  if(ocpp)return method==='POST'?`ocpp.${ocpp[1]}.${ocpp[2]}`:null;
+  const command=/^\/(commands)\/([a-z][A-Za-z0-9]*)$/.exec(route);
+  return command?`${command[1]}.${command[2]}.${method.toLowerCase()}`:null;
+}
+// The roles seed file (CITRINEOS_ROLES seedFile): {role: {resources, permissions}}.
+// Resources are the Operator UI's own access model; the lab grants none.
+export function rolesSeed(commandsEnabled,priceEnabled=false,reportsEnabled=false) {
+  return Object.fromEntries(Object.entries(roleRoutes(commandsEnabled,priceEnabled,reportsEnabled))
+    .map(([role,routes])=>[role,{resources:{},permissions:[...new Set(routes.map(permissionName))].sort()}]));
 }
 // The OCPP version a command route speaks, e.g. 'ocpp2.0.1'; null if not a lab route.
 export function routeProtocol(pathname) {
@@ -375,6 +401,8 @@ export function meteringVariables(p) {
       &&(METERING_VARIABLES[e.component.name]||[]).includes(e.variable.name)
       &&meteringValue(e.variable.name,e.attributeValue));
 }
+// The OCPP versions operator commands may use (OPERATOR_ROUTE below).
+export const OPERATOR_PROTOCOLS=['ocpp2.0.1','ocpp2.1'];
 const OPERATOR_ROUTE=/^\/ocpp\/(2\.0\.1|2\.1)\/([a-z]+\/[A-Za-z]+)$/;
 export const OPERATOR_IDENTITY=/^[A-Za-z0-9._~*+-]{1,48}$/;
 export function operatorCommand(url) {

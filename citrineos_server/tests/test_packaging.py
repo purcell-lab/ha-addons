@@ -27,26 +27,45 @@ class PackagingSafety(unittest.TestCase):
         self.assertEqual(config["options"]["mode"], "disconnected")
         self.assertEqual(config["schema"]["mode"], "list(disconnected|isolated)")
 
-    def test_pinned_image_and_no_upstream_startup(self):
+    def test_pinned_source_build_and_no_upstream_startup(self):
         lock = json.loads((ROOT / "compatibility-lock.json").read_text())
+        server = lock["server"]
         docker = (ROOT / "Dockerfile").read_text()
-        self.assertIn("FROM " + lock["server"]["image"], docker)
-        self.assertRegex(lock["server"]["image"], r"@sha256:[a-f0-9]{64}$")
+        lines = docker.splitlines()
+        # CitrineOS is built from source at the pinned commit, on digest-pinned
+        # node images; no build argument selects another source or base.
+        self.assertEqual(server["build"], "source")
+        self.assertEqual(server["version"], "2.1.0")
+        self.assertRegex(server["commit"], r"^[0-9a-f]{40}$")
+        froms = [line for line in lines if line.startswith("FROM ")]
+        self.assertEqual(froms, ["FROM " + server["build_image"] + " AS build", "FROM " + server["run_image"]])
+        for image in (server["build_image"], server["run_image"]):
+            self.assertRegex(image, r"^node:24\.16\.0(-slim)?@sha256:[a-f0-9]{64}$")
+        # Native modules are built for the target: no cross-platform build stage.
+        self.assertNotIn("--platform", " ".join(froms))
+        self.assertNotIn("${", " ".join(froms))
+        self.assertEqual(docker.count(server["commit"]), 2)
+        self.assertIn(f"git fetch -q --depth 1 origin {server['commit']}", docker)
+        self.assertIn(f'test "$(git rev-parse HEAD)" = "{server["commit"]}"', docker)
+        self.assertIn(f"https://github.com/citrineos/citrineos-core.git", docker)
+        self.assertEqual(server["repository"], "https://github.com/citrineos/citrineos-core")
+        # Each source patch is checked, then applied; a failure stops the build.
+        self.assertEqual(sorted(p.name for p in (ROOT / "patches").iterdir()), server["patches"])
+        self.assertIn('git apply --check "$patch"; git apply "$patch"', docker)
+        self.assertIn("pnpm install --frozen-lockfile", docker)
         self.assertIn('ENTRYPOINT ["node", "/opt/citrine-ha/launch.mjs"]', docker)
+        self.assertIn("ARG BUILD_ARCH", docker)
+        self.assertIn('io.hass.arch="${BUILD_ARCH}"', docker)
+        config = yaml.safe_load((ROOT / "config.yaml").read_text())
+        self.assertIn(f'io.hass.version="{config["version"]}"', docker)
         self.assertIn("process.setuid(1000)", (ROOT / "rootfs/launch.mjs").read_text())
         self.assertNotIn("latest", docker)
+        # The compiled-JS patchers of 0.7.x are gone with the upstream image.
+        self.assertEqual(sorted(p.name for p in (ROOT / "rootfs").glob("patch-*")), [])
+        self.assertFalse((ROOT / "rootfs/rbac-rules.json").exists())
         self.assertFalse(lock["assessment"]["runtime_activation_allowed"])
         self.assertEqual(lock["assessment"]["status"], "blocked")
         self.assertFalse(lock["assessment"]["full_stack_verified"])
-        # The upstream reconnect race patch (#67) is applied and verified at build.
-        self.assertIn("RUN node /opt/citrine-ha/patch-reconnect.mjs \\\n"
-                      "    && node /opt/citrine-ha/patch-reconnect.mjs --check", docker)
-        # The OCPP 2.1 charging needs patch (DC_BPT) is applied and verified at build.
-        self.assertIn("RUN node /opt/citrine-ha/patch-charging-needs.mjs \\\n"
-                      "    && node /opt/citrine-ha/patch-charging-needs.mjs --check", docker)
-        # The OCPP 2.1 allowedEnergyTransfer patch is applied and verified at build.
-        self.assertIn("RUN node /opt/citrine-ha/patch-allowed-energy.mjs \\\n"
-                      "    && node /opt/citrine-ha/patch-allowed-energy.mjs --check", docker)
 
     def test_dependencies_are_private_and_pinned(self):
         for app in ("citrineos_database", "citrineos_broker", "citrineos_hasura"):
@@ -105,10 +124,16 @@ class PackagingSafety(unittest.TestCase):
             theirs = tables[mine["table"]["name"]]
             reader = [p for p in theirs["select_permissions"] if p["role"] == "ha_reader"]
             self.assertEqual(reader, mine["select_permissions"])
-        rbac = json.loads((ROOT / "rootfs/rbac-rules.json").read_text())["1"]
-        for route, methods in rbac.items():
-            for roles in methods.values():
-                self.assertTrue(set(roles) <= {"lab-reader", "lab-controller", "lab-operator"}, route)
+        # v2.1.0 tables: the connection log hides the remote address; the
+        # dropped LatestStatusNotifications table is gone.
+        self.assertNotIn("LatestStatusNotifications", tables)
+        cols = tables["WebsocketEvents"]["select_permissions"][0]["permission"]["columns"]
+        self.assertIsInstance(cols, list)
+        self.assertNotIn("remoteAddress", cols)
+        for name in ("NetworkAlerts", "NetworkAlertOccurrences"):
+            self.assertEqual([p["role"] for p in tables[name]["select_permissions"]], ["operator_ro"])
+        self.assertIn("LatestStatusNotification",
+                      [r["name"] for r in tables["Connectors"]["object_relationships"]])
 
     def test_metadata_has_no_write_permissions_or_sensitive_columns(self):
         metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())

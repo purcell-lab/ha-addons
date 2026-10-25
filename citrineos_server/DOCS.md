@@ -6,7 +6,12 @@ command controls off until the documented gates pass. Read the
 [full implementation, build and test handover](../docs/citrine-everest-handover.md)
 before preparing an update.
 
-This App runs pinned CitrineOS **v2.0.1**, not an OCPP protocol version.
+This App runs pinned CitrineOS **v2.1.0**, not an OCPP protocol version. The
+image builds it from source at the release commit
+(`4fd7599b91c2fb6e6065e7c9b94be69880cced27`) with this App's source patches
+(`patches/`, see "Upstream changes in this App"), so installing or updating
+the App needs network access to GitHub and the npm registry and takes several
+minutes.
 Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
 Nothing binds a host port. No OCPP listener is enabled by default.
 Existing physical chargers, simulators, Home Assistant OCPP entries and payments
@@ -51,16 +56,36 @@ model tables only power-rating variables (see "Device model and charging
 needs"). Caller
 authentication, role and tenant headers are never forwarded to dependencies.
 
-The upstream API binds loopback port 8088 and uses its actual OIDC/JWT provider,
-not local authentication bypass. The gateway signs 60-second internal JWTs with
-an in-memory RSA key and role `lab-reader`; its loopback JWKS endpoint is port 8091.
-RBAC permits only tariff reads for that role. Restart rotates the internal key.
-Scoped commands use role `lab-controller`. At every start the App writes
-CitrineOS's RBAC rules (`rbac-rules.json`) from the gateway's command route
-list: with `command_control_enabled`, `lab-controller` may POST exactly the
-scoped start, stop, profile and clear routes for OCPP 2.1, 2.0.1 and 1.6;
-without it, none. The gateway still applies every check first.
-The bearer gateway is a lab credential bridge, not an interactive identity provider.
+The upstream API binds loopback port 8088 and uses its JWT provider
+(`auth.mode` `jwt`), not local authentication bypass. The App sets the mode
+explicitly: CitrineOS v2.1.0 defaults to `localDev`, which serves a
+token-minting `/dev/token` route; with `jwt` no `/dev` route exists, and the
+gateway never forwards `/dev` or `/permissions`. The gateway signs 60-second
+internal JWTs (RS256, key ID `lab`, claims `roles` and `tenant_id` 1) with an
+in-memory RSA key; its loopback JWKS endpoint is port 8091. Restart rotates the
+internal key.
+
+CitrineOS checks one permission per route, named from the route
+(`ocpp.<eventGroup>.<action>` for an OCPP route, `commands.tariff.get` for the
+tariff read), and reads the roles that hold them from a roles seed file. At
+every start the App writes that file (`roles-seed.json` in the upstream app
+folder, root-owned, read-only to CitrineOS, which re-reads it every 60 s) from
+the gateway's route lists:
+
+| Role | Used for | May call |
+| --- | --- | --- |
+| `lab-reader` | gateway reads | the tariff read |
+| `lab-controller` | scoped commands | the tariff read; with `command_control_enabled`, exactly the scoped start, stop, profile and clear routes for OCPP 2.1, 2.0.1 and 1.6, the OCPP 1.6 configuration read and GetTransactionStatus; with `price_commands_enabled` too, the price routes |
+| `lab-operator` | Operator UI commands | the operator command set (below) |
+| `lab-reporter` | device model reports | GetBaseReport, when `device_model_reports` is on |
+
+These are the routes each role had with CitrineOS v2.0.1. A v2.1.0 permission
+no longer names an OCPP version, so it also covers the same action on the other
+versions (for the operator role, the OCPP 1.6 forms of its actions): the
+gateway's own checks, which already required the route's version to match the
+station's, are what scope a role to an OCPP version, and they run before every
+request. The bearer gateway is a lab credential bridge, not an interactive
+identity provider.
 
 No HA/Supervisor API token, Docker socket, host network, device or privileged mount
 is granted. Server and Hasura processes run as UID 1000 after root-only startup
@@ -90,47 +115,62 @@ restore has been tested. Take a protected HA backup before deployment.
 
 ## Upstream changes in this App
 
-**Reconnect patch (#67).** The image build patches one upstream file,
-`@citrineos/ocpp/dist/src/transport/network-connection/websocket-network-connection.js`
-(`rootfs/patch-reconnect.mjs`). Upstream v2.0.1 closes a station's old
-connection in the background: it frees the station's connection slot at once,
-then deregisters the station from the message router, which unbinds the
-station's RabbitMQ bindings. A station that reconnected at once (EVerest does
-after `Pong not received from server!`) registered its bindings in the
-meantime, and the old deregistration then removed them: CitrineOS stored
-every message from the station, but no reply (CALLRESULT) reached it, while
-commands to the station still worked. With the patch a new connection waits
-until an earlier connection of the same identity has finished closing. The
-build fails unless the file is the exact v2.0.1 build, and CI checks that the
-image is patched (`node /opt/citrine-ha/patch-reconnect.mjs --check`). If a
-station shows the old symptom on an unpatched version, restart only the
-station (one clean connection).
+**Source build and patches.** The image build fetches CitrineOS at the pinned
+commit (and checks it), applies each file in `patches/` with `git apply`
+(checked first: a patch that does not apply cleanly fails the build), then
+builds and deploys the server as upstream's `apps/ocpp-server/deploy.Dockerfile`
+does, on digest-pinned `node:24.16.0` images, natively on each architecture.
+The build fails if a runtime file the launcher uses is missing or a patch is not
+in the compiled output. The pinned source licence, commit and patches are in
+`/usr/share/doc/citrineos-core` in the image. CI applies the patches to the
+pinned commit, compiles them and runs upstream's tests for both handlers, and
+the App's own tests run the patched TypeScript with fakes.
 
-**Charging needs patch (OCPP 2.1).** The build also patches
-`@citrineos/ocpp/dist/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.js`
-(`rootfs/patch-charging-needs.mjs`). Upstream v2.0.1 accepts DC charging needs
-only when `requestedEnergyTransfer` is exactly `DC`, so an OCPP 2.1 EV asking
-for bidirectional DC (`DC_BPT`) was always answered Rejected and the station
-refused the energy transfer (`ReqEnergyTransferRejected`). With the patch the
-2.1 DC modes match like `DC`, and needs with `v2xChargingParameters` (for example
-OCTT's `AC_BPT`) match whatever the mode; for a mode that is not an OCPP 2.0.1 mode,
-or any needs with `v2xChargingParameters`, CitrineOS stores the needs, answers
-Accepted and sends no automatic profile,
-so the lab's TxProfile (CentralSetpoint, discharge) stays in control. The same
-exact-build guard applies, and CI runs
-`node /opt/citrine-ha/patch-charging-needs.mjs --check`.
+**Charging needs patch (OCPP 2.1)**
+(`patches/0001-ocpp21-charging-needs.patch`,
+`packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts`).
+Upstream accepts DC charging needs only when `requestedEnergyTransfer` is
+exactly `DC`, so an OCPP 2.1 EV asking for bidirectional DC (`DC_BPT`) is
+answered Rejected and the station refuses the energy transfer
+(`ReqEnergyTransferRejected`). With the patch the 2.1 DC modes (`DC_BPT`,
+`DC_ACDP`, `DC_ACDP_BPT`) match like `DC`, and needs with
+`v2xChargingParameters` (for example OCTT's `AC_BPT`) match whatever the mode;
+for a mode that is not an OCPP 2.0.1 mode, or any needs with
+`v2xChargingParameters`, CitrineOS stores the needs, answers Accepted and sends
+no automatic profile, so the lab's TxProfile (CentralSetpoint, discharge) stays
+in control. AC and `DC` needs without V2X parameters keep upstream's behaviour.
 
-**allowedEnergyTransfer patch (OCPP 2.1).** The build also patches
-`@citrineos/ocpp/dist/src/handlers/requests/2/authorize-request-ocpp-21-handler.js`
-(`rootfs/patch-allowed-energy.mjs`). OCPP 2.1 AuthorizeResponse lists the energy
-transfer modes the EV may choose (`allowedEnergyTransfer`); when it is omitted the
-station treats the session as charging only. Upstream v2.0.1 never sets it, so a
-bidirectional (CentralSetpoint discharge) session could not be negotiated. With the
-patch every Accepted OCPP 2.1 AuthorizeResponse lists `DC`, `DC_BPT`,
-`AC_single_phase`, `AC_two_phase`, `AC_three_phase` and `AC_BPT`, unless the
-response already has a list. Other statuses and OCPP 2.0.1 are unchanged. The same
-exact-build guard applies, and CI runs
-`node /opt/citrine-ha/patch-allowed-energy.mjs --check`.
+**allowedEnergyTransfer patch (OCPP 2.1)**
+(`patches/0002-ocpp21-allowed-energy-transfer.patch`,
+`packages/ocpp/src/handlers/requests/2/authorize-request-ocpp-21-handler.ts`).
+OCPP 2.1 AuthorizeResponse lists the energy transfer modes the EV may choose
+(`allowedEnergyTransfer`); when it is omitted the station treats the session as
+charging only. Upstream never sets it, so a bidirectional (CentralSetpoint
+discharge) session could not be negotiated. With the patch every Accepted OCPP
+2.1 AuthorizeResponse lists `DC`, `DC_BPT`, `AC_single_phase`, `AC_two_phase`,
+`AC_three_phase` and `AC_BPT`, unless the response already has a list. Other
+statuses and OCPP 2.0.1 are unchanged.
+
+**Reconnect (#67), fixed upstream.** CitrineOS v2.0.1 freed a closing
+station's connection slot before it deregistered the station from the message
+router, so a station that reconnected at once (EVerest does after `Pong not
+received from server!`) lost its reply bindings; 0.6.x to 0.7.x patched this.
+v2.1.0 deregisters first and only then releases the slot (an immediate
+reconnect is refused until then, and the station retries), so the patch is
+gone. CI's Plugfest probe still reconnects one station nine times and checks
+every BootNotification and Heartbeat is answered.
+
+**CitrineOS v2.1.0 defaults the App keeps.** A Call waits up to 20 s for the
+station's reply (`maxCallLengthSeconds`); a Call that has not reached the
+station within 40 s is dropped (`staleCallMaxAgeSeconds`); at most 5 Calls per
+station are pending at once (`maxPendingCallsPerStation`), and a further one is
+not sent. The gateway's own waits are shorter (4 s to send, 8 s for a reply),
+and its automatic requests (transaction checks, device model reports) go one
+at a time. Network alerts (station connectivity, connector
+status, OCPP call failures) are on and appear in the Operator UI tables
+`NetworkAlerts` and `NetworkAlertOccurrences`. Connection events go to
+`WebsocketEvents`, partitioned by week like `OCPPMessages`: each start
+provisions four weeks ahead and never drops a partition.
 
 **Lab tariff and location (#30).** When any charger listener is on, startup
 adds a zero-cost tariff (`HA-LAB-ZERO`, EUR 0 per kWh; upstream already
@@ -176,7 +216,7 @@ model, and per session the EV's needs, through role `ha_reader`.
 
 **Device model reports** (option `device_model_reports`, default `true`).
 CitrineOS stores a station's device model only from NotifyReport, which a
-station sends when asked. Upstream v2.0.1 asks (GetBaseReport) only when it
+station sends when asked. Upstream asks (GetBaseReport) only when it
 answers a BootNotification Pending, so stations it accepts at once never
 report, and EVSE `Power` stayed unknown. When any OCPP 2.1 or 2.0.1 station
 of tenant 1 comes online, on any listener including Plugfest 8083, the
@@ -189,8 +229,8 @@ that comes online again within 10 minutes of its last request is not asked
 again; a request CitrineOS could not send is retried on up to three checks.
 OCPP 1.6 stations are never asked (no device model). The gateway log shows
 `Device model report requested from <identity> (<protocol>): <status>.`
-The requests use the internal role `lab-reporter`, which CitrineOS's role
-rules permit on exactly these two routes; callers cannot send them through
+The requests use the internal role `lab-reporter`, which the roles seed
+permits GetBaseReport only; callers cannot send them through
 the gateway, and no command or Operator UI permission changes. Set
 `device_model_reports: false` to send none.
 
@@ -260,8 +300,8 @@ Read-only discovery additionally exposes `Boots`, `TransactionEvents` and
 not a change to the HA client's still-staged compatibility work.
 
 Upstream references:
-[server release](https://github.com/citrineos/citrineos-core/releases/tag/v2.0.1),
-[deployment architecture](https://github.com/citrineos/citrineos-core/blob/v2.0.1/docker-compose.yml),
+[server release](https://github.com/citrineos/citrineos-core/releases/tag/v2.1.0),
+[deployment architecture](https://github.com/citrineos/citrineos-core/blob/v2.1.0/docker-compose.yml),
 [HA-client compatibility PR](https://github.com/purcell-lab/CitrineOS-HA-Integration/pull/1).
 # Staged Plugfest control extension
 
@@ -429,7 +469,7 @@ commands.
 
 `/lab/control-policy` reports `price_commands` (`{"enabled": false}` when
 off) with the currency, the limits, the routes and `tariff_stations`. The
-existing keys are unchanged. The command role in CitrineOS's role rules gets
+existing keys are unchanged. The command role in the CitrineOS roles seed gets
 the three price routes only while both flags are on.
 
 CitrineOS itself sends a CostUpdated from its Tariffs table (zero for the lab
@@ -455,12 +495,18 @@ For the **CitrineOS Operator UI** App. Off unless `operator_ui_enabled: true`.
 
 The operator role can read everything the UI needs but cannot insert,
 update or delete. BasicAuthPassword and other password or key variables,
-OCPI credential profiles and webhook subscriptions are not readable. The
+OCPI credential profiles, webhook subscriptions and the remote (IP) address of
+connection events (`WebsocketEvents`) are not readable. The
 `ha_reader` role used by CitrineOS-HA is unchanged. Every operator command
 is logged as `Operator command <action> to <station> (<protocol>)`.
 
 `tools/build_operator_metadata.py` regenerates `metadata-operator.json`
-from the pinned upstream release.
+from the pinned upstream release. The schema is v2.1.0's: the
+`LatestStatusNotifications` table is gone (upstream migration
+20261015140000; each connector has a `LatestStatusNotification` relationship
+instead), and `NetworkAlerts`, `NetworkAlertOccurrences` and `WebsocketEvents`
+are new. An Operator UI built from v2.0.1 shows errors where it reads the old
+table until it is rebuilt from v2.1.0.
 
 ## Plugfest listener (opt-in, external charging stations)
 

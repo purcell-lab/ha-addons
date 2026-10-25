@@ -72,6 +72,18 @@ try:
     assert request("/commands/tariff?tenantId=2")[0] == 403
     assert request("/commands/tariff?tenantId=1")[0] == 200
     assert request("/admin",body={})[0] == 403
+    # v2.1.0 runs JWT authorisation (auth.mode jwt). Its default, localDev,
+    # serves a token-minting /dev/token without authentication; here the
+    # gateway refuses /dev, and upstream's loopback API does not mint a token
+    # (401: authentication is enforced; 404: no such route).
+    assert request("/dev/token",body={})[0] == 403
+    upstream = docker("exec","lab-server","node","--input-type=module","-e",
+        "const r=async(m,p)=>(await fetch('http://127.0.0.1:8088'+p,{method:m,headers:{'Content-Type':'application/json'},"
+        "body:m==='POST'?'{}':undefined})).status;"
+        "console.log(JSON.stringify([await r('POST','/dev/token'),await r('GET','/dev/roles'),"
+        "await r('GET','/commands/tariff?tenantId=1')]));").strip().splitlines()[-1]
+    dev_token, dev_roles, tariff = json.loads(upstream)
+    assert dev_token in (401, 404) and dev_roles in (401, 404) and tariff == 401, upstream
     # The station configuration read needs the command credential.
     assert request("/lab/station-configuration",body={"key":["ChargingScheduleAllowedChargingRateUnit"]})[0] == 403
     assert request("/v1/graphql",body={"query":"query { ChargingStations { id tenantId } }"},auth=False)[0] == 401
@@ -158,7 +170,7 @@ try:
     if os.environ.get("TEST_V2G_SIMULATOR")=="1":
         from v2g_trial import trial as v2g_trial
         v2g_trial(docker, request, options[-1], names, values, TMP)
-    print(json.dumps({"result":"passed","release":"v2.0.1","migration_count":int(before),
+    print(json.dumps({"result":"passed","release":"v2.1.0","migration_count":int(before),
                       "authenticated_tariff":True,"empty_discovery":True,
                       "mutation_denied":True,"restart_persistence":True,"logical_restore":True,
                       "native_simulator_test":os.environ.get("TEST_NATIVE_SIMULATOR")=="1",

@@ -10,7 +10,8 @@ read-only:
   (every insert, update and delete permission is dropped), still filtered
   by tenant;
 - secrets stay hidden: BasicAuthPassword and other password/key variables,
-  OCPI credential profiles, and webhook subscriptions;
+  OCPI credential profiles, webhook subscriptions, and the remote (station
+  or proxy) address of each websocket event;
 - the lab's existing "ha_reader" permissions (rootfs/metadata.json) are
   merged in unchanged, so the CitrineOS-HA integration sees exactly what it
   saw before;
@@ -18,7 +19,7 @@ read-only:
 
 Usage (from the repository root):
 
-    git -C /tmp/core checkout 1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372
+    git -C /tmp/core checkout 4fd7599b91c2fb6e6065e7c9b94be69880cced27
     python3 citrineos_server/tools/build_operator_metadata.py \
         /tmp/core/apps/ocpp-server/db/hasura-metadata
 
@@ -44,6 +45,12 @@ VISIBLE_COLUMNS = {
     "Tenants": ["id", "name", "url", "partyId", "countryCode", "isUserTenant",
                 "maxChargingStations", "tenantWebsocketServerPath", "createdAt", "updatedAt"],
     "TenantPartners": ["id", "partyId", "countryCode", "tenantId", "createdAt", "updatedAt"],
+    # Connection log (v2.1.0): every column except "remoteAddress" (the
+    # station's or a proxy's IP address). "uri" is the request path only;
+    # upstream drops the query string before storing it.
+    "WebsocketEvents": ["id", "stationId", "serverId", "host", "uri", "type", "timestamp",
+                        "subprotocol", "httpStatus", "wsCloseCode", "sentCode", "closeReason",
+                        "initiator", "source", "details", "tenantId", "createdAt", "updatedAt"],
 }
 SECRET_VARIABLE = {"_not": {"Variable": {"_or": [
     {"name": {"_ilike": "%password%"}},

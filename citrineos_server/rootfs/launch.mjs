@@ -4,7 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rbacRules,routeProtocol,
+import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rolesSeed,routeProtocol,
   validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
   OPERATOR_COMMANDS,METERING_COMMAND,meteringVariables,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
   CONFIG_ROUTE,CONFIG_UPSTREAM,CONFIG_KEYS,validateConfigRequest,configTargetAllows,configResult,
@@ -207,11 +207,37 @@ function makeSigner() {
   return {jwk,token(control=false) {
     const now=Math.floor(Date.now()/1000);
     const unsigned=b64({alg:'RS256',kid:'lab',typ:'JWT'})+'.'+b64({
-      iss:'citrine-ha-lab',aud:'citrine-api',sub:'ha-lab-reader',tenant_id:'1',
+      iss:JWT_ISSUER,aud:JWT_AUDIENCE,sub:'ha-lab-reader',tenant_id:'1',
       roles:[typeof control==='string'?control:control?'lab-controller':'lab-reader'],iat:now,exp:now+60,
     });
     return unsigned+'.'+crypto.sign('RSA-SHA256',Buffer.from(unsigned),privateKey).toString('base64url');
   }};
+}
+// The pinned upstream release (compatibility-lock.json).
+export const RELEASE='v2.1.0';
+// Roles seed file CitrineOS reads (control-policy.mjs rolesSeed), written by
+// the launcher as root at each start.
+export const ROLES_SEED=`${APP}/roles-seed.json`;
+// The gateway's internal tokens (makeSigner): RS256 with kid "lab", served on
+// the loopback JWKS endpoint.
+export const JWT_ISSUER='citrine-ha-lab';
+export const JWT_AUDIENCE='citrine-api';
+// Upstream configuration (CITRINEOS_<KEY> variables). auth.mode is set to jwt
+// explicitly: v2.1.0 defaults to localDev, which mounts a token-minting
+// /dev/token route (and refuses to start with env production).
+export function upstreamConfig(o) {
+  return {
+    ENV:'production',HOST:'127.0.0.1',PORT:UPSTREAM_API_PORT,
+    DATABASE_HOST:o.database_host,DATABASE_USERNAME:'citrine',DATABASE_PASSWORD:o.database_password,
+    DATABASE_DATABASE:'citrine',DATABASE_POOL:{max:10,min:0},DATABASE_SYNC:false,DATABASE_ALTER:false,DATABASE_FORCE:false,
+    MESSAGEBROKER_AMQP_URL:`amqp://citrine:${o.broker_password}@${o.broker_host}:5672`,
+    FILEACCESS_LOCAL_DEFAULTFILEPATH:`${DATA}/assets`,
+    AUTH:{mode:'jwt',jwt:{jwksUri:'http://127.0.0.1:8091/jwks',issuer:JWT_ISSUER,audience:JWT_AUDIENCE,
+      rolesClaim:'roles',tenantClaim:'tenant_id'}},
+    ROLES:{seedFile:ROLES_SEED},
+    SWAGGER:{enabled:true,exposeMessage:true,exposeData:true,logoPath:`${APP}/dist/assets/logo.png`},
+    LOGLEVEL:4,INTEGRATIONS:{},...upstreamTransactions(o),
+  };
 }
 export async function main() {
   process.umask(0o077);
@@ -220,13 +246,12 @@ export async function main() {
   if(process.getuid()===0) {
     if(o.mode==='isolated') {
       fs.chownSync(DATA,1000,1000);
-      // CitrineOS reads its role rules at start; write them from the gateway's route
-      // list while still root (the app folder is root-owned), readable by uid 1000.
-      const rules=`${APP}/rbac-rules.json`;
-      const base=JSON.parse(fs.readFileSync(`${here}/rbac-rules.json`,'utf8'));
-      fs.writeFileSync(rules,JSON.stringify(rbacRules(base,o.command_control_enabled===true,o.price_commands_enabled===true,
+      // CitrineOS reads its roles seed at start (and every 60 s); write it from the
+      // gateway's route lists while still root (the app folder is root-owned), so
+      // the upstream process (uid 1000) can read it but not change it.
+      fs.writeFileSync(ROLES_SEED,JSON.stringify(rolesSeed(o.command_control_enabled===true,o.price_commands_enabled===true,
         deviceModelReports(o))));
-      fs.chmodSync(rules,0o644);
+      fs.chmodSync(ROLES_SEED,0o644);
     }
     process.setgid(1000);process.setuid(1000);
   }
@@ -242,18 +267,8 @@ export async function main() {
   const price=priceOptions(o), real=o.command_real_stations_enabled===true;
   fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
   const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
-  const config={
-    ENV:'production',HOST:'127.0.0.1',PORT:UPSTREAM_API_PORT,
-    DATABASE_HOST:o.database_host,DATABASE_USERNAME:'citrine',DATABASE_PASSWORD:o.database_password,
-    DATABASE_DATABASE:'citrine',DATABASE_POOL:{max:10,min:0},DATABASE_SYNC:false,DATABASE_ALTER:false,DATABASE_FORCE:false,
-    MESSAGEBROKER_AMQP_URL:`amqp://citrine:${o.broker_password}@${o.broker_host}:5672`,
-    FILEACCESS_LOCAL_DEFAULTFILEPATH:`${DATA}/assets`,
-    AUTH:{localBypass:false,oidc:{jwksUri:'http://127.0.0.1:8091/jwks',issuer:'citrine-ha-lab',audience:'citrine-api'}},
-    SWAGGER:{enabled:true,exposeMessage:true,exposeData:true,logoPath:`${APP}/dist/assets/logo.png`},
-    LOGLEVEL:4,INTEGRATIONS:{},...upstreamTransactions(o),
-  };
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
-  for(const [k,v] of Object.entries(config)) env['CITRINEOS_'+k]=JSON.stringify(v);
+  for(const [k,v] of Object.entries(upstreamConfig(o))) env['CITRINEOS_'+k]=JSON.stringify(v);
   const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token,o.operator_token,
     ...(o.plugfest_enabled?(o.plugfest_stations||[]).map(st=>st.password):[])].filter(Boolean);
   let child, shutting=false;
@@ -514,7 +529,7 @@ export async function main() {
           open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o)}));return;
       }
       if(url.pathname==='/lab/status') {
-        res.end(JSON.stringify({release:'v2.0.1',mode:'isolated',tenant:1,charger_listeners:listeners.length,
+        res.end(JSON.stringify({release:RELEASE,mode:'isolated',tenant:1,charger_listeners:listeners.length,
           simulator_identity:o.simulator_enabled?'SIM-CITRINE-LAB-01':null,
           profile_simulator_identity:o.profile_simulator_enabled?station:null,
           open_admission:o.open_admission_enabled===true,
@@ -615,7 +630,7 @@ export async function main() {
     };
     setInterval(watchReports,30000).unref();watchReports();
   }
-  console.log(`CitrineOS v2.0.1 isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
+  console.log(`CitrineOS ${RELEASE} isolated lab ready. Scoped commands ${o.command_control_enabled?'enabled':'disabled'}; ${listeners.length} charger listener(s).`);
   if(o.plugfest_enabled&&o.plugfest_open_admission)
     console.log('WARNING: Plugfest listeners 8083 and 8100-8105 admit any station without authentication (plugfest_open_admission).');
 }

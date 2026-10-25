@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validate,permitted,equalToken,buildListeners,INTERNAL_PORTS,UPSTREAM_API_PORT,upstreamExitCode,upstreamTransactions,COST_UPDATED_INTERVAL_OFF,
-  priceRequest,commandRejection} from '../rootfs/launch.mjs';
+  priceRequest,commandRejection,upstreamConfig,ROLES_SEED,RELEASE,APP,JWT_ISSUER,JWT_AUDIENCE} from '../rootfs/launch.mjs';
 import {operatorCommand,operatorTargetAllows,OPERATOR_COMMANDS,METERING_COMMAND,meteringVariables} from '../rootfs/control-policy.mjs';
 const good={mode:'isolated',database_host:'citrine-db',broker_host:'citrine-broker',hasura_host:'citrine-hasura',
   database_password:'a'.repeat(64),broker_password:'b'.repeat(64),hasura_secret:'c'.repeat(64),api_token:'d'.repeat(64)};
@@ -16,6 +16,25 @@ test('gateway only admits bounded read paths',()=>{
   assert.equal(permitted('POST','/v1/graphql'),true);
   for(const [method,path] of [['POST','/ocpp/1.6/setChargingProfile'],['POST','/commands/tariff'],['GET','/admin'],['POST','/v1/metadata']])
     assert.equal(permitted(method,path),false);
+});
+test('CitrineOS v2.1.0 runs JWT authorisation: no token-minting /dev routes, roles from the seed',async()=>{
+  const c=upstreamConfig(good);
+  // v2.1.0 defaults to localDev (a /dev/token route that mints tokens); the lab sets jwt.
+  assert.deepEqual(c.AUTH,{mode:'jwt',jwt:{jwksUri:'http://127.0.0.1:8091/jwks',issuer:JWT_ISSUER,audience:JWT_AUDIENCE,
+    rolesClaim:'roles',tenantClaim:'tenant_id'}});
+  assert.equal(c.ENV,'production');
+  assert.deepEqual(c.ROLES,{seedFile:ROLES_SEED});
+  assert.equal(ROLES_SEED,`${APP}/roles-seed.json`);
+  assert.equal(RELEASE,'v2.1.0');
+  // The upstream API listens on loopback only; the gateway never forwards /dev or /permissions.
+  assert.equal(c.HOST,'127.0.0.1');
+  for(const method of ['GET','POST'])
+    for(const path of ['/dev/token','/dev/roles','/permissions','/permissions/user','/docs'])
+      assert.equal(permitted(method,path),false,`${method} ${path}`);
+  // Secrets reach upstream only as JSON-encoded CITRINEOS_* values (main()).
+  assert.equal(c.DATABASE_PASSWORD,good.database_password);
+  const lock=JSON.parse((await import('node:fs')).readFileSync(new URL('../compatibility-lock.json',import.meta.url)));
+  assert.equal(`v${lock.server.version}`,RELEASE);
 });
 test('exact authentication, not prefix matching',()=>{
   assert.equal(equalToken('Bearer abc','Bearer abc'),true);

@@ -714,18 +714,6 @@
        }
       },
       {
-       "name": "LatestStatusNotifications",
-       "using": {
-        "foreign_key_constraint_on": {
-         "column": "stationId",
-         "table": {
-          "name": "LatestStatusNotifications",
-          "schema": "public"
-         }
-        }
-       }
-      },
-      {
        "name": "OCPPMessages",
        "using": {
         "foreign_key_constraint_on": {
@@ -792,6 +780,18 @@
          "column": "stationId",
          "table": {
           "name": "VariableMonitorings",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "WebsocketEvents",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "WebsocketEvents",
           "schema": "public"
          }
         }
@@ -1034,6 +1034,12 @@
        "name": "Evse",
        "using": {
         "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "LatestStatusNotification",
+       "using": {
+        "foreign_key_constraint_on": "latestStatusNotificationId"
        }
       },
       {
@@ -1415,46 +1421,6 @@
     },
     {
      "table": {
-      "name": "LatestStatusNotifications",
-      "schema": "public"
-     },
-     "object_relationships": [
-      {
-       "name": "ChargingStation",
-       "using": {
-        "foreign_key_constraint_on": "stationId"
-       }
-      },
-      {
-       "name": "StatusNotification",
-       "using": {
-        "foreign_key_constraint_on": "statusNotificationId"
-       }
-      },
-      {
-       "name": "Tenant",
-       "using": {
-        "foreign_key_constraint_on": "tenantId"
-       }
-      }
-     ],
-     "select_permissions": [
-      {
-       "role": "operator_ro",
-       "permission": {
-        "columns": "*",
-        "filter": {
-         "tenantId": {
-          "_eq": "x-hasura-tenant-id"
-         }
-        },
-        "allow_aggregations": true
-       }
-      }
-     ]
-    },
-    {
-     "table": {
       "name": "LocalListAuthorizations",
       "schema": "public"
      },
@@ -1783,6 +1749,100 @@
          }
         },
         "limit": 501
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "NetworkAlertOccurrences",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "NetworkAlert",
+       "using": {
+        "foreign_key_constraint_on": "alertId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "NetworkAlerts",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Connector",
+       "using": {
+        "foreign_key_constraint_on": "connectorId"
+       }
+      },
+      {
+       "name": "Evse",
+       "using": {
+        "foreign_key_constraint_on": "evseId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "array_relationships": [
+      {
+       "name": "NetworkAlertOccurrences",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "alertId",
+         "table": {
+          "name": "NetworkAlertOccurrences",
+          "schema": "public"
+         }
+        }
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
        }
       }
      ]
@@ -2208,20 +2268,6 @@
        "name": "Tenant",
        "using": {
         "foreign_key_constraint_on": "tenantId"
-       }
-      }
-     ],
-     "array_relationships": [
-      {
-       "name": "LatestStatusNotifications",
-       "using": {
-        "foreign_key_constraint_on": {
-         "column": "statusNotificationId",
-         "table": {
-          "name": "LatestStatusNotifications",
-          "schema": "public"
-         }
-        }
        }
       }
      ],
@@ -2706,18 +2752,6 @@
          "column": "tenantId",
          "table": {
           "name": "InstalledCertificates",
-          "schema": "public"
-         }
-        }
-       }
-      },
-      {
-       "name": "LatestStatusNotifications",
-       "using": {
-        "foreign_key_constraint_on": {
-         "column": "tenantId",
-         "table": {
-          "name": "LatestStatusNotifications",
           "schema": "public"
          }
         }
@@ -3904,6 +3938,59 @@
         },
         "limit": 501,
         "allow_aggregations": false
+       }
+      }
+     ]
+    },
+    {
+     "table": {
+      "name": "WebsocketEvents",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "serverId",
+         "host",
+         "uri",
+         "type",
+         "timestamp",
+         "subprotocol",
+         "httpStatus",
+         "wsCloseCode",
+         "sentCode",
+         "closeReason",
+         "initiator",
+         "source",
+         "details",
+         "tenantId",
+         "createdAt",
+         "updatedAt"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
        }
       }
      ]

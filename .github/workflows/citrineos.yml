@@ -24,6 +24,37 @@ jobs:
       - run: node --test citrineos_server/tests/*.test.mjs
       - run: python3 -m unittest discover -s citrineos_simulator/tests -v
       - run: git diff --check
+  upstream-patches:
+    # The source patches apply to the pinned CitrineOS commit, the patched
+    # source compiles, and upstream's own tests for both handlers pass.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+      - name: Fetch CitrineOS at the pinned commit and apply patches/
+        run: |
+          commit=$(python3 -c "import json;print(json.load(open('citrineos_server/compatibility-lock.json'))['server']['commit'])")
+          git init -q /tmp/core
+          git -C /tmp/core remote add origin https://github.com/citrineos/citrineos-core.git
+          git -C /tmp/core fetch -q --depth 1 origin "$commit"
+          git -C /tmp/core checkout -q FETCH_HEAD
+          test "$(git -C /tmp/core rev-parse HEAD)" = "$commit"
+          for patch in citrineos_server/patches/*.patch; do
+            git -C /tmp/core apply --check "$PWD/$patch"
+            git -C /tmp/core apply "$PWD/$patch"
+          done
+      - name: Build the patched server and run upstream's handler tests
+        working-directory: /tmp/core
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter "@citrineos/ocpp-server..." build
+          pnpm exec vitest run \
+            packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts \
+            packages/ocpp/test/handlers/requests/2/authorize-request-ocpp-21-handler.test.ts
   private-stack:
     strategy:
       fail-fast: false
@@ -34,7 +65,7 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Build pinned images without publication
@@ -43,12 +74,10 @@ jobs:
             docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
               -t "citrine-${app}:test" "citrineos_${app}"
           done
-      - name: Upstream reconnect patch is applied (#67)
-        run: docker run --rm --entrypoint node citrine-server:test /opt/citrine-ha/patch-reconnect.mjs --check
-      - name: Upstream OCPP 2.1 charging needs patch is applied
-        run: docker run --rm --entrypoint node citrine-server:test /opt/citrine-ha/patch-charging-needs.mjs --check
-      - name: Upstream OCPP 2.1 allowedEnergyTransfer patch is applied
-        run: docker run --rm --entrypoint node citrine-server:test /opt/citrine-ha/patch-allowed-energy.mjs --check
+      - name: Upstream routes and permissions in the image (no /dev routes in jwt mode)
+        run: |
+          docker run --rm -v "$PWD/citrineos_server/tests:/probe:ro" --entrypoint node \
+            citrine-server:test /probe/route-probe.mjs
       - name: Authentication, discovery, persistence and logical restore
         env:
           TEST_NATIVE_SIMULATOR: "1"

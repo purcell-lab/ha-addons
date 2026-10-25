@@ -72,8 +72,10 @@ console.log(JSON.stringify(x.open?{
 
 
 # #67: EVerest drops its socket after "Pong not received from server!" and
-# reconnects at once. Upstream deregistered the old connection while the new
-# one registered, so the station's messages were stored but never answered.
+# reconnects at once. CitrineOS v2.0.1 deregistered the old connection while
+# the new one registered, so the station's messages were stored but never
+# answered (0.6.x to 0.7.x patched this). v2.1.0 deregisters before it
+# releases the connection slot; this probe is the regression check.
 RECONNECT = r"""
 import {createRequire} from 'node:module';
 const r=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');

@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.8.0
+
+- CitrineOS **v2.1.0**, built from source. The image no longer starts from
+  upstream's published v2.0.1 image: it fetches citrineos-core at the v2.1.0
+  commit (`4fd7599b91c2fb6e6065e7c9b94be69880cced27`, checked), applies the
+  App's source patches with `git apply` (the build fails if one does not
+  apply cleanly) and builds as upstream's `deploy.Dockerfile` does, on
+  digest-pinned `node:24.16.0` images, natively for amd64 and aarch64.
+  Installing or updating the App now builds CitrineOS (network access to
+  GitHub and npm, several minutes). No new features: the gateway, operator
+  routes, Plugfest listeners, pricing and metering SetVariables behave as in
+  0.7.7.
+- The 0.7.4 to 0.7.7 fixes are source patches now (`patches/`), replacing the
+  compiled-JS patchers (`rootfs/patch-*.mjs`): OCPP 2.1 charging needs
+  (`DC_BPT`, `DC_ACDP`, `DC_ACDP_BPT`, and needs with only
+  `v2xChargingParameters`) and `allowedEnergyTransfer` in Accepted OCPP 2.1
+  AuthorizeResponses, with the same behaviour. The reconnect patch (#67) is
+  gone: v2.1.0 deregisters a closing connection before it frees the
+  station's slot. CI's Plugfest reconnect probe still checks it.
+- Authorisation follows v2.1.0. `rbac-rules.json` and the OIDC settings are
+  replaced by `auth.mode` `jwt` (set explicitly: upstream defaults to
+  `localDev`, which serves a token-minting `/dev/token`) and a roles seed
+  file the App writes at each start from the gateway's route lists. Each
+  internal role (`lab-reader`, `lab-controller`, `lab-operator`,
+  `lab-reporter`) gets exactly the routes it had. v2.1.0 permissions don't
+  name an OCPP version, so the gateway's existing version checks are now the
+  only thing that scopes a role to an OCPP version.
+- Operator UI schema (`metadata-operator.json`) regenerated from v2.1.0:
+  `LatestStatusNotifications` is dropped upstream (a connector has a
+  `LatestStatusNotification` relationship instead); `NetworkAlerts`,
+  `NetworkAlertOccurrences` and `WebsocketEvents` are readable, without
+  the connection's remote address. `ha_reader` (`metadata.json`) is
+  unchanged.
+- Simulator provisioning looks up the station-level `SecurityCtrlr` with
+  `evseDatabaseId IS NULL` (v2.1.0 keys components by EVSE too).
+- v2.1.0 defaults kept and documented: Calls time out after 20 s, a Call not
+  sent within 40 s is dropped, at most 5 pending Calls per station, network
+  alerts on, weekly `WebsocketEvents` partitions provisioned at each start.
+
 ## 0.7.7
 
 - Operator commands may send SetVariables for metering variables only:

@@ -1,0 +1,88 @@
+ha-citrine source patch 0001 against CitrineOS v2.1.0
+(4fd7599b91c2fb6e6065e7c9b94be69880cced27): accept OCPP 2.1 charging needs.
+
+NotifyEVChargingNeedsRequestOcpp2Handler accepts DC needs only when
+requestedEnergyTransfer is exactly DC, so an OCPP 2.1 EV that asks for DC_BPT
+(or DC_ACDP, DC_ACDP_BPT) with dcChargingParameters, or sends only
+v2xChargingParameters (OCTT AC_BPT, AC), is Rejected. A station then refuses
+the EV's energy transfer: Trialog's ComboCS4M-SW ended its transaction with
+ReqEnergyTransferRejected (Plugfest, 23 October 2026). Upstream's automatic
+profile calculation also only knows the 2.0.1 modes.
+
+The patch matches the 2.1 DC modes like DC and accepts needs that carry
+v2xChargingParameters. For any mode that is not a 2.0.1 mode, or any needs
+with v2xChargingParameters, it stores the needs, answers Accepted and sends no
+automatic profile: the lab's own TxProfile (scoped command path) sets the V2X
+operation mode. The 2.0.1 modes (AC_*, DC) without v2xChargingParameters are
+unchanged. Same behaviour as the compiled-JS patch of 0.7.4 and 0.7.6.
+
+diff --git a/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts b/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts
+index 4db548a..f8aecf8 100644
+--- a/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts
++++ b/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts
+@@ -23,6 +23,15 @@ import type { IChargingProfileRepository, ITransactionRepository } from '@citrin
+ import { OCPP2_0_1_Mapper } from '@citrineos/dal';
+ import type { ISmartCharging } from '@modules/smart-charging/smart-charging.js';
+ 
++// ha-citrine patch (0001-ocpp21-charging-needs): energy transfer modes.
++const HA_DC_ENERGY_TRANSFER_MODES: string[] = ['DC', 'DC_BPT', 'DC_ACDP', 'DC_ACDP_BPT'];
++const HA_OCPP201_ENERGY_TRANSFER_MODES: string[] = [
++  'AC_single_phase',
++  'AC_two_phase',
++  'AC_three_phase',
++  'DC',
++];
++
+ @AsRequestHandler(OCPP_2_VER_LIST, OCPP_CallAction.NotifyEVChargingNeeds)
+ export class NotifyEVChargingNeedsRequestOcpp2Handler extends AbstractHandler {
+   protected _ocppSender: IOcppSender;
+@@ -79,9 +88,15 @@ export class NotifyEVChargingNeedsRequestOcpp2Handler extends AbstractHandler {
+       givenNeeds.dcChargingParameters !== null || givenNeeds.acChargingParameters !== null;
+     this._logger.info(`Has AC or DC charging parameters: ${hasAcOrDcChargingParameters}`);
+ 
++    // ha-citrine patch (0001-ocpp21-charging-needs): the OCPP 2.1 DC modes
++    // (bidirectional DC_BPT, DC_ACDP, DC_ACDP_BPT) carry dcChargingParameters too,
++    // and OCPP 2.1 V2X needs may carry only v2xChargingParameters (AC_BPT, AC).
++    const hasV2xChargingParameters = !!(givenNeeds as { v2xChargingParameters?: unknown })
++      .v2xChargingParameters;
+     const matchedChargingType =
++      hasV2xChargingParameters ||
+       ((givenNeeds.dcChargingParameters ?? false) &&
+-        givenNeeds.requestedEnergyTransfer === EnergyTransferModeEnum.DC) ||
++        HA_DC_ENERGY_TRANSFER_MODES.includes(givenNeeds.requestedEnergyTransfer)) ||
+       ((givenNeeds.acChargingParameters ?? false) &&
+         givenNeeds.requestedEnergyTransfer !== EnergyTransferModeEnum.DC);
+     this._logger.info(
+@@ -95,6 +110,32 @@ export class NotifyEVChargingNeedsRequestOcpp2Handler extends AbstractHandler {
+       return;
+     }
+ 
++    // ha-citrine patch (0001-ocpp21-charging-needs): upstream calculates profiles
++    // for the 2.0.1 modes only. For an OCPP 2.1 mode, or any needs with
++    // v2xChargingParameters, store the needs and accept; no automatic profile,
++    // the lab's TxProfile sets the V2X operation mode.
++    if (
++      hasV2xChargingParameters ||
++      !HA_OCPP201_ENERGY_TRANSFER_MODES.includes(givenNeeds.requestedEnergyTransfer)
++    ) {
++      try {
++        const chargingNeeds = await this._chargingProfileRepository.createChargingNeeds(
++          tenantId,
++          request,
++          ocppConnectionName,
++        );
++        this._logger.info(
++          `Charging needs created (${givenNeeds.requestedEnergyTransfer}, no automatic profile): ${JSON.stringify(chargingNeeds)}`,
++        );
++      } catch (error) {
++        this._logger.error(`Failed to store charging needs: ${error}`);
++      }
++      await this._ocppSender.sendCallResultWithMessage(message, {
++        status: NotifyEVChargingNeedsStatusEnum.Accepted,
++      } as OCPP2_response_types.NotifyEVChargingNeedsResponse);
++      return;
++    }
++
+     let chargingProfile: OCPP2_common_types.ChargingProfileType;
+     try {
+       chargingProfile = await this._smartChargingService.calculateChargingProfile(
