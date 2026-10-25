@@ -233,6 +233,8 @@ def der_status(path=None):
         "updates": state.get("updates"),
         "relay": state.get("relay"),
         "alarms": state.get("alarms") or [],
+        # V2XChargingCtrlr SupportedOperationModes as written at start.
+        "v2x_operation_modes": state.get("v2x_operation_modes"),
     }
 
 
@@ -301,7 +303,8 @@ def run_selftest(source, lock_held=False):
 
 def _selftest(source):
     """Run the probes, then record and log the result."""
-    result = diag.selftest()
+    # app.py counts the charger's "dlink is not ready" drops (diag.DLINK_NOT_READY).
+    result = diag.selftest(ignored=lambda: read_state().get("charger_sdp_dlink_ignored", 0))
     result["charger_sdp_blocked"] = bool(read_state().get("charger_sdp_blocked"))
     result["summary"] = diag.summary(result)
     result["source"] = source

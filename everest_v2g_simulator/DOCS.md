@@ -164,8 +164,17 @@ About 3 s after the charger's SDP server starts, the App runs a discovery
 self-test across the private link and logs one line, for example:
 
 ```
-Discovery self-test PASSED: unicast=reply multicast=reply v2g0=[in:request,out:response] v2g1=[out:request,in:response] (at start)
+Discovery self-test PASSED: unicast=received multicast=received v2g0=[in:request in:request] v2g1=[out:request out:request] charger=dlink-not-ready(answers after plug-in) (at start)
 ```
+
+From 0.2.0 (EVerest 2026.10) the charger answers SDP only once SLAC has
+matched, that is after a plug-in; before that it drops each request and logs
+`Ignoring SDP request because dlink is not ready`. A probe the charger
+logged that way is **received**: it crossed the private link to the
+charger's SDP socket, which is what the self-test checks (the failure it was
+added for, SDP leaving by `eth0` on HA OS, or the firewall dropping it,
+still gives **silent** and FAILED). **reply** (a full SDP answer) is also a
+pass; 0.1.x always got one.
 
 - **multicast** sends an SDP request to `ff02::1` via `v2g1`, as the
   simulated EV does. It runs first.

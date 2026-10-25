@@ -379,6 +379,12 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(provider["mapping"], {"module": {"evse": 1}})
         self.assertEqual(provider["connections"]["relay"],
                          [{"module_id": "iso15118_charger", "implementation_id": "grid_support"}])
+        # V2XChargingCtrlr SupportedOperationModes: EVerest 2026.10 builds
+        # ChargingOnly,Idle, and libocpp rejected CentralSetpoint profiles
+        # (InvalidOperationMode) until the App wrote the list.
+        self.assertEqual(provider["connections"]["ocpp"],
+                         [{"module_id": "ocpp", "implementation_id": "ocpp_generic"}])
+        self.assertEqual(provider["config_module"]["v2x_operation_modes"], "Idle,ChargingOnly,CentralSetpoint")
         cfg = provider["config_module"]
         self.assertEqual(cfg["state_file"], "/run/test/der.json")
         self.assertEqual(cfg["rated_power_W"], 7000.0)
@@ -396,6 +402,8 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(manifest["provides"]["main"]["interface"], "grid_support")
         self.assertEqual(manifest["requires"]["relay"], {"interface": "grid_support", "min_connections": 0,
                                                          "max_connections": 1})
+        self.assertEqual(manifest["requires"]["ocpp"], {"interface": "ocpp", "min_connections": 0,
+                                                        "max_connections": 1})
         self.assertEqual(set(cfg), set(manifest["config"]))
 
     def test_disconnected_url_is_closed_loopback(self):
@@ -765,6 +773,14 @@ class PumpTest(unittest.TestCase):
         self.assertGreater(state["ev_gave_up_at"], 0)
         self.assertIn("SDP retry cycles", state["ev_gave_up_line"])
         self.assertIn("maximum number of SDP retry cycles", output)  # still forwarded
+
+    def test_sdp_drops_before_slac_are_counted(self):
+        # The discovery self-test reads this count (diag.DLINK_NOT_READY).
+        line = ("2026-10-25 05:58:01.000000 [INFO] iso15118_charge: Ignoring SDP request because dlink "
+                "is not ready")
+        state, output = self.run_pump([line, line])
+        self.assertEqual(state["charger_sdp_dlink_ignored"], 2)
+        self.assertIn("dlink is not ready", output)
 
 
 class FakeBus:

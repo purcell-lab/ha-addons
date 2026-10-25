@@ -280,6 +280,24 @@ async def der_checks(csms):
     return report
 
 
+async def operation_mode_checks(csms):
+    """libocpp (2026.10) accepts a 2.1 profile period only for an
+    operationMode in the EVSE's V2XChargingCtrlr SupportedOperationModes;
+    EVerest builds it as ChargingOnly,Idle and the App adds CentralSetpoint."""
+    written = await wait_for(
+        lambda: ((http("/api/status").get("der") or {}).get("v2x_operation_modes") or {}).get("status"), 60,
+        what="V2X operation modes written")
+    assert written == "Accepted", written
+    reply = await csms.call("GetVariables", {"getVariableData": [
+        {"component": {"name": "V2XChargingCtrlr", "evse": {"id": 1}},
+         "variable": {"name": "SupportedOperationModes"}}]})
+    result = reply[2]["getVariableResult"][0]
+    assert result["attributeStatus"] == "Accepted", result
+    modes = set(result["attributeValue"].split(","))
+    assert {"ChargingOnly", "CentralSetpoint"} <= modes, result
+    return sorted(modes)
+
+
 def reading():
     status = http("/api/status")
     pm = (status["evse"].get("powermeter") or {}).get("value") or {}
@@ -422,6 +440,7 @@ async def v2g_scenario():
         await wait_for(lambda: http("/api/status")["app"].get("negotiated") == "ocpp2.1", 20,
                        what="UI negotiated version")
         report["der"] = await der_checks(csms)
+        report["v2x_operation_modes"] = await operation_mode_checks(csms)
         txid = await start_session(csms)
         start, start_text = iso_start()
         periods = []

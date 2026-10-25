@@ -60,6 +60,26 @@ class CapabilityTest(unittest.TestCase):
                          ["capability"]["supported_types"], ["LimitMaxDischarge", "VoltVar"])
 
 
+class OperationModesTest(unittest.TestCase):
+    def test_set_variables_request_for_the_evse(self):
+        modes = ",".join(configure.V2X_OPERATION_MODES)
+        self.assertEqual(grid.operation_modes_request({"evse_id": 1, "v2x_operation_modes": modes}), {
+            "requests": [{"component_variable": {
+                "component": {"name": "V2XChargingCtrlr", "evse": {"id": 1}},
+                "variable": {"name": "SupportedOperationModes"}},
+                "value": "Idle,ChargingOnly,CentralSetpoint"}],
+            "source": "ha-everest"})
+        self.assertIsNone(grid.operation_modes_request({"v2x_operation_modes": " , "}))
+
+    def test_modes_are_ocpp_members(self):
+        # libocpp's valuesList for SupportedOperationModes (MemberList).
+        members = {"Idle", "ChargingOnly", "CentralSetpoint", "ExternalSetpoint", "ExternalLimits",
+                   "CentralFrequency", "LocalFrequency", "LocalLoadBalancing"}
+        self.assertLessEqual(set(configure.V2X_OPERATION_MODES), members)
+        # What 0.1.13 accepted and the acceptance profile uses.
+        self.assertLessEqual({"ChargingOnly", "CentralSetpoint"}, set(configure.V2X_OPERATION_MODES))
+
+
 class DerStateTest(unittest.TestCase):
     def test_written_atomically_after_each_change(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -130,6 +130,33 @@ class SelftestTest(unittest.TestCase):
         self.assertFalse(failed["pass"])
         self.assertTrue(diag.summary(failed).startswith("Discovery self-test FAILED: unicast=reply multicast=silent"))
 
+    def test_dlink_not_ready_drop_counts_as_received(self):
+        # EVerest 2026.10: before SLAC the charger drops SDP and logs it.
+        # A probe it logged is "received" (the path works); one it never saw
+        # stays "silent" and fails, as when SDP leaves by eth0.
+        diag.netguard.link_local = lambda name, text=None: "fe80::1"
+        drops = {"n": 0}
+
+        def probe(address, via, timeout=2.0):
+            if address in self.reaching:
+                drops["n"] += 1  # what app.py's log pump records
+            return {"result": "silent"}
+        diag.sdp_probe = probe
+        self.reaching = {"ff02::1", "fe80::1"}
+        result = diag.selftest(capture=False, settle=0, ignored=lambda: drops["n"])
+        self.assertTrue(result["pass"])
+        self.assertEqual((result["multicast"]["result"], result["unicast"]["result"]), ("received", "received"))
+        self.assertTrue(diag.summary(result).startswith(
+            "Discovery self-test PASSED: unicast=received multicast=received"))
+        self.assertIn("charger=dlink-not-ready", diag.summary(result))
+        self.reaching = {"fe80::1"}  # multicast lost (wrong route or firewall)
+        result = diag.selftest(capture=False, settle=0, ignored=lambda: drops["n"])
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["multicast"]["result"], "silent")
+        # Without the counter, silence is silence.
+        self.reaching = {"ff02::1", "fe80::1"}
+        self.assertFalse(diag.selftest(capture=False, settle=0)["pass"])
+
     def test_summary_lists_captures(self):
         result = {"pass": False, "unicast": {"result": "reply"}, "multicast": {"result": "silent"},
                   "capture": {"v2g0": {"available": True, "frames": []},

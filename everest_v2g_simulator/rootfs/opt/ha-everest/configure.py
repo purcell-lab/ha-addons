@@ -49,6 +49,13 @@ DER_CONTROL_TYPES = (
 # Seconds between OCPPmulti's republications of the active DER set (also
 # what keeps the Status page's copy fresh after a restart of the module).
 GRID_SUPPORT_HEARTBEAT_S = 60
+# OCPP 2.1 operation modes the EVSE accepts in charging profile periods
+# (V2XChargingCtrlr SupportedOperationModes, Q09.FR.01). EVerest 2026.10
+# builds the variable as ChargingOnly,Idle, so libocpp rejected the
+# CentralSetpoint V2G profiles 0.1.13 accepted (libocpp v0.30.3 did not check
+# it); HaGridSupport writes this list at start. CentralSetpoint is the mode
+# EVerest applies (signed setpoints); the others are not offered.
+V2X_OPERATION_MODES = ("Idle", "ChargingOnly", "CentralSetpoint")
 DER_STATE = "der.json"
 # libocpp core database (transactions, charging profiles, DER controls) and
 # the schema version EVerest 2026.10.0-rc1 migrates it to on open: 7 adds the
@@ -489,14 +496,19 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
                 "mapping": {"module": {"evse": 1}},
                 "config_module": {
                     "evse_id": 1,
+                    "v2x_operation_modes": ",".join(V2X_OPERATION_MODES),
                     "supported_types": ",".join(DER_CONTROL_TYPES),
                     "rated_power_W": float(rating["watts"]),
                     "nominal_voltage_V": float(DC_VOLTAGE),
                     "state_file": str(run / DER_STATE),
                 },
-                # Evse15118D20's grid_support: the same directives it would get
-                # wired directly (relayed to AC DER sessions only).
-                "connections": {"relay": [{"module_id": "iso15118_charger", "implementation_id": "grid_support"}]},
+                # relay: Evse15118D20's grid_support, the same directives it
+                # would get wired directly (relayed to AC DER sessions only).
+                # ocpp: to set V2XChargingCtrlr SupportedOperationModes.
+                "connections": {
+                    "relay": [{"module_id": "iso15118_charger", "implementation_id": "grid_support"}],
+                    "ocpp": [{"module_id": "ocpp", "implementation_id": "ocpp_generic"}],
+                },
             },
             "persistent_store": {
                 "module": "PersistentStore",

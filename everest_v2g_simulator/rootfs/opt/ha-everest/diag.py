@@ -273,21 +273,49 @@ def sdp_probe(address, via, timeout=4.0):
         return {"result": "error", "error": f"{error.errno}: {error.strerror}"}
 
 
-def selftest(capture=True, settle=CHARGER_CLOSE_S):
+# EVerest 2026.10 (libiso15118 TbdController) answers SDP only once SLAC
+# reports the data link ready, that is after a plug-in, and logs this for
+# every request it drops before that. With the EV unplugged (the start-up
+# self-test) such a line after a probe proves the request crossed the
+# private link and reached the charger's SDP socket: "received". What the
+# self-test guards against (SDP leaving by eth0, the firewall dropping it)
+# still gives "silent". app.py counts the lines (charger_sdp_dlink_ignored).
+DLINK_NOT_READY = "Ignoring SDP request because dlink is not ready"
+PASSING = ("reply", "received")
+
+
+def _probe(address, ignored, wait=1.0):
+    """sdp_probe, with a silent probe the charger logged as dropped before
+    the data link was ready reported as "received"."""
+    before = ignored() if ignored else None
+    result = sdp_probe(address, netguard.EVCC_LINK)
+    if result["result"] == "silent" and ignored:
+        deadline = time.monotonic() + wait
+        while True:
+            if ignored() > before:
+                return dict(result, result="received", charger="dlink-not-ready")
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.1)
+    return result
+
+
+def selftest(capture=True, settle=CHARGER_CLOSE_S, ignored=None):
     """Multicast (as the EV sends it) then unicast SDP from v2g1 to the
-    charger on v2g0, with packet capture on both ends."""
+    charger on v2g0, with packet capture on both ends. `ignored` returns the
+    charger's count of requests dropped before the data link was ready."""
     secc = netguard.link_local(netguard.SECC_LINK)
     captures = [Capture(name).start() for name in LINKS] if capture else []
     time.sleep(0.2 if capture else 0)
-    multicast = sdp_probe("ff02::1", netguard.EVCC_LINK)
+    multicast = _probe("ff02::1", ignored)
     time.sleep(settle if multicast["result"] == "reply" else 0)  # let the charger drop the session
-    unicast = sdp_probe(secc, netguard.EVCC_LINK) if secc else {"result": "error", "error": "no SECC link-local"}
+    unicast = _probe(secc, ignored) if secc else {"result": "error", "error": "no SECC link-local"}
     time.sleep(settle if unicast["result"] == "reply" else 0)
     time.sleep(0.3 if capture else 0)
     seen = {c.ifname: c.stop() for c in captures}
     released = all(p.get("released") for p in (unicast, multicast) if p["result"] == "reply")
     return {"secc_address": secc, "unicast": unicast, "multicast": multicast, "capture": seen,
-            "pass": unicast["result"] == "reply" and multicast["result"] == "reply" and released,
+            "pass": unicast["result"] in PASSING and multicast["result"] in PASSING and released,
             "sessions_released": released, "unscoped_multicast_interface": (multicast_routes() or [None])[0],
             "at": time.time()}
 
@@ -305,6 +333,8 @@ def summary(result):
         parts.append(f"unscoped-multicast-via={result['unscoped_multicast_interface']}")
     if not result.get("sessions_released", True):
         parts.append("session-release=failed")
+    if "received" in (result["unicast"]["result"], result["multicast"]["result"]):
+        parts.append("charger=dlink-not-ready(answers after plug-in)")
     if result.get("charger_sdp_blocked"):
         parts.append("charger=ignoring-discovery(restart the App)")
     return ("Discovery self-test " + ("PASSED" if result["pass"] else "FAILED") + ": " + " ".join(parts))

@@ -44,6 +44,27 @@ def capability(config):
     }
 
 
+def operation_modes_request(config):
+    """ocpp set_variables arguments for V2XChargingCtrlr SupportedOperationModes, or None.
+
+    EVerest (ocpp_module_common EverestDeviceModelStorage, 2026.10.0-rc1)
+    builds this per-EVSE variable as "ChargingOnly,Idle" with no option to
+    change it, and libocpp then rejects every OCPP 2.1 charging profile period
+    with another operationMode (Q09.FR.01, InvalidOperationMode). The variable
+    is ReadOnly to a CSMS; an EVerest module may write it (libocpp's
+    ChargePoint::set_variables allows ReadOnly)."""
+    modes = [m.strip() for m in str(config.get("v2x_operation_modes", "")).split(",") if m.strip()]
+    if not modes:
+        return None
+    return {"requests": [{
+        "component_variable": {
+            "component": {"name": "V2XChargingCtrlr", "evse": {"id": int(config.get("evse_id", 1))}},
+            "variable": {"name": "SupportedOperationModes"},
+        },
+        "value": ",".join(modes),
+    }], "source": "ha-everest"}
+
+
 class DerState:
     """The module's view, written atomically to `path` after every change."""
 
@@ -52,7 +73,8 @@ class DerState:
         self.clock = clock
         self.lock = threading.Lock()
         self.state = {"capability": None, "capability_at": None, "active": None, "active_at": None,
-                      "updates": 0, "relay": "not connected", "relay_at": None, "alarms": []}
+                      "updates": 0, "relay": "not connected", "relay_at": None, "alarms": [],
+                      "v2x_operation_modes": None}
 
     def update(self, **values):
         with self.lock:
@@ -131,7 +153,31 @@ def main():
     for relay in relays:
         module.subscribe_variable(relay, "alarm", on_alarm)
 
+    ocpp_links = setup.connections.get("ocpp", [])
+    modes = operation_modes_request(config)
+
+    def set_operation_modes():
+        # OCPPmulti rejects set_variables until its charge point has started
+        # (after its ready), so retry; profiles come much later (after a
+        # session starts), and the device model is rebuilt on every start.
+        value = modes["requests"][0]["value"]
+        status = "not attempted"
+        for _ in range(150):
+            try:
+                result = module.call_command(ocpp_links[0], "set_variables", modes)
+                status = (result[0] or {}).get("status") if isinstance(result, list) and result else str(result)
+            except Exception as error:  # report and retry
+                status = f"error: {type(error).__name__}: {error}"
+            if status == "Accepted":
+                break
+            time.sleep(2)
+        state.update(v2x_operation_modes={"value": value, "status": status, "at": time.time()})
+        (log.info if status == "Accepted" else log.error)(
+            f"HaGridSupport: V2XChargingCtrlr SupportedOperationModes = {value}: {status}")
+
     def ready():
+        if modes and ocpp_links:
+            threading.Thread(target=set_operation_modes, daemon=True).start()
         value = capability(config)
         module.publish_variable("main", "capability", value)
         state.set_capability(value)

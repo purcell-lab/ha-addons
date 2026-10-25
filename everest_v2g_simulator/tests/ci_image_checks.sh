@@ -99,9 +99,11 @@ for _ in $(seq 60); do
 done
 test "$ready" = yes || { echo "App did not reach a disconnected, Unplugged state"; exit 1; }
 echo "== Discovery self-test at start passes and diagnostics are served"
+# EVerest 2026.10 answers SDP only after SLAC (plug-in); before it, "received" means the
+# charger logged the request as dropped for "dlink not ready" (diag.py).
 passed=no
 for _ in $(seq 30); do
-  if docker logs "$name" 2>&1 | grep -q "Discovery self-test PASSED: unicast=reply multicast=reply"; then
+  if docker logs "$name" 2>&1 | grep -Eq "Discovery self-test PASSED: unicast=(reply|received) multicast=(reply|received)"; then
     passed=yes; break
   fi
   sleep 2

@@ -19,6 +19,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import configure  # noqa: E402
+import diag  # noqa: E402
 import netguard  # noqa: E402
 import pki  # noqa: E402
 
@@ -96,6 +97,7 @@ def pump(stream, prefix="", sdp_ready=None):
     restarts = 0
     gave_up, gave_up_at = 0, 0.0
     blocked = False
+    dlink_ignored = 0
     for raw in iter(stream.readline, ""):
         line = ANSI.sub("", raw.rstrip("\n"))
         if not log_filter.keep(line):
@@ -107,6 +109,10 @@ def pump(stream, prefix="", sdp_ready=None):
             write_state(negotiated=None)
         elif SDP_READY in line and sdp_ready is not None:
             sdp_ready.set()
+        elif diag.DLINK_NOT_READY in line:
+            # An SDP request reached the charger before SLAC (diag.selftest).
+            dlink_ignored += 1
+            write_state(charger_sdp_dlink_ignored=dlink_ignored)
         elif EV_STACK_STOPPED in line:
             restarts += 1
             write_state(ev_stack_restarts=restarts, ev_stack_last_error=line[-300:])
@@ -205,6 +211,7 @@ def run():
         "ev_gave_up_count": 0,
         "ev_gave_up_at": None,
         "charger_sdp_blocked": False,
+        "charger_sdp_dlink_ignored": 0,
     }), mode=0o644)
     print("EVerest DC V2G test charger: " + (
         f"connection enabled, offering {offered}." if connected else "disconnected."), flush=True)

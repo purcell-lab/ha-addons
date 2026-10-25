@@ -215,6 +215,15 @@ except where an item says otherwise they have not been re-checked on
     Needed upstream: a capability source for DC (for example from the DC
     power supply or EvseManager's BPT settings) and a DC path for the
     directives.
+16. V2X operation modes (2026.10.0-rc1): EverestDeviceModelStorage builds
+    each EVSE's `V2XChargingCtrlr` `SupportedOperationModes` as
+    `ChargingOnly,Idle` ("TODO: Update dynamically operation mode"), even on
+    a DC_BPT EVSE, and libocpp then rejects every OCPP 2.1 profile period
+    with `operationMode` `CentralSetpoint` (Q09.FR.01,
+    `ChargingSchedulePeriodOperationModeNotInSupportedList`).
+    `update_supported_operation_modes` exists but nothing calls it.
+    HaGridSupport writes the list through OCPPmulti's `set_variables`
+    (DOCS, DER control is unaffected).
 
 ## Licences
 

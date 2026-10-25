@@ -38,6 +38,16 @@
   25 kW discharge and authorisation-wait patches are rebased onto 2026.10.
   The admin-panel controller stub is gone (the manager no longer starts
   one).
+- **CentralSetpoint profiles keep working.** libocpp 2026.10 rejects an
+  OCPP 2.1 profile period whose `operationMode` is not in the EVSE's
+  `V2XChargingCtrlr` `SupportedOperationModes` (`InvalidOperationMode`),
+  and EVerest builds that variable as `ChargingOnly,Idle`. HaGridSupport
+  writes `Idle,ChargingOnly,CentralSetpoint` once OCPP has started
+  (GetVariables shows it; the Status API carries the write result).
+- **Discovery self-test:** the 2026.10 charger answers SDP only after SLAC
+  (a plug-in) and logs each earlier request as dropped. A probe it logged is
+  now `received` and passes; a probe it never saw is still `silent` and
+  fails (DOCS.md, Discovery diagnostics).
 - `environs` 14.5.0 (Josev now asks for 14.5 or later, as the everest-ci
   build image installs).
 - Image checks: every EVerest ELF file must resolve its libraries, the
