@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.8.0
+
+- CitrineOS **v2.1.0**, built from source. The image no longer starts from
+  upstream's published v2.0.1 image: it fetches citrineos-core at the v2.1.0
+  commit (`4fd7599b91c2fb6e6065e7c9b94be69880cced27`, checked), applies the
+  App's source patches with `git apply` (the build fails if one does not
+  apply cleanly) and builds as upstream's `deploy.Dockerfile` does, on
+  digest-pinned `node:24.16.0` images, natively for amd64 and aarch64.
+- Prebuilt image: GitHub Actions builds that Dockerfile and publishes
+  `ghcr.io/purcell-lab/{arch}-citrineos-server:<version>`
+  (`citrineos-server-publish.yml`, approval-gated, see `RELEASE.md`), and
+  Home Assistant pulls it instead of building on the host. PR CI still builds
+  and tests the image from source. No new features: the gateway, operator
+  routes, Plugfest listeners, pricing and metering SetVariables behave as in
+  0.7.7.
+- The 0.7.4 to 0.7.7 fixes are source patches now (`patches/`), replacing the
+  compiled-JS patchers (`rootfs/patch-*.mjs`): OCPP 2.1 charging needs
+  (`DC_BPT`, `DC_ACDP`, `DC_ACDP_BPT`, and needs with only
+  `v2xChargingParameters`) and `allowedEnergyTransfer` in Accepted OCPP 2.1
+  AuthorizeResponses, with the same behaviour. The reconnect patch (#67) is
+  gone: v2.1.0 deregisters a closing connection before it frees the
+  station's slot. CI's Plugfest reconnect probe still checks it.
+- Authorisation follows v2.1.0. `rbac-rules.json` and the OIDC settings are
+  replaced by `auth.mode` `jwt` (set explicitly: upstream defaults to
+  `localDev`, which serves a token-minting `/dev/token`) and a roles seed
+  file the App writes at each start from the gateway's route lists. Each
+  internal role (`lab-reader`, `lab-controller`, `lab-operator`,
+  `lab-reporter`) gets exactly the routes it had. v2.1.0 permissions don't
+  name an OCPP version, so the gateway's existing version checks are now the
+  only thing that scopes a role to an OCPP version.
+- Operator UI schema (`metadata-operator.json`) regenerated from v2.1.0:
+  `LatestStatusNotifications` is dropped upstream (a connector has a
+  `LatestStatusNotification` relationship instead); `NetworkAlerts`,
+  `NetworkAlertOccurrences` and `WebsocketEvents` are readable, without
+  the connection's remote address. `ha_reader` (`metadata.json`) is
+  unchanged. Use the Operator UI App 0.2.0 (built from v2.1.0) with it.
+- Simulator provisioning looks up the station-level `SecurityCtrlr` with
+  `evseDatabaseId IS NULL` (v2.1.0 keys components by EVSE too).
+- v2.1.0 defaults kept and documented: Calls time out after 20 s, a Call not
+  sent within 40 s is dropped, at most 5 pending Calls per station, network
+  alerts on, weekly `WebsocketEvents` partitions provisioned at each start.
+
+## 0.7.7
+
+- Operator commands may send SetVariables for metering variables only:
+  `SampledDataCtrlr` TxStartedMeasurands, TxUpdatedMeasurands,
+  TxUpdatedInterval, TxEndedMeasurands, TxEndedInterval, and
+  `AlignedDataCtrlr` Measurands, Interval, TxEndedMeasurands,
+  TxEndedInterval (1-10 entries, attribute type Actual, no EVSE, connector or
+  instance; intervals 0-86400 s; measurands a comma list of measurand
+  names). ChargeSim (Plugfest, 23 October 2026) sends power only when asked
+  over OCPP, so without this the lab couldn't measure its charging during a
+  Cactus run. Every other SetVariables stays refused.
+
+## 0.7.6
+
+- OCPP 2.1 V2X charging needs that carry only `v2xChargingParameters` are
+  accepted. Upstream requires `acChargingParameters` for AC needs, and the
+  0.7.4 patch covered only the DC modes, so OCTT's AC V2X needs
+  (`AC_BPT`, or AC with V2X parameters) were Rejected. The charging needs
+  patch now also accepts any needs with `v2xChargingParameters`, stores them
+  and sends no automatic profile (the lab's TxProfile keeps control). AC and
+  `DC` needs without V2X parameters keep upstream's behaviour.
+
+## 0.7.5
+
+- Accepted OCPP 2.1 AuthorizeResponses carry `allowedEnergyTransfer`.
+  Upstream v2.0.1 never sets it, and OCPP 2.1 treats an omitted list as
+  charging only, so no session it authorised could be bidirectional: OCTT
+  (OCA, Plugfest) reported the field missing and rejected every
+  CentralSetpoint TxProfile. A build-time patch to the upstream handler
+  (`rootfs/patch-allowed-energy.mjs`, same exact-build guard) adds the lab's
+  modes (`DC`, `DC_BPT`, `AC_single_phase`, `AC_two_phase`,
+  `AC_three_phase`, `AC_BPT`) to every Accepted 2.1 AuthorizeResponse that
+  doesn't set the field already. Other statuses and OCPP 2.0.1 are
+  unchanged. CI checks the image is patched.
+
 ## 0.7.4
 
 - OCPP 2.1 charging needs are accepted. Upstream v2.0.1 matches DC needs only

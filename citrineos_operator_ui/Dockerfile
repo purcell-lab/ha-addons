@@ -1,11 +1,11 @@
 # CitrineOS Operator UI (Apache-2.0, https://github.com/citrineos/citrineos-core
 # apps/operator-ui), built from the same pinned release as the lab server
-# (v2.0.1) with this App's patch (operator-ui.patch) and run behind this
+# (v2.1.0) with this App's patch (operator-ui.patch) and run behind this
 # App's Ingress proxy (rootfs/opt/operator-ui-ha). Built and published in
 # GitHub Actions (operator-ui-publish.yml); Home Assistant pulls the image.
 ARG BUILD_IMAGE=node:24.16.0@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7
 ARG RUN_IMAGE=node:24.16.0-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
-ARG CORE_COMMIT=1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372
+ARG CORE_COMMIT=4fd7599b91c2fb6e6065e7c9b94be69880cced27
 
 FROM ${BUILD_IMAGE} AS build
 ARG CORE_COMMIT

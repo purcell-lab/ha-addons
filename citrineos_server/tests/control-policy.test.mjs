@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ROUTES,STATION,validateCommand,targetAllows,commandStation,stationAllowed,routesFor,
   routeProtocol,COMMANDS_BY_PROTOCOL,hasPriceSchedule,validateCostUpdated,costTargetAllows,validateTariff,
-  tariffTarget,tariffTargetAllows,pricePolicy,tariffStations,rbacRules,PRICE_ROUTES,COMMAND_ROLE,ALL_ROUTES}
+  tariffTarget,tariffTargetAllows,pricePolicy,tariffStations,roleRoutes,rolesSeed,permissionName,PRICE_ROUTES,COMMAND_ROLE,ALL_ROUTES}
   from '../rootfs/control-policy.mjs';
 const url=i=>new URL('http://lab'+ROUTES[i]+'?identifier='+STATION+'&tenantId=1');
 const start={remoteStartId:12,evseId:1,idToken:{type:'ISO14443',idToken:'C17E0001'}};
@@ -195,36 +195,79 @@ test('OCPP 1.6 routes: 1.6 payload shapes, integer transaction IDs, charging-onl
   const idle=state(false);idle.data.ChargingStations[0].protocol='ocpp1.6';
   assert.equal(targetAllows(at(3),{id:9001},idle),true);
 });
-test('RBAC rules are generated from the gateway route list',async()=>{
-  const {rbacRules,ALL_ROUTES,COMMAND_ROLE,CONFIG_UPSTREAM,STATUS_ROUTES}=await import('../rootfs/control-policy.mjs');
-  const {readFileSync}=await import('node:fs');
-  const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
-  const on=rbacRules(base,true)['1'];
+// The CitrineOS v2.0.1 role rules of 0.7.7 (rbac-rules.json and the rbacRules
+// generator, unchanged), kept to show that the v2.1.0 roles seed grants every
+// role exactly the routes it had: {role: Set of "METHOD route"}.
+const fixture=async name=>JSON.parse((await import('node:fs')).readFileSync(new URL(`./fixtures/${name}`,import.meta.url)));
+async function legacyRoutes(commandsEnabled,priceEnabled=false,reportsEnabled=false) {
+  const {CONFIG_UPSTREAM,STATUS_ROUTES,REPORT_ROUTES,REPORT_ROLE}=await import('../rootfs/control-policy.mjs');
+  const rules=await fixture('rbac-rules.v0.7.7.json');
+  const tenant=rules['1'];
+  const grant=(route,role,on)=>{
+    const roles=(tenant[route]?.POST||[]).filter(r=>r!==role);
+    if(on) roles.unshift(role);
+    if(roles.length) tenant[route]={...tenant[route],POST:roles};
+    else if(tenant[route]) { delete tenant[route].POST; if(!Object.keys(tenant[route]).length) delete tenant[route]; }
+  };
+  for(const route of [...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...PRICE_ROUTES])
+    grant(route,COMMAND_ROLE,commandsEnabled===true&&(!PRICE_ROUTES.includes(route)||priceEnabled===true));
+  for(const route of Object.values(REPORT_ROUTES)) grant(route,REPORT_ROLE,reportsEnabled===true);
+  const out={'lab-reader':new Set(),'lab-controller':new Set(),'lab-operator':new Set(),'lab-reporter':new Set()};
+  for(const [route,methods] of Object.entries(tenant))
+    for(const [method,roles] of Object.entries(methods)) for(const role of roles) out[role].add(`${method} ${route}`);
+  return out;
+}
+const FLAGS=[false,true].flatMap(c=>[false,true].flatMap(p=>[false,true].map(r=>[c,p,r])));
+const asSet=routes=>new Set(routes.map(({method,route})=>`${method} ${route}`));
+test('each role gets exactly the upstream routes it had with CitrineOS v2.0.1',async()=>{
+  for(const flags of FLAGS) {
+    const legacy=await legacyRoutes(...flags), now=roleRoutes(...flags);
+    assert.deepEqual(Object.keys(now).sort(),Object.keys(legacy).sort());
+    for(const role of Object.keys(now)) assert.deepEqual(asSet(now[role]),legacy[role],`${role} ${flags}`);
+  }
+  const on=roleRoutes(true);
   // Every route the gateway accepts for scoped commands, on 2.1, 2.0.1 and 1.6.
-  for(const route of ALL_ROUTES) assert.ok(on[route].POST.includes(COMMAND_ROLE),route);
+  for(const route of ALL_ROUTES) assert.ok(asSet(on[COMMAND_ROLE]).has(`POST ${route}`),route);
   assert.equal(ALL_ROUTES.length,12);
-  const status=Object.values(STATUS_ROUTES);
-  // Nothing else gains the command role, and other roles keep their rules.
-  for(const [route,methods] of Object.entries(on))
-    for(const [method,roles] of Object.entries(methods))
-      if(roles.includes(COMMAND_ROLE)&&!ALL_ROUTES.includes(route)&&route!==CONFIG_UPSTREAM&&!status.includes(route))
-        assert.deepEqual(roles,base['1'][route][method],route);
-  // Read-only station configuration (OCPP 1.6 GetConfiguration) for the command role only.
-  assert.deepEqual(on[CONFIG_UPSTREAM],{POST:['lab-controller']});
-  // The gateway's own GetTransactionStatus (stale transactions); the Operator UI keeps its rule.
-  for(const route of status) assert.deepEqual(on[route].POST,['lab-controller','lab-operator'],route);
-  for(const route of status) assert.deepEqual(rbacRules(base,false)['1'][route].POST,['lab-operator'],route);
-  assert.deepEqual(on['/ocpp/2.0.1/evdriver/requestStartTransaction'].POST,['lab-controller','lab-operator']);
-  assert.deepEqual(on['/ocpp/1.6/evdriver/remoteStartTransaction'].POST,['lab-controller']);
-  // Off: the command role holds no scoped route; operator rules remain.
-  const off=rbacRules(base,false)['1'];
-  for(const route of ALL_ROUTES) assert.ok(!(off[route]?.POST||[]).includes(COMMAND_ROLE),route);
-  assert.equal(off['/ocpp/1.6/evdriver/remoteStartTransaction'],undefined);
-  assert.equal(off[CONFIG_UPSTREAM],undefined);
-  assert.deepEqual(off['/ocpp/2.1/smartcharging/setChargingProfile'].POST,['lab-operator']);
-  // Idempotent when re-applied to its own output, and the base is not mutated.
-  assert.deepEqual(rbacRules(rbacRules(base,true),true),rbacRules(base,true));
-  assert.ok(!('/ocpp/1.6/evdriver/remoteStartTransaction' in base['1']));
+  // Off: the command role keeps the tariff read only; the Operator UI role is unchanged.
+  assert.deepEqual(roleRoutes(false)[COMMAND_ROLE],[{method:'GET',route:'/commands/tariff'}]);
+  assert.deepEqual(roleRoutes(false)['lab-operator'],on['lab-operator']);
+});
+test('the roles seed names v2.1.0 permissions, and the gateway still scopes each role to its OCPP versions',async()=>{
+  const {routes:upstream}=await fixture('citrineos-routes.v2.1.0.json');
+  const {operatorCommand,OPERATOR_PROTOCOLS}=await import('../rootfs/control-policy.mjs');
+  for(const flags of FLAGS) {
+    const seed=rolesSeed(...flags), legacy=await legacyRoutes(...flags);
+    assert.deepEqual(Object.keys(seed).sort(),['lab-controller','lab-operator','lab-reader','lab-reporter']);
+    for(const [role,routes] of Object.entries(roleRoutes(...flags))) {
+      assert.deepEqual(seed[role].resources,{});
+      // Each route exists upstream and needs the permission the seed grants.
+      for(const r of routes) assert.equal(upstream[`${r.method} ${r.route}`],permissionName(r),`${role} ${r.route}`);
+      assert.deepEqual(seed[role].permissions,[...new Set(routes.map(permissionName))].sort());
+      // What the seed grants upstream: a permission covers every OCPP version.
+      const granted=Object.entries(upstream).filter(([,p])=>seed[role].permissions.includes(p)).map(([k])=>k);
+      for(const route of legacy[role]) assert.ok(granted.includes(route),`${role} ${route}`);
+      const extra=granted.filter(k=>!legacy[role].has(k));
+      if(role!=='lab-operator') { assert.deepEqual(extra,[],`${role} ${flags}`); continue; }
+      // Only the Operator UI role gains routes: the same actions on OCPP 1.6,
+      // which its gateway route (operatorCommand) refuses.
+      assert.ok(extra.length>0);
+      for(const k of extra) {
+        assert.match(k,/^POST \/ocpp\/1\.6\//);
+        assert.equal(operatorCommand(new URL(`${k.slice(5)}?identifier=CP1&tenantId=1`,'http://lab')),null,k);
+      }
+    }
+  }
+  assert.deepEqual(OPERATOR_PROTOCOLS,['ocpp2.0.1','ocpp2.1']);
+  assert.equal(permissionName({method:'GET',route:'/commands/tariff'}),'commands.tariff.get');
+  assert.equal(permissionName({method:'POST',route:'/ocpp/2.0.1/evdriver/requestStartTransaction'}),
+    'ocpp.evdriver.requestStartTransaction');
+  for(const r of [{method:'GET',route:'/ocpp/2.1/evdriver/requestStartTransaction'},{method:'POST',route:'/ocpp/2.2/a/b'},
+    {method:'POST',route:'/dev/token'},{method:'GET',route:'/commands/tariff/x'}])
+    assert.equal(permissionName(r),null,r.route);
+  // No seed role may mint tokens or administer CitrineOS.
+  const all=Object.values(rolesSeed(true,true,true)).flatMap(r=>r.permissions);
+  assert.equal(all.some(p=>/^(dev|permissions|ocpprouter)\.|^commands\.(?!tariff\.get$)/.test(p)),false);
 });
 
 test('station configuration reads only listed keys from an online 1.6 command station',async()=>{
@@ -451,23 +494,21 @@ test('control policy price_commands: enabled object, disabled {"enabled":false}'
   assert.deepEqual(tariffStations({command_station_id:'SIM-EV-X'}),['SIM-EV-X']);
   assert.equal(pricePolicy({price_commands_enabled:true}).currency,'AUD');
 });
-test('RBAC grants the price routes to the command role only when both flags are on',async()=>{
-  const {readFileSync}=await import('node:fs');
-  const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
+test('roles: the price routes go to the command role only when both flags are on',async()=>{
   assert.deepEqual(PRICE_ROUTES,['/ocpp/2.1/transactions/costUpdated','/ocpp/2.0.1/transactions/costUpdated',
     '/ocpp/2.1/transactions/setDefaultTariff']);
-  const on=rbacRules(base,true,true)['1'];
-  for(const route of PRICE_ROUTES) assert.deepEqual(on[route],{POST:[COMMAND_ROLE]},route);
-  for(const route of ALL_ROUTES) assert.ok(on[route].POST.includes(COMMAND_ROLE),route);
+  const price=['ocpp.transactions.costUpdated','ocpp.transactions.setDefaultTariff'];
+  const on=rolesSeed(true,true);
+  for(const p of price) assert.ok(on[COMMAND_ROLE].permissions.includes(p),p);
   for(const [commands,prices] of [[true,false],[false,true],[false,false]]) {
-    const rules=rbacRules(base,commands,prices)['1'];
-    for(const route of PRICE_ROUTES) assert.equal(rules[route],undefined,`${commands}/${prices} ${route}`);
+    const seed=rolesSeed(commands,prices);
+    for(const [role,{permissions}] of Object.entries(seed))
+      for(const p of price) assert.ok(!permissions.includes(p),`${commands}/${prices} ${role} ${p}`);
   }
-  // Price routes do not change any other rule.
-  const plain=rbacRules(base,true)['1'];
-  for(const route of PRICE_ROUTES) delete on[route];
-  assert.deepEqual(on,plain);
-  assert.deepEqual(rbacRules(rbacRules(base,true,true),true,false),rbacRules(base,true));
+  // Price routes do not change any other grant.
+  const plain=rolesSeed(true);
+  assert.deepEqual(on[COMMAND_ROLE].permissions.filter(p=>!price.includes(p)),plain[COMMAND_ROLE].permissions);
+  for(const role of ['lab-reader','lab-operator','lab-reporter']) assert.deepEqual(on[role],plain[role],role);
 });
 test('stale transactions: which station, which route, which transactions are due',async()=>{
   const {reconcileTarget,reconcileDue,startRoute,STATUS_ROUTES,RECONCILE_EVERY_MS,ALL_ROUTES:routes}=
@@ -495,26 +536,19 @@ test('stale transactions: which station, which route, which transactions are due
   assert.deepEqual(routes.filter(startRoute),['/ocpp/2.1/evdriver/requestStartTransaction',
     '/ocpp/2.0.1/evdriver/requestStartTransaction','/ocpp/1.6/evdriver/remoteStartTransaction']);
 });
-test('RBAC grants the report role the two GetBaseReport routes only, and nothing else changes',async()=>{
-  const {rbacRules,REPORT_ROLE,REPORT_ROUTES,COMMAND_ROLE}=await import('../rootfs/control-policy.mjs');
-  const {readFileSync}=await import('node:fs');
-  const base=JSON.parse(readFileSync(new URL('../rootfs/rbac-rules.json',import.meta.url)));
+test('roles: the report role gets GetBaseReport only, and nothing else changes',async()=>{
+  const {REPORT_ROLE,REPORT_ROUTES}=await import('../rootfs/control-policy.mjs');
   const routes=Object.values(REPORT_ROUTES);
   assert.deepEqual(routes,['/ocpp/2.1/reporting/getBaseReport','/ocpp/2.0.1/reporting/getBaseReport']);
   for(const commands of [false,true]) {
-    const on=rbacRules(base,commands,false,true)['1'], off=rbacRules(base,commands,false,false)['1'];
-    // The Operator UI keeps its rule; the command role never gets GetBaseReport.
-    for(const route of routes) {
-      assert.deepEqual(on[route].POST,[REPORT_ROLE,'lab-operator'],route);
-      assert.deepEqual(off[route].POST,['lab-operator'],route);
-      assert.ok(!on[route].POST.includes(COMMAND_ROLE),route);
-    }
-    for(const [route,methods] of Object.entries(on))
-      if(!routes.includes(route))assert.deepEqual(methods,off[route],route);
-    assert.equal(JSON.stringify(on).split(REPORT_ROLE).length-1,2);
+    const on=rolesSeed(commands,false,true), off=rolesSeed(commands,false,false);
+    assert.deepEqual(on[REPORT_ROLE].permissions,['ocpp.reporting.getBaseReport']);
+    assert.deepEqual(off[REPORT_ROLE].permissions,[]);
+    // The command role never gets GetBaseReport; the Operator UI keeps it.
+    assert.ok(!on[COMMAND_ROLE].permissions.includes('ocpp.reporting.getBaseReport'));
+    assert.ok(on['lab-operator'].permissions.includes('ocpp.reporting.getBaseReport'));
+    for(const role of Object.keys(on)) if(role!==REPORT_ROLE) assert.deepEqual(on[role],off[role],role);
   }
-  assert.deepEqual(rbacRules(rbacRules(base,true,true,true),true,true,false),rbacRules(base,true,true));
-  assert.ok(!JSON.stringify(base).includes(REPORT_ROLE));
 });
 test('device model reports: once per online transition, OCPP 2.x only, rate-limited',async()=>{
   const {reportState,reportsDue,reportDone,deviceModelReports,REPORT_ROUTES,REPORT_EVERY_MS,REPORT_PER_CYCLE,

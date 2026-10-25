@@ -46,11 +46,14 @@ export async function seedSimulator(o) {
       ("stationId","tenantId",status,"heartbeatInterval","bootRetryInterval","getBaseReportOnPending","createdAt","updatedAt")
       VALUES ($1,1,'Accepted',30,10,false,NOW(),NOW())
       ON CONFLICT ("stationId") DO UPDATE SET status='Accepted',"updatedAt"=NOW()`,[station.id]);
+    // v2.1.0 keys Components on (tenantId, name, instance, evseDatabaseId), with
+    // partial unique indexes for the NULL combinations: the station-level
+    // SecurityCtrlr is the row with no instance and no EVSE.
     await db.query(`INSERT INTO "Components" (name,"tenantId","createdAt","updatedAt")
       VALUES ('SecurityCtrlr',1,NOW(),NOW()) ON CONFLICT DO NOTHING`);
     await db.query(`INSERT INTO "Variables" (name,"tenantId","createdAt","updatedAt")
       VALUES ('BasicAuthPassword',1,NOW(),NOW()) ON CONFLICT DO NOTHING`);
-    const {rows:[component]}=await db.query(`SELECT id FROM "Components" WHERE name='SecurityCtrlr' AND "tenantId"=1 AND instance IS NULL`);
+    const {rows:[component]}=await db.query(`SELECT id FROM "Components" WHERE name='SecurityCtrlr' AND "tenantId"=1 AND instance IS NULL AND "evseDatabaseId" IS NULL`);
     const {rows:[variable]}=await db.query(`SELECT id FROM "Variables" WHERE name='BasicAuthPassword' AND "tenantId"=1 AND instance IS NULL`);
     await db.query(`INSERT INTO "VariableAttributes"
       ("stationId","tenantId","componentId","variableId",type,"dataType",value,mutability,persistent,constant,"createdAt","updatedAt")
@@ -63,7 +66,7 @@ export async function seedSimulator(o) {
     await db.query(`DELETE FROM "VariableAttributes" va
       USING "ChargingStations" cs, "Components" c, "Variables" v
       WHERE va."stationId"=cs.id AND va."componentId"=c.id AND va."variableId"=v.id
-        AND c.name='SecurityCtrlr' AND c.instance IS NULL
+        AND c.name='SecurityCtrlr' AND c.instance IS NULL AND c."evseDatabaseId" IS NULL
         AND v.name='BasicAuthPassword' AND v.instance IS NULL
         AND NOT (cs."ocppConnectionName" = ANY($1::text[]))`,[targets.map(([name])=>name)]);
     // Lab tariff and location (#30): upstream logs "Tariff not found for

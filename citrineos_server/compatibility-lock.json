@@ -2,11 +2,15 @@
   "schema_version": 1,
   "server": {
     "repository": "https://github.com/citrineos/citrineos-core",
-    "version": "2.0.1",
-    "commit": "1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372",
-    "image": "ghcr.io/citrineos/citrineos-server:v2.0.1@sha256:15316dff5f661714e2fddfa2f25baebea4c11d8d6aa2a9bb254a98159da58378",
-    "amd64_manifest": "sha256:356af266f90909f36f3b2bd61b64d7fd374cc416e60126d8d710010e17957e20",
-    "arm64_manifest": "sha256:95b43477247dedb562acbfbeeed03b433e9525989cfaa9588a3541cd7d9ea674"
+    "version": "2.1.0",
+    "commit": "4fd7599b91c2fb6e6065e7c9b94be69880cced27",
+    "build": "source",
+    "build_image": "node:24.16.0@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7",
+    "run_image": "node:24.16.0-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+    "patches": [
+      "0001-ocpp21-charging-needs.patch",
+      "0002-ocpp21-allowed-energy-transfer.patch"
+    ]
   },
   "client": {
     "repository": "https://github.com/Stuart0411/CitrineOS-HA-Integration",

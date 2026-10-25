@@ -1,7 +1,7 @@
 name: CitrineOS Operator UI
-version: "0.1.0"
+version: "0.2.0"
 slug: citrineos_operator_ui
-description: CitrineOS v2.0.1 Operator UI for the isolated lab, behind Home Assistant Ingress; read-only data, optional bounded commands.
+description: CitrineOS v2.1.0 Operator UI for the isolated lab, behind Home Assistant Ingress; read-only data, optional bounded commands.
 url: https://github.com/purcell-lab/ha-addons/tree/main/citrineos_operator_ui
 image: ghcr.io/purcell-lab/{arch}-citrineos-operator-ui
 arch:
