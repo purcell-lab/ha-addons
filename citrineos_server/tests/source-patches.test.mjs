@@ -19,6 +19,9 @@ const ROOT = new URL('..', import.meta.url);
 const COMMIT = '4fd7599b91c2fb6e6065e7c9b94be69880cced27';
 const DIR = 'packages/ocpp/src/handlers/requests/2';
 // patch -> the upstream file it changes and that file's git blob at COMMIT.
+// A patch that changes several files lists them in `files` (each as above) and
+// the files it adds in `creates`; markers counts its tags in each file.
+const H = 'packages/ocpp/src/handlers';
 const PATCHES = {
   '0001-ocpp21-charging-needs.patch': {
     file: `${DIR}/notify-ev-charging-needs-request-ocpp-2-handler.ts`,
@@ -32,7 +35,33 @@ const PATCHES = {
     fixture: 'authorize-request-ocpp-21-handler.v2.1.0.ts',
     markers: 1,
   },
+  '0003-ocpp21-der-control.patch': {
+    files: [
+      {file: 'packages/base/src/interfaces/schema/mapping-schema.ts',
+        blob: 'b26a9929ea7f2d97907f1bafd448fbc11aa86dd9', fixture: 'mapping-schema.v2.1.0.ts', markers: 2},
+      {file: 'packages/base/src/ocpp/rpc/2/schemas.ts',
+        blob: '35d2a042bc7b07aaeb219a20181a4e2b7d65561e', fixture: 'rpc-2-schemas.v2.1.0.ts', markers: 0},
+      {file: 'packages/ocpp/src/apis/ocpp/2/smart-charging.ts',
+        blob: 'b8ee306446dd069903615355b9c1065c42caaaaf', fixture: 'smart-charging.v2.1.0.ts', markers: 1},
+      {file: `${H}/index.ts`,
+        blob: '98ad9da8528d0b10dae026f62743d83bf8fb524e', fixture: 'handlers-index.v2.1.0.ts', markers: 1},
+      {file: 'packages/ocpp/src/modules/smart-charging/register.ts',
+        blob: '68a129689a1c92c5867680f4c1f412df824e25ad', fixture: 'smart-charging-register.v2.1.0.ts', markers: 1},
+      {file: 'packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts',
+        blob: '02f6846234dd47c20447e40babbfebd4dff7b6fe', fixture: 'smart-charging-endpoint-list.test.v2.1.0.ts', markers: 0},
+    ],
+    creates: [
+      ...['report-der-control', 'notify-der-start-stop', 'notify-der-alarm']
+        .map(a => ({file: `${H}/requests/2/${a}-request-ocpp-21-handler.ts`, markers: 1})),
+      ...['set-der-control', 'get-der-control', 'clear-der-control']
+        .map(a => ({file: `${H}/responses/2/${a}-response-ocpp-21-handler.ts`, markers: 1})),
+      {file: 'packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts', markers: 0},
+    ],
+  },
 };
+// The upstream files a patch changes, and every file it touches.
+const changes = entry => entry.files ?? [entry];
+const touched = entry => [...changes(entry), ...(entry.creates ?? [])];
 const read = rel => fs.readFileSync(new URL(rel, ROOT), 'utf8');
 const gitBlob = text => {
   const body = Buffer.from(text);
@@ -44,7 +73,7 @@ test.after(() => fs.rmSync(tmp, {recursive: true, force: true}));
 // A scratch tree holding the pinned upstream files at their paths.
 function tree(name) {
   const dir = path.join(tmp, name);
-  for (const {file, fixture} of Object.values(PATCHES)) {
+  for (const {file, fixture} of Object.values(PATCHES).flatMap(changes)) {
     fs.mkdirSync(path.join(dir, path.dirname(file)), {recursive: true});
     fs.writeFileSync(path.join(dir, file), read(`tests/fixtures/${fixture}`));
   }
@@ -64,15 +93,17 @@ test('fixtures are the upstream files at the pinned commit', () => {
   const lock = JSON.parse(read('compatibility-lock.json'));
   assert.equal(lock.server.commit, COMMIT);
   assert.deepEqual(lock.server.patches, Object.keys(PATCHES));
-  for (const {fixture, blob} of Object.values(PATCHES))
+  for (const {fixture, blob} of Object.values(PATCHES).flatMap(changes))
     assert.equal(gitBlob(read(`tests/fixtures/${fixture}`)), blob, fixture);
 });
-test('patches/ holds exactly these patches, each changing its one upstream file', () => {
+test('patches/ holds exactly these patches, each changing only its listed files', () => {
   assert.deepEqual(fs.readdirSync(new URL('patches/', ROOT)).sort(), Object.keys(PATCHES));
-  for (const [name, {file}] of Object.entries(PATCHES)) {
+  for (const [name, entry] of Object.entries(PATCHES)) {
     const text = read(`patches/${name}`);
-    assert.deepEqual([...text.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].map(m => [m[1], m[2]]),
-      [[file, file]], name);
+    assert.deepEqual([...text.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].map(m => [m[1], m[2]]).sort(),
+      touched(entry).map(({file}) => [file, file]).sort(), name);
+    for (const {file} of entry.creates ?? [])
+      assert.match(text, new RegExp(`^diff --git a/${file} b/${file}\\nnew file mode`, 'm'), file);
     assert.match(text, new RegExp(`^ha-citrine source patch \\d{4} against CitrineOS v2\\.1\\.0\\n\\(${COMMIT}\\)`), name);
   }
 });
@@ -86,10 +117,12 @@ test('every patch applies cleanly to the pinned source, and only once', () => {
     // Applied twice it fails, as the build would on an already patched tree.
     assert.notEqual(gitApply(dir, ['--check', patch]).status, 0, name);
   }
-  for (const [name, {file, markers}] of Object.entries(PATCHES)) {
-    const text = fs.readFileSync(path.join(dir, file), 'utf8');
+  for (const [name, entry] of Object.entries(PATCHES)) {
     const tag = `ha-citrine patch (${name.replace(/\.patch$/, '')})`;
-    assert.equal(text.split(tag).length - 1, markers, name);
+    for (const {file, markers} of touched(entry)) {
+      const text = fs.readFileSync(path.join(dir, file), 'utf8');
+      assert.equal(text.split(tag).length - 1, markers, `${name} ${file}`);
+    }
   }
 });
 test('a patch that no longer matches upstream fails to apply', () => {

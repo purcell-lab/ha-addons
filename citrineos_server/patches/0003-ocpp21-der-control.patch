@@ -1,0 +1,603 @@
+ha-citrine source patch 0003 against CitrineOS v2.1.0
+(4fd7599b91c2fb6e6065e7c9b94be69880cced27), applied after 0001 and 0002:
+OCPP 2.1 DER control.
+
+Upstream v2.1.0 knows the six OCPP 2.1 DER actions by name but has no schema
+entries, endpoints or handlers for them: a station's ReportDERControl,
+NotifyDERStartStop or NotifyDERAlarm fails schema lookup and is answered with a
+FormatViolation CALLERROR, and the operator API has no route to send
+SetDERControl, GetDERControl or ClearDERControl.
+
+The patch adds:
+- the DER CALL and CALLRESULT schemas to the OCPP 2.1 schema records, and the
+  three CSMS-sent request schemas to the endpoint body schemas;
+- POST /ocpp/2.1/smartcharging/setDERControl, getDERControl and
+  clearDERControl (OCPP 2.1 only), forwarded as sent;
+- request handlers that acknowledge ReportDERControl, NotifyDERStartStop and
+  NotifyDERAlarm with the empty response the schema defines (the messages
+  themselves are kept in OCPPMessages, as every message is), and response
+  handlers that log the station's status for the three CSMS requests;
+- the handlers in the SmartCharging module's list, and tests.
+
+No database change. The App's gateway (control-policy.mjs) decides who may
+send these routes and to which station.
+
+diff --git a/packages/base/src/interfaces/schema/mapping-schema.ts b/packages/base/src/interfaces/schema/mapping-schema.ts
+index b26a9929e..8320e76ca 100644
+--- a/packages/base/src/interfaces/schema/mapping-schema.ts
++++ b/packages/base/src/interfaces/schema/mapping-schema.ts
+@@ -183,6 +183,13 @@ export const OCPP2_1_CALL_SCHEMA_RECORD: Record<string, object> = {
+   [OCPP_CallAction.TriggerMessage]: OCPP2_1.TriggerMessageRequestSchema,
+   [OCPP_CallAction.UnlockConnector]: OCPP2_1.UnlockConnectorRequestSchema,
+   [OCPP_CallAction.SetDefaultTariff]: OCPP2_1.SetDefaultTariffRequestSchema,
++  // ha-citrine patch (0003-ocpp21-der-control): OCPP 2.1 DER control.
++  [OCPP_CallAction.SetDERControl]: OCPP2_1.SetDERControlRequestSchema,
++  [OCPP_CallAction.GetDERControl]: OCPP2_1.GetDERControlRequestSchema,
++  [OCPP_CallAction.ClearDERControl]: OCPP2_1.ClearDERControlRequestSchema,
++  [OCPP_CallAction.ReportDERControl]: OCPP2_1.ReportDERControlRequestSchema,
++  [OCPP_CallAction.NotifyDERStartStop]: OCPP2_1.NotifyDERStartStopRequestSchema,
++  [OCPP_CallAction.NotifyDERAlarm]: OCPP2_1.NotifyDERAlarmRequestSchema,
+   [OCPP_CallAction.UnpublishFirmware]: OCPP2_1.UnpublishFirmwareRequestSchema,
+   [OCPP_CallAction.UpdateFirmware]: OCPP2_1.UpdateFirmwareRequestSchema,
+   [OCPP_CallAction.VatNumberValidation]: OCPP2_1.VatNumberValidationRequestSchema,
+@@ -358,6 +365,13 @@ export const OCPP2_1_CALL_RESULT_SCHEMA_RECORD: Record<string, object> = {
+   [OCPP_CallAction.TriggerMessage]: OCPP2_1.TriggerMessageResponseSchema,
+   [OCPP_CallAction.UnlockConnector]: OCPP2_1.UnlockConnectorResponseSchema,
+   [OCPP_CallAction.SetDefaultTariff]: OCPP2_1.SetDefaultTariffResponseSchema,
++  // ha-citrine patch (0003-ocpp21-der-control): OCPP 2.1 DER control.
++  [OCPP_CallAction.SetDERControl]: OCPP2_1.SetDERControlResponseSchema,
++  [OCPP_CallAction.GetDERControl]: OCPP2_1.GetDERControlResponseSchema,
++  [OCPP_CallAction.ClearDERControl]: OCPP2_1.ClearDERControlResponseSchema,
++  [OCPP_CallAction.ReportDERControl]: OCPP2_1.ReportDERControlResponseSchema,
++  [OCPP_CallAction.NotifyDERStartStop]: OCPP2_1.NotifyDERStartStopResponseSchema,
++  [OCPP_CallAction.NotifyDERAlarm]: OCPP2_1.NotifyDERAlarmResponseSchema,
+   [OCPP_CallAction.UnpublishFirmware]: OCPP2_1.UnpublishFirmwareResponseSchema,
+   [OCPP_CallAction.UpdateFirmware]: OCPP2_1.UpdateFirmwareResponseSchema,
+   [OCPP_CallAction.VatNumberValidation]: OCPP2_1.VatNumberValidationResponseSchema,
+diff --git a/packages/base/src/ocpp/rpc/2/schemas.ts b/packages/base/src/ocpp/rpc/2/schemas.ts
+index 35d2a042b..7d6842200 100644
+--- a/packages/base/src/ocpp/rpc/2/schemas.ts
++++ b/packages/base/src/ocpp/rpc/2/schemas.ts
+@@ -96,6 +96,9 @@ const ocpp2_1_schemas: Record<string, AnySchemaObject> = {
+   CostUpdatedRequestSchema: OCPP2_1.CostUpdatedRequestSchema,
+   GetTransactionStatusRequestSchema: OCPP2_1.GetTransactionStatusRequestSchema,
+   SetDefaultTariffRequestSchema: OCPP2_1.SetDefaultTariffRequestSchema,
++  SetDERControlRequestSchema: OCPP2_1.SetDERControlRequestSchema,
++  GetDERControlRequestSchema: OCPP2_1.GetDERControlRequestSchema,
++  ClearDERControlRequestSchema: OCPP2_1.ClearDERControlRequestSchema,
+ };
+ 
+ const OCPP2_SCHEMA_RECORD: SchemaRecord = {
+diff --git a/packages/ocpp/src/apis/ocpp/2/smart-charging.ts b/packages/ocpp/src/apis/ocpp/2/smart-charging.ts
+index b8ee30644..9a91cf802 100644
+--- a/packages/ocpp/src/apis/ocpp/2/smart-charging.ts
++++ b/packages/ocpp/src/apis/ocpp/2/smart-charging.ts
+@@ -1,15 +1,29 @@
+ // SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
+ //
+ // SPDX-License-Identifier: Apache-2.0
+-import type { MessageEndpointClass } from '@citrineos/base';
++import { type MessageEndpointClass, forwardMessageEndpoint } from '@citrineos/base';
++import { EventGroup, OCPP_CallAction, OCPPVersion } from '@citrineos/types';
+ import { ClearChargingProfileEndpoint } from './smart-charging/clear-charging-profile-endpoint.js';
+ import { GetChargingProfilesEndpoint } from './smart-charging/get-charging-profiles-endpoint.js';
+ import { GetCompositeScheduleEndpoint } from './smart-charging/get-composite-schedule-endpoint.js';
+ import { SetChargingProfileEndpoint } from './smart-charging/set-charging-profile-endpoint.js';
++import { ocpp2Schema } from './schemas.js';
++
++// ha-citrine patch (0003-ocpp21-der-control): DER control exists in OCPP 2.1 only.
++const ocpp21 = (action: OCPP_CallAction, schemaName: string) =>
++  forwardMessageEndpoint({
++    action,
++    protocols: [OCPPVersion.OCPP2_1],
++    eventGroup: EventGroup.SmartCharging,
++    bodySchema: ocpp2Schema(schemaName),
++  });
+ 
+ export const SMART_CHARGING_MESSAGE_ENDPOINTS = [
+   ClearChargingProfileEndpoint,
+   GetChargingProfilesEndpoint,
+   SetChargingProfileEndpoint,
+   GetCompositeScheduleEndpoint,
++  ocpp21(OCPP_CallAction.SetDERControl, 'SetDERControlRequestSchema'),
++  ocpp21(OCPP_CallAction.GetDERControl, 'GetDERControlRequestSchema'),
++  ocpp21(OCPP_CallAction.ClearDERControl, 'ClearDERControlRequestSchema'),
+ ] satisfies ReadonlyArray<MessageEndpointClass>;
+diff --git a/packages/ocpp/src/handlers/index.ts b/packages/ocpp/src/handlers/index.ts
+index 98ad9da85..2eca68afa 100644
+--- a/packages/ocpp/src/handlers/index.ts
++++ b/packages/ocpp/src/handlers/index.ts
+@@ -103,3 +103,10 @@ export { TriggerMessageResponseOcpp2Handler } from './responses/2/trigger-messag
+ export { UnlockConnectorResponseOcpp2Handler } from './responses/2/unlock-connector-response-ocpp-2-handler.js';
+ export { UnpublishFirmwareResponseOcpp2Handler } from './responses/2/unpublish-firmware-response-ocpp-2-handler.js';
+ export { UpdateFirmwareResponseOcpp2Handler } from './responses/2/update-firmware-response-ocpp-2-handler.js';
++// ha-citrine patch (0003-ocpp21-der-control)
++export { ReportDERControlRequestOcpp21Handler } from './requests/2/report-der-control-request-ocpp-21-handler.js';
++export { NotifyDERStartStopRequestOcpp21Handler } from './requests/2/notify-der-start-stop-request-ocpp-21-handler.js';
++export { NotifyDERAlarmRequestOcpp21Handler } from './requests/2/notify-der-alarm-request-ocpp-21-handler.js';
++export { SetDERControlResponseOcpp21Handler } from './responses/2/set-der-control-response-ocpp-21-handler.js';
++export { GetDERControlResponseOcpp21Handler } from './responses/2/get-der-control-response-ocpp-21-handler.js';
++export { ClearDERControlResponseOcpp21Handler } from './responses/2/clear-der-control-response-ocpp-21-handler.js';
+diff --git a/packages/ocpp/src/handlers/requests/2/notify-der-alarm-request-ocpp-21-handler.ts b/packages/ocpp/src/handlers/requests/2/notify-der-alarm-request-ocpp-21-handler.ts
+new file mode 100644
+index 000000000..580b59348
+--- /dev/null
++++ b/packages/ocpp/src/handlers/requests/2/notify-der-alarm-request-ocpp-21-handler.ts
+@@ -0,0 +1,45 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import {
++  AbstractHandler,
++  type AbstractHandlerDependencies,
++  AsRequestHandler,
++  type IMessage,
++  type IOcppSender,
++} from '@citrineos/base';
++import {
++  type HandlerProperties,
++  type OCPP2_1,
++  OCPP_CallAction,
++  OCPPVersion,
++} from '@citrineos/types';
++
++// ha-citrine patch (0003-ocpp21-der-control): the message itself is kept in OCPPMessages.
++@AsRequestHandler([OCPPVersion.OCPP2_1], OCPP_CallAction.NotifyDERAlarm)
++export class NotifyDERAlarmRequestOcpp21Handler extends AbstractHandler {
++  protected _ocppSender: IOcppSender;
++
++  constructor({ logger, ocppSender }: AbstractHandlerDependencies & { ocppSender: IOcppSender }) {
++    super(logger);
++    this._ocppSender = ocppSender;
++  }
++
++  async handle(
++    message: IMessage<OCPP2_1.NotifyDERAlarmRequest>,
++    props?: HandlerProperties,
++  ): Promise<void> {
++    this._logger.debug(
++      this.createHandlerReceivedMessageLog('NotifyDERAlarmRequest'),
++      message,
++      props,
++    );
++    const payload = message.payload;
++    this._logger.info(
++      `NotifyDERAlarm from ${message.context.ocppConnectionName}: ${payload.controlType} alarm${payload.alarmEnded ? ' ended' : ''} at ${payload.timestamp}`,
++    );
++
++    const response: OCPP2_1.NotifyDERAlarmResponse = {};
++    await this._ocppSender.sendCallResultWithMessage(message, response);
++  }
++}
+diff --git a/packages/ocpp/src/handlers/requests/2/notify-der-start-stop-request-ocpp-21-handler.ts b/packages/ocpp/src/handlers/requests/2/notify-der-start-stop-request-ocpp-21-handler.ts
+new file mode 100644
+index 000000000..7b9e60e9e
+--- /dev/null
++++ b/packages/ocpp/src/handlers/requests/2/notify-der-start-stop-request-ocpp-21-handler.ts
+@@ -0,0 +1,45 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import {
++  AbstractHandler,
++  type AbstractHandlerDependencies,
++  AsRequestHandler,
++  type IMessage,
++  type IOcppSender,
++} from '@citrineos/base';
++import {
++  type HandlerProperties,
++  type OCPP2_1,
++  OCPP_CallAction,
++  OCPPVersion,
++} from '@citrineos/types';
++
++// ha-citrine patch (0003-ocpp21-der-control): the message itself is kept in OCPPMessages.
++@AsRequestHandler([OCPPVersion.OCPP2_1], OCPP_CallAction.NotifyDERStartStop)
++export class NotifyDERStartStopRequestOcpp21Handler extends AbstractHandler {
++  protected _ocppSender: IOcppSender;
++
++  constructor({ logger, ocppSender }: AbstractHandlerDependencies & { ocppSender: IOcppSender }) {
++    super(logger);
++    this._ocppSender = ocppSender;
++  }
++
++  async handle(
++    message: IMessage<OCPP2_1.NotifyDERStartStopRequest>,
++    props?: HandlerProperties,
++  ): Promise<void> {
++    this._logger.debug(
++      this.createHandlerReceivedMessageLog('NotifyDERStartStopRequest'),
++      message,
++      props,
++    );
++    const payload = message.payload;
++    this._logger.info(
++      `NotifyDERStartStop from ${message.context.ocppConnectionName}: control ${payload.controlId} ${payload.started ? 'started' : 'stopped'} at ${payload.timestamp}`,
++    );
++
++    const response: OCPP2_1.NotifyDERStartStopResponse = {};
++    await this._ocppSender.sendCallResultWithMessage(message, response);
++  }
++}
+diff --git a/packages/ocpp/src/handlers/requests/2/report-der-control-request-ocpp-21-handler.ts b/packages/ocpp/src/handlers/requests/2/report-der-control-request-ocpp-21-handler.ts
+new file mode 100644
+index 000000000..7a954fa7b
+--- /dev/null
++++ b/packages/ocpp/src/handlers/requests/2/report-der-control-request-ocpp-21-handler.ts
+@@ -0,0 +1,45 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import {
++  AbstractHandler,
++  type AbstractHandlerDependencies,
++  AsRequestHandler,
++  type IMessage,
++  type IOcppSender,
++} from '@citrineos/base';
++import {
++  type HandlerProperties,
++  type OCPP2_1,
++  OCPP_CallAction,
++  OCPPVersion,
++} from '@citrineos/types';
++
++// ha-citrine patch (0003-ocpp21-der-control): the message itself is kept in OCPPMessages.
++@AsRequestHandler([OCPPVersion.OCPP2_1], OCPP_CallAction.ReportDERControl)
++export class ReportDERControlRequestOcpp21Handler extends AbstractHandler {
++  protected _ocppSender: IOcppSender;
++
++  constructor({ logger, ocppSender }: AbstractHandlerDependencies & { ocppSender: IOcppSender }) {
++    super(logger);
++    this._ocppSender = ocppSender;
++  }
++
++  async handle(
++    message: IMessage<OCPP2_1.ReportDERControlRequest>,
++    props?: HandlerProperties,
++  ): Promise<void> {
++    this._logger.debug(
++      this.createHandlerReceivedMessageLog('ReportDERControlRequest'),
++      message,
++      props,
++    );
++    const payload = message.payload;
++    this._logger.info(
++      `ReportDERControl from ${message.context.ocppConnectionName}: requestId ${payload.requestId}${payload.tbc ? ' (more to follow)' : ''}`,
++    );
++
++    const response: OCPP2_1.ReportDERControlResponse = {};
++    await this._ocppSender.sendCallResultWithMessage(message, response);
++  }
++}
+diff --git a/packages/ocpp/src/handlers/responses/2/clear-der-control-response-ocpp-21-handler.ts b/packages/ocpp/src/handlers/responses/2/clear-der-control-response-ocpp-21-handler.ts
+new file mode 100644
+index 000000000..4d8fe69d5
+--- /dev/null
++++ b/packages/ocpp/src/handlers/responses/2/clear-der-control-response-ocpp-21-handler.ts
+@@ -0,0 +1,38 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import {
++  AbstractHandler,
++  type AbstractHandlerDependencies,
++  AsResponseHandler,
++  type IMessage,
++} from '@citrineos/base';
++import { type HandlerProperties, OCPP2_1, OCPP_CallAction, OCPPVersion } from '@citrineos/types';
++
++// ha-citrine patch (0003-ocpp21-der-control): the reply reaches a callbackUrl from the router.
++@AsResponseHandler([OCPPVersion.OCPP2_1], OCPP_CallAction.ClearDERControl)
++export class ClearDERControlResponseOcpp21Handler extends AbstractHandler {
++  constructor({ logger }: AbstractHandlerDependencies) {
++    super(logger);
++  }
++
++  async handle(
++    message: IMessage<OCPP2_1.ClearDERControlResponse, OCPP2_1.ClearDERControlRequest>,
++    props?: HandlerProperties,
++  ): Promise<void> {
++    this._logger.debug(
++      this.createHandlerReceivedMessageLog('ClearDERControlResponse'),
++      message,
++      props,
++    );
++    const { status, statusInfo } = message.payload;
++    const line = `ClearDERControl ${status} by ${message.context.ocppConnectionName}${
++      statusInfo ? ` (${statusInfo.reasonCode})` : ''
++    }`;
++    if (status === OCPP2_1.DERControlStatusEnumType.Accepted) {
++      this._logger.info(line);
++    } else {
++      this._logger.warn(line);
++    }
++  }
++}
+diff --git a/packages/ocpp/src/handlers/responses/2/get-der-control-response-ocpp-21-handler.ts b/packages/ocpp/src/handlers/responses/2/get-der-control-response-ocpp-21-handler.ts
+new file mode 100644
+index 000000000..2c411c3f4
+--- /dev/null
++++ b/packages/ocpp/src/handlers/responses/2/get-der-control-response-ocpp-21-handler.ts
+@@ -0,0 +1,38 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import {
++  AbstractHandler,
++  type AbstractHandlerDependencies,
++  AsResponseHandler,
++  type IMessage,
++} from '@citrineos/base';
++import { type HandlerProperties, OCPP2_1, OCPP_CallAction, OCPPVersion } from '@citrineos/types';
++
++// ha-citrine patch (0003-ocpp21-der-control): the reply reaches a callbackUrl from the router.
++@AsResponseHandler([OCPPVersion.OCPP2_1], OCPP_CallAction.GetDERControl)
++export class GetDERControlResponseOcpp21Handler extends AbstractHandler {
++  constructor({ logger }: AbstractHandlerDependencies) {
++    super(logger);
++  }
++
++  async handle(
++    message: IMessage<OCPP2_1.GetDERControlResponse, OCPP2_1.GetDERControlRequest>,
++    props?: HandlerProperties,
++  ): Promise<void> {
++    this._logger.debug(
++      this.createHandlerReceivedMessageLog('GetDERControlResponse'),
++      message,
++      props,
++    );
++    const { status, statusInfo } = message.payload;
++    const line = `GetDERControl ${status} by ${message.context.ocppConnectionName}${
++      statusInfo ? ` (${statusInfo.reasonCode})` : ''
++    }`;
++    if (status === OCPP2_1.DERControlStatusEnumType.Accepted) {
++      this._logger.info(line);
++    } else {
++      this._logger.warn(line);
++    }
++  }
++}
+diff --git a/packages/ocpp/src/handlers/responses/2/set-der-control-response-ocpp-21-handler.ts b/packages/ocpp/src/handlers/responses/2/set-der-control-response-ocpp-21-handler.ts
+new file mode 100644
+index 000000000..b7388c88f
+--- /dev/null
++++ b/packages/ocpp/src/handlers/responses/2/set-der-control-response-ocpp-21-handler.ts
+@@ -0,0 +1,38 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import {
++  AbstractHandler,
++  type AbstractHandlerDependencies,
++  AsResponseHandler,
++  type IMessage,
++} from '@citrineos/base';
++import { type HandlerProperties, OCPP2_1, OCPP_CallAction, OCPPVersion } from '@citrineos/types';
++
++// ha-citrine patch (0003-ocpp21-der-control): the reply reaches a callbackUrl from the router.
++@AsResponseHandler([OCPPVersion.OCPP2_1], OCPP_CallAction.SetDERControl)
++export class SetDERControlResponseOcpp21Handler extends AbstractHandler {
++  constructor({ logger }: AbstractHandlerDependencies) {
++    super(logger);
++  }
++
++  async handle(
++    message: IMessage<OCPP2_1.SetDERControlResponse, OCPP2_1.SetDERControlRequest>,
++    props?: HandlerProperties,
++  ): Promise<void> {
++    this._logger.debug(
++      this.createHandlerReceivedMessageLog('SetDERControlResponse'),
++      message,
++      props,
++    );
++    const { status, statusInfo } = message.payload;
++    const line = `SetDERControl ${status} by ${message.context.ocppConnectionName}${
++      statusInfo ? ` (${statusInfo.reasonCode})` : ''
++    }`;
++    if (status === OCPP2_1.DERControlStatusEnumType.Accepted) {
++      this._logger.info(line);
++    } else {
++      this._logger.warn(line);
++    }
++  }
++}
+diff --git a/packages/ocpp/src/modules/smart-charging/register.ts b/packages/ocpp/src/modules/smart-charging/register.ts
+index 68a129689..0b77b235e 100644
+--- a/packages/ocpp/src/modules/smart-charging/register.ts
++++ b/packages/ocpp/src/modules/smart-charging/register.ts
+@@ -12,17 +12,23 @@ import {
+ import {
+   ClearChargingProfileResponseOcpp16Handler,
+   ClearChargingProfileResponseOcpp2Handler,
++  ClearDERControlResponseOcpp21Handler,
+   ClearedChargingLimitRequestOcpp2Handler,
+   GetChargingProfilesResponseOcpp2Handler,
+   GetCompositeScheduleResponseOcpp16Handler,
+   GetCompositeScheduleResponseOcpp201Handler,
+   GetCompositeScheduleResponseOcpp21Handler,
++  GetDERControlResponseOcpp21Handler,
+   NotifyChargingLimitRequestOcpp2Handler,
++  NotifyDERAlarmRequestOcpp21Handler,
++  NotifyDERStartStopRequestOcpp21Handler,
+   NotifyEVChargingNeedsRequestOcpp2Handler,
+   NotifyEVChargingScheduleRequestOcpp2Handler,
+   ReportChargingProfilesRequestOcpp2Handler,
++  ReportDERControlRequestOcpp21Handler,
+   SetChargingProfileResponseOcpp16Handler,
+   SetChargingProfileResponseOcpp2Handler,
++  SetDERControlResponseOcpp21Handler,
+ } from '@handlers/index.js';
+ 
+ /**
+@@ -43,6 +49,13 @@ const SMART_CHARGING_HANDLERS = [
+   SetChargingProfileResponseOcpp16Handler,
+   ClearChargingProfileResponseOcpp16Handler,
+   GetCompositeScheduleResponseOcpp16Handler,
++  // ha-citrine patch (0003-ocpp21-der-control)
++  ReportDERControlRequestOcpp21Handler,
++  NotifyDERStartStopRequestOcpp21Handler,
++  NotifyDERAlarmRequestOcpp21Handler,
++  SetDERControlResponseOcpp21Handler,
++  GetDERControlResponseOcpp21Handler,
++  ClearDERControlResponseOcpp21Handler,
+ ] satisfies ReadonlyArray<HandlerClass>;
+ 
+ /**
+diff --git a/packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts b/packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
+index 02f684623..27e676ce0 100644
+--- a/packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
++++ b/packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
+@@ -17,6 +17,9 @@ const STATION_TO_CSMS = [
+   OCPP_CallAction.NotifyEVChargingNeeds,
+   OCPP_CallAction.NotifyEVChargingSchedule,
+   OCPP_CallAction.ReportChargingProfiles,
++  OCPP_CallAction.ReportDERControl,
++  OCPP_CallAction.NotifyDERStartStop,
++  OCPP_CallAction.NotifyDERAlarm,
+ ];
+ 
+ describe('smart charging message endpoints', () => {
+@@ -28,6 +31,9 @@ describe('smart charging message endpoints', () => {
+       OCPP_CallAction.GetChargingProfiles,
+       OCPP_CallAction.SetChargingProfile,
+       OCPP_CallAction.GetCompositeSchedule,
++      OCPP_CallAction.SetDERControl,
++      OCPP_CallAction.GetDERControl,
++      OCPP_CallAction.ClearDERControl,
+     ]);
+     expect(actions.filter((action) => STATION_TO_CSMS.includes(action))).toEqual([]);
+   });
+diff --git a/packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts b/packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts
+new file mode 100644
+index 000000000..784aa6adc
+--- /dev/null
++++ b/packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts
+@@ -0,0 +1,126 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++
++import { describe, expect, it } from 'vitest';
++import {
++  type IMessage,
++  DEFAULT_TENANT_ID,
++  OCPP2_1_CALL_RESULT_SCHEMA_RECORD,
++  OCPP2_1_CALL_SCHEMA_RECORD,
++} from '@citrineos/base';
++import {
++  type CallAction,
++  type OcppRequest,
++  EventGroup,
++  MessageOrigin,
++  MessageState,
++  OCPP2_1,
++  OCPP_CallAction,
++  OCPPVersion,
++} from '@citrineos/types';
++import {
++  NotifyDERAlarmRequestOcpp21Handler,
++  NotifyDERStartStopRequestOcpp21Handler,
++  ReportDERControlRequestOcpp21Handler,
++} from '@handlers/index.js';
++import { SMART_CHARGING_MESSAGE_ENDPOINTS } from '@/apis/ocpp/2/smart-charging.js';
++import { createTestContainer, makeMockOcppSender } from '@test/test-container.js';
++
++const DER_ACTIONS = [
++  OCPP_CallAction.SetDERControl,
++  OCPP_CallAction.GetDERControl,
++  OCPP_CallAction.ClearDERControl,
++  OCPP_CallAction.ReportDERControl,
++  OCPP_CallAction.NotifyDERStartStop,
++  OCPP_CallAction.NotifyDERAlarm,
++];
++
++function makeMessage<T extends OcppRequest>(payload: T, action: CallAction): IMessage<T> {
++  return {
++    context: {
++      tenantId: DEFAULT_TENANT_ID,
++      ocppConnectionName: 'station-001',
++      correlationId: 'corr-001',
++      timestamp: new Date().toISOString(),
++    },
++    payload,
++    origin: MessageOrigin.ChargingStation,
++    eventGroup: EventGroup.All,
++    action,
++    state: MessageState.Request,
++    protocol: OCPPVersion.OCPP2_1,
++  } as unknown as IMessage<T>;
++}
++
++function makeDeps() {
++  const { logger } = createTestContainer();
++  const ocppSender = makeMockOcppSender();
++  return { logger, ocppSender };
++}
++
++function sentResponse(
++  ocppSender: ReturnType<typeof makeMockOcppSender>,
++  message: IMessage<OcppRequest>,
++) {
++  expect(ocppSender.sendCallResultWithMessage).toHaveBeenCalledOnce();
++  expect(ocppSender.sendCallResultWithMessage.mock.calls[0][0]).toBe(message);
++  return ocppSender.sendCallResultWithMessage.mock.calls[0][1];
++}
++
++describe('OCPP 2.1 DER control', () => {
++  it('validates every DER call and call result against its 2.1 schema', () => {
++    for (const action of DER_ACTIONS) {
++      expect(OCPP2_1_CALL_SCHEMA_RECORD[action]).toBeDefined();
++      expect(OCPP2_1_CALL_RESULT_SCHEMA_RECORD[action]).toBeDefined();
++    }
++  });
++
++  it('offers Set, Get and ClearDERControl on OCPP 2.1 only', () => {
++    const routes = SMART_CHARGING_MESSAGE_ENDPOINTS.map((e) => e.route).filter((r) =>
++      [
++        OCPP_CallAction.SetDERControl,
++        OCPP_CallAction.GetDERControl,
++        OCPP_CallAction.ClearDERControl,
++      ].includes(r.action as OCPP_CallAction),
++    );
++    expect(routes).toHaveLength(3);
++    for (const route of routes) {
++      expect(route.protocols).toEqual([OCPPVersion.OCPP2_1]);
++      expect(route.eventGroup).toBe(EventGroup.SmartCharging);
++    }
++  });
++
++  it('acknowledges ReportDERControl with an empty confirmation', async () => {
++    const deps = makeDeps();
++    const message = makeMessage<OCPP2_1.ReportDERControlRequest>(
++      { requestId: 7, tbc: false },
++      OCPP_CallAction.ReportDERControl,
++    );
++    await new ReportDERControlRequestOcpp21Handler(deps).handle(message);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++
++  it('acknowledges NotifyDERStartStop with an empty confirmation', async () => {
++    const deps = makeDeps();
++    const message = makeMessage<OCPP2_1.NotifyDERStartStopRequest>(
++      { controlId: 'ha-der-1', started: true, timestamp: '2026-10-25T11:00:00Z' },
++      OCPP_CallAction.NotifyDERStartStop,
++    );
++    await new NotifyDERStartStopRequestOcpp21Handler(deps).handle(message);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++
++  it('acknowledges NotifyDERAlarm with an empty confirmation', async () => {
++    const deps = makeDeps();
++    const message = makeMessage<OCPP2_1.NotifyDERAlarmRequest>(
++      {
++        controlType: OCPP2_1.DERControlEnumType.LimitMaxDischarge,
++        timestamp: '2026-10-25T11:00:00Z',
++      },
++      OCPP_CallAction.NotifyDERAlarm,
++    );
++    await new NotifyDERAlarmRequestOcpp21Handler(deps).handle(message);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++});

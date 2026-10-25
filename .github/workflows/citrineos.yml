@@ -28,7 +28,8 @@ jobs:
       - run: git diff --check
   upstream-patches:
     # The source patches apply to the pinned CitrineOS commit, the patched
-    # source compiles, and upstream's own tests for both handlers pass.
+    # source compiles, and upstream's own tests for the patched handlers and
+    # endpoints pass.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -56,7 +57,9 @@ jobs:
           pnpm --filter "@citrineos/ocpp-server..." build
           pnpm exec vitest run \
             packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts \
-            packages/ocpp/test/handlers/requests/2/authorize-request-ocpp-21-handler.test.ts
+            packages/ocpp/test/handlers/requests/2/authorize-request-ocpp-21-handler.test.ts \
+            packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts \
+            packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
   private-stack:
     strategy:
       fail-fast: false

@@ -35,7 +35,8 @@ export const ALL_ROUTES=Object.values(COMMANDS_BY_PROTOCOL).flat();
 // - lab-controller (COMMAND_ROLE): the tariff read, plus, when scoped commands
 //   are enabled, exactly ALL_ROUTES, the read-only configuration route and the
 //   transaction status routes (STATUS_ROUTES, sent only by the gateway itself),
-//   plus the price routes (PRICE_ROUTES) when price commands are enabled too;
+//   plus the price routes (PRICE_ROUTES) when price commands are enabled too,
+//   and the DER routes (DER_ROUTES) when DER commands are;
 // - lab-operator (OPERATOR_ROLE): the Operator UI command set on OCPP 2.0.1 and
 //   2.1 (OPERATOR_COMMANDS and the metering SetVariables);
 // - lab-reporter (REPORT_ROLE): the two GetBaseReport routes when device model
@@ -50,10 +51,11 @@ export const COMMAND_ROLE='lab-controller';
 export const READER_ROLE='lab-reader';
 export const OPERATOR_ROLE='lab-operator';
 export const TARIFF_READ={method:'GET',route:'/commands/tariff'};
-export function roleRoutes(commandsEnabled,priceEnabled=false,reportsEnabled=false) {
+export function roleRoutes(commandsEnabled,priceEnabled=false,reportsEnabled=false,derCommands=false) {
   const post=routes=>routes.map(route=>({method:'POST',route}));
   const commands=commandsEnabled===true
-    ?[...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...(priceEnabled===true?PRICE_ROUTES:[])]:[];
+    ?[...ALL_ROUTES,CONFIG_UPSTREAM,...Object.values(STATUS_ROUTES),...(priceEnabled===true?PRICE_ROUTES:[]),
+      ...(derCommands===true?Object.values(DER_ROUTES):[])]:[];
   return {
     [READER_ROLE]:[TARIFF_READ],
     [COMMAND_ROLE]:[TARIFF_READ,...post(commands)],
@@ -74,8 +76,8 @@ export function permissionName({method,route}) {
 }
 // The roles seed file (CITRINEOS_ROLES seedFile): {role: {resources, permissions}}.
 // Resources are the Operator UI's own access model; the lab grants none.
-export function rolesSeed(commandsEnabled,priceEnabled=false,reportsEnabled=false) {
-  return Object.fromEntries(Object.entries(roleRoutes(commandsEnabled,priceEnabled,reportsEnabled))
+export function rolesSeed(commandsEnabled,priceEnabled=false,reportsEnabled=false,derCommands=false) {
+  return Object.fromEntries(Object.entries(roleRoutes(commandsEnabled,priceEnabled,reportsEnabled,derCommands))
     .map(([role,routes])=>[role,{resources:{},permissions:[...new Set(routes.map(permissionName))].sort()}]));
 }
 // The OCPP version a command route speaks, e.g. 'ocpp2.0.1'; null if not a lab route.
@@ -561,3 +563,92 @@ export function validateTariff(p,options=null) {
 }
 // Online on OCPP 2.1 (SetDefaultTariff is a 2.1 message); transactions do not matter.
 export const tariffTargetAllows=(result,station)=>observed(result,station,'ocpp2.1')!==null;
+
+// DER control (der_commands_enabled; source patch 0003 adds the routes).
+// OCPP 2.1 SetDERControl, GetDERControl and ClearDERControl to the command
+// station only, online on OCPP 2.1. Four control types with lab bounds; the
+// station's replies and DER messages (ReportDERControl, NotifyDERStartStop,
+// NotifyDERAlarm) are read back from OCPPMessages, where CitrineOS keeps
+// every message, through ha_reader (metadata.json grants exactly these actions).
+export const DER_ROUTES={
+  set:'/ocpp/2.1/smartcharging/setDERControl',
+  get:'/ocpp/2.1/smartcharging/getDERControl',
+  clear:'/ocpp/2.1/smartcharging/clearDERControl'};
+export const DER_EVENTS_ROUTE='/lab/der-events';
+export const DER_EVENT_ACTIONS=['ReportDERControl','NotifyDERStartStop','NotifyDERAlarm'];
+export const DER_EVENT_LIMIT=20;
+export const DER_REPORT_WAIT_MS=5000;
+// control type -> its one SetDERControl field.
+export const DER_CONTROLS={LimitMaxDischarge:'limitMaxDischarge',FixedPFInject:'fixedPFInject',
+  FixedPFAbsorb:'fixedPFAbsorb',FixedVar:'fixedVar'};
+export const DER_LIMITS={pct_max_discharge_power:[0,100],displacement:[0,1],var_setpoint_pct:[-100,100],
+  max_duration_s:86400};
+export const DER_VAR_UNITS=['PctMaxW','PctMaxVar','PctVarAvail'];
+// Every OCPP 2.1 DERControlEnumType value, for Get and Clear filters.
+export const DER_CONTROL_TYPES=['EnterService','FreqDroop','FreqWatt','FixedPFAbsorb','FixedPFInject',
+  'FixedVar','Gradients','HFMustTrip','HFMayTrip','HVMustTrip','HVMomCess','HVMayTrip','LimitMaxDischarge',
+  'LFMustTrip','LVMustTrip','LVMomCess','LVMayTrip','PowerMonitoringMustTrip','VoltVar','VoltWatt','WattPF','WattVar'];
+export const derEnabled=o=>o.der_commands_enabled===true;
+export const derRoute=pathname=>Object.values(DER_ROUTES).includes(pathname);
+// The /lab/control-policy "der_commands" value.
+export function derPolicy(o) {
+  if(!derEnabled(o))return {enabled:false};
+  return {enabled:true,station_id:commandStation(o),protocol:'ocpp2.1',routes:{...DER_ROUTES},
+    events:DER_EVENTS_ROUTE,control_types:Object.keys(DER_CONTROLS),
+    limits:Object.fromEntries(Object.entries(DER_LIMITS).map(([k,v])=>[k,Array.isArray(v)?[...v]:v]))};
+}
+const controlId=n=>typeof n==='string'&&/^[A-Za-z0-9._:-]{1,36}$/.test(n);
+const within=(n,[min,max])=>Number.isFinite(n)&&n>=min&&n<=max;
+// Optional start time and duration (s) of a control.
+const period=c=>(c.startTime===undefined||timestamp(c.startTime))
+  &&(c.duration===undefined||(Number.isFinite(c.duration)&&c.duration>=1&&c.duration<=DER_LIMITS.max_duration_s));
+const DER_FIELDS={
+  limitMaxDischarge:c=>keys(c,['priority','pctMaxDischargePower','startTime','duration'])
+    &&within(c.pctMaxDischargePower,DER_LIMITS.pct_max_discharge_power),
+  fixedPFInject:c=>keys(c,['priority','displacement','excitation','startTime','duration'])
+    &&Number.isFinite(c.displacement)&&c.displacement>0&&c.displacement<=1&&typeof c.excitation==='boolean',
+  fixedVar:c=>keys(c,['priority','setpoint','unit','startTime','duration'])
+    &&within(c.setpoint,DER_LIMITS.var_setpoint_pct)&&DER_VAR_UNITS.includes(c.unit),
+};
+DER_FIELDS.fixedPFAbsorb=DER_FIELDS.fixedPFInject;
+const derFilter=p=>(p.isDefault===undefined||typeof p.isDefault==='boolean')
+  &&(p.controlType===undefined||DER_CONTROL_TYPES.includes(p.controlType))
+  &&(p.controlId===undefined||controlId(p.controlId));
+// A DER request inside the lab bounds, sent to the command station only.
+export function validateDer(url,p,station=STATION,real=false) {
+  if(!derRoute(url.pathname)||!stationAllowed(station,real)||queryStation(url)!==station)return false;
+  if(url.pathname===DER_ROUTES.get)return keys(p,['requestId','isDefault','controlType','controlId'])
+    &&int(p.requestId,0,2147483647)&&derFilter(p);
+  if(url.pathname===DER_ROUTES.clear)return keys(p,['isDefault','controlType','controlId'])
+    &&typeof p.isDefault==='boolean'&&derFilter(p);
+  const field=DER_CONTROLS[p?.controlType];
+  const c=field?p[field]:undefined;
+  return !!field&&keys(p,['isDefault','controlId','controlType',field])&&typeof p.isDefault==='boolean'
+    &&controlId(p.controlId)&&int(c?.priority,0,2147483647)&&DER_FIELDS[field](c)&&period(c);
+}
+// Online on OCPP 2.1 (DER control is a 2.1 feature); transactions do not matter.
+export const derTargetAllows=(result,station)=>observed(result,station,'ocpp2.1')!==null;
+// The command station's database id, once derTargetAllows has passed.
+export const derStationId=result=>result.data.ChargingStations[0].id;
+// ha_reader may filter only on columns it can select; its permission adds the
+// tenant scope (metadata.json).
+export const DER_EVENTS_QUERY=`query DerEvents($stationId: Int!, $actions: [String!]!, $limit: Int!) {
+  OCPPMessages(where: {stationId: {_eq: $stationId}, origin: {_eq: "cs"}, type: {_eq: 2},
+      action: {_in: $actions}}, order_by: [{timestamp: desc}, {id: desc}], limit: $limit) {
+    id action timestamp payload
+  }
+}`;
+// DER messages from the query result, newest first; null when malformed.
+export function derEvents(result) {
+  const rows=result?.data?.OCPPMessages;
+  if(!Array.isArray(rows)||rows.length>DER_EVENT_LIMIT||rows.some(r=>!r||!DER_EVENT_ACTIONS.includes(r.action)
+    ||typeof r.timestamp!=='string'||r.payload===null||typeof r.payload!=='object'||Array.isArray(r.payload)))return null;
+  return rows.map(r=>({action:r.action,timestamp:r.timestamp,payload:r.payload}));
+}
+// The ReportDERControl payloads for requestId, oldest first, and whether the
+// last one has arrived (tbc false or absent).
+export function derReports(events,requestId) {
+  const reports=events.filter(e=>e.action==='ReportDERControl'&&e.payload.requestId===requestId)
+    .reverse().map(e=>e.payload);
+  return {reports,complete:reports.length>0&&reports[reports.length-1].tbc!==true};
+}

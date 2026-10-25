@@ -9,7 +9,8 @@
     "run_image": "node:24.16.0-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
     "patches": [
       "0001-ocpp21-charging-needs.patch",
-      "0002-ocpp21-allowed-energy-transfer.patch"
+      "0002-ocpp21-allowed-energy-transfer.patch",
+      "0003-ocpp21-der-control.patch"
     ]
   },
   "client": {
