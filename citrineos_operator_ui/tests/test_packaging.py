@@ -6,7 +6,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE = "1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372"
+CORE = "4fd7599b91c2fb6e6065e7c9b94be69880cced27"
 
 
 class Packaging(unittest.TestCase):

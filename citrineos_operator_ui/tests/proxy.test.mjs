@@ -140,6 +140,30 @@ test('commands are refused unless enabled, then forwarded to the gateway', async
   }
 });
 
+test('v2.1.0 UI: the proxy answers the permission check (not enforcing) and has no dev login', async () => {
+  for (const commands of [false, true]) {
+    const h = await harness(commands);
+    try {
+      const r = await h.call('/core/permissions/user');
+      assert.equal(r.status, 200);
+      assert.deepEqual(JSON.parse(r.text), {roles: [], resources: {}, permissions: [], enforcing: false});
+      assert.equal((await h.call('/core/permissions/user', {method: 'POST', body: '{}'})).status, 405);
+      // The development token and role routes of CitrineOS localDev do not exist.
+      for (const [path, init] of [['/core/dev/roles', {}], ['/core/dev/token', {method: 'POST', body: '{"roles":["admin"]}'}],
+        ['/core/dev', {}], ['/core/dev?x=1', {}]])
+        assert.equal((await h.call(path, init)).status, 404, path);
+      // None of these reach the gateway or Next.js.
+      assert.equal(h.seen.gateway.length, 0);
+      assert.equal(h.seen.next.length, 0);
+      // Other permission routes are still not forwarded unless they are commands.
+      const other = await h.call('/core/permissions', {method: 'POST', body: '{}'});
+      assert.equal(other.status, commands ? 200 : 403);
+    } finally {
+      h.close();
+    }
+  }
+});
+
 test('only the Supervisor Ingress peer may connect', async () => {
   const proxy = createProxy({gatewayUrl: 'http://127.0.0.1:9', token: TOKEN, commands: true,
     nextPort: 9, peer: '172.30.32.2'});

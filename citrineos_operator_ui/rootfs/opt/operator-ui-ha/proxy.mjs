@@ -21,6 +21,9 @@ const ENCODED_BASE = encodeURIComponent(BASE);
 const PREFIX = /^\/api\/hassio_ingress\/[A-Za-z0-9_-]{1,128}$/;
 const TEXT = /^(text\/(html|css|plain|javascript|x-component)|application\/(javascript|json))\b/;
 const MAX_BODY = 262144;
+// GET /permissions/user as CitrineOS v2.1.0 shapes it, answered by the
+// proxy: not enforcing, so the UI shows every page and button.
+export const UI_PERMISSIONS = Object.freeze({roles: [], resources: {}, permissions: [], enforcing: false});
 
 export function ingressPrefix(header) {
   return typeof header === 'string' && PREFIX.test(header) ? header : '';
@@ -133,6 +136,16 @@ export function createProxy({gatewayUrl, token, commands, nextPort = 3000, peer 
     const prefix = ingressPrefix(req.headers['x-ingress-path']);
     const url = req.url || '/';
     if (url === '/hasura/v1/graphql') return void toGateway(req, res, '/v1/graphql');
+    // The v2.1.0 UI asks CitrineOS which pages and buttons the user may use.
+    // Home Assistant authenticates the operator and the gateway enforces the
+    // command set, so the UI does not filter (as with v2.0.1).
+    if (url === '/core/permissions/user') {
+      if (req.method !== 'GET') return json(res, 405, {error: 'GET only'});
+      return json(res, 200, UI_PERMISSIONS);
+    }
+    // The UI's development login (/dev/roles, /dev/token) exists only in
+    // CitrineOS's localDev mode; the lab runs jwt mode.
+    if (url === '/core/dev' || url.startsWith('/core/dev/') || url.startsWith('/core/dev?')) return json(res, 404, {});
     if (url.startsWith('/core/')) {
       if (!commands) return json(res, 403, {error: 'Commands are disabled in this App (commands_enabled: false).'});
       return void toGateway(req, res, url.slice('/core'.length));

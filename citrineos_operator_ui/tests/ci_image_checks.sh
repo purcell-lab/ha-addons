@@ -9,7 +9,7 @@ trap 'docker logs "$NAME" 2>&1 | tail -40; docker rm -f "$NAME" > /dev/null 2>&1
 
 echo "== Packaged upstream, licence and patch"
 docker run --rm --entrypoint sh "$IMAGE" -c '
-  test "$(cat /usr/share/doc/citrineos-operator-ui/COMMIT)" = 1a83638c31eebdb1dd8d6cdb0f5b8a9f142a1372
+  test "$(cat /usr/share/doc/citrineos-operator-ui/COMMIT)" = 4fd7599b91c2fb6e6065e7c9b94be69880cced27
   test -s /usr/share/doc/citrineos-operator-ui/LICENSE
   test -s /usr/share/doc/citrineos-operator-ui/operator-ui.patch
   test -s /usr/share/doc/citrineos-operator-ui/UPSTREAM.md
@@ -48,6 +48,10 @@ for _ in $(seq 1 60); do
       if(gql.status!==502)process.exit(2);
       const cmd=await get("/core/ocpp/2.0.1/configuration/reset?identifier=A&tenantId=1",{method:"POST",body:"{}"});
       if(cmd.status!==403)process.exit(3);
+      const perms=await get("/core/permissions/user");
+      if(perms.status!==200||(await perms.json()).enforcing!==false)process.exit(5);
+      const dev=await get("/core/dev/token",{method:"POST",body:"{}"});
+      if(dev.status!==404)process.exit(6);
     })().catch(()=>process.exit(4));
   ' 2>/dev/null; then ok=1; break; fi
   sleep 1
