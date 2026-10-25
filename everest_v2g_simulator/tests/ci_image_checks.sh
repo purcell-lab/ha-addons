@@ -29,7 +29,7 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   # OCPPmulti reads libocpp data from the OCPP201 share directory; 7 = DER controls.
   test -f /opt/everest/share/everest/modules/OCPP201/component_config/standardized/InternalCtrlr.json
   test -f /opt/everest/share/everest/modules/OCPP201/core_migrations/7_up-der_controls_db.sql
-  /opt/everest/bin/manager --version
+  LD_LIBRARY_PATH=/opt/everest/lib /opt/everest/bin/manager --version  # the App sets it (app.py)
   test ! -e /opt/everest/etc/everest/certs
   test -z "$(find / -xdev \( -name "*.key" -o -name "*LEAF*" -o -name "*.p12" \) \
     -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
