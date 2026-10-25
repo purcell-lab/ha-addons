@@ -13,11 +13,14 @@ HEADER = re.compile(r"^(\d{4}-\d\d-\d\dT[0-9:.]+Z): (\w+)>(\w+)\s+(\w+)\s*$")
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PAYLOAD = 8 * 1024
 PROFILE_ACTIONS = ("SetChargingProfile", "ClearChargingProfile")
-# Dynamic pricing. libocpp v0.30.3 answers CostUpdated (2.0.1 and 2.1) and
-# replies NotImplemented (CALLERROR) to the OCPP 2.1 tariff messages.
+# Dynamic pricing. libocpp (v0.30.3 and EVerest 2026.10.0-rc1) answers
+# CostUpdated (2.0.1 and 2.1) and replies NotImplemented (CALLERROR) to the
+# OCPP 2.1 tariff messages.
 PRICING_ACTIONS = ("CostUpdated", "SetDefaultTariff", "GetTariffs", "ClearTariffs",
                    "ChangeTransactionTariff")
-TRACKED = PROFILE_ACTIONS + PRICING_ACTIONS
+# OCPP 2.1 DER control (libocpp DERControl, EVerest 2026.10.0-rc1).
+DER_ACTIONS = ("SetDERControl", "GetDERControl", "ClearDERControl")
+TRACKED = PROFILE_ACTIONS + PRICING_ACTIONS + DER_ACTIONS
 PRICE_INTERVALS = 6  # intervals of a price schedule shown on the Status page
 # Price information in a charging schedule. A 48 h absolutePriceSchedule is
 # over 8 KiB, so an oversized profile is shown with these left out (only the
@@ -143,6 +146,12 @@ def pricing_events(text, limit=10):
     """Latest CostUpdated and OCPP 2.1 tariff requests, kept apart from the
     profile list so frequent cost updates never push profiles out of it."""
     return tracked_events(text, PRICING_ACTIONS, limit)
+
+
+def der_events(text, limit=10):
+    """Latest SetDERControl, GetDERControl and ClearDERControl requests with
+    the station's replies (Accepted, Rejected, NotSupported, NotFound)."""
+    return tracked_events(text, DER_ACTIONS, limit)
 
 
 def latest_profile(events):

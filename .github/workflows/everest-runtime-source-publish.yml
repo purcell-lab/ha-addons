@@ -1,0 +1,104 @@
+name: Publish EVerest runtime image (built from source)
+# Publication is an explicit operator action: it runs only when a maintainer
+# pushes a tag everest_runtime_source-v<version> matching
+# everest_runtime_source/VERSION, normally on main after the reviewed change
+# is merged. Pull requests and branch pushes never publish (they build the
+# same image in everest-v2g.yml and keep it in the run only).
+# Each architecture is compiled natively (everest-runtime-source-build.yml),
+# pushed as <version>-<arch>, then one multi-arch index <version> is created
+# with a provenance attestation. Nothing is overwritten.
+on:
+  push:
+    tags:
+      - "everest_runtime_source-v*"
+permissions:
+  contents: read
+concurrency:
+  group: everest-runtime-source-publish-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  REPO: ghcr.io/purcell-lab/everest-runtime
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match everest_runtime_source/VERSION
+        id: version
+        run: |
+          version=$(cat everest_runtime_source/VERSION)
+          test "$GITHUB_REF_NAME" = "everest_runtime_source-v$version" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match everest_runtime_source/VERSION $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Refuse to overwrite a published version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for ref in "$REPO:$VERSION" "$REPO:$VERSION-amd64" "$REPO:$VERSION-aarch64"; do
+            if docker manifest inspect "$ref" > /dev/null 2>&1; then
+              echo "::error::$ref already exists. Bump everest_runtime_source/VERSION instead."; exit 1
+            fi
+          done
+  build:
+    needs: check
+    uses: ./.github/workflows/everest-runtime-source-build.yml
+  push:
+    needs: [check, build]
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [amd64, aarch64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: everest-runtime-source-${{ matrix.arch }}
+      - name: Log in to GHCR (job token, this repository's packages only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Push (architecture tag only)
+        run: |
+          gunzip -c everest-runtime-source.tar.gz | docker load
+          if docker manifest inspect "$REPO:$VERSION-${{ matrix.arch }}" > /dev/null 2>&1; then
+            echo "::error::$REPO:$VERSION-${{ matrix.arch }} appeared during the run"; exit 1
+          fi
+          docker tag everest-runtime:local "$REPO:$VERSION-${{ matrix.arch }}"
+          docker push "$REPO:$VERSION-${{ matrix.arch }}"
+  index:
+    needs: [check, push]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Log in to GHCR (job token, this repository's packages only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Create the multi-arch index
+        id: index
+        run: |
+          docker buildx imagetools create -t "$REPO:$VERSION" "$REPO:$VERSION-amd64" "$REPO:$VERSION-aarch64"
+          digest=$(docker buildx imagetools inspect "$REPO:$VERSION" --format '{{json .Manifest}}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["digest"])')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "Published $REPO:$VERSION@$digest"
+            echo
+            echo "Pin it in everest_v2g_simulator/Dockerfile:"
+            echo
+            echo "    ARG EVEREST_RUNTIME=$REPO:$VERSION@$digest"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REPO }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true

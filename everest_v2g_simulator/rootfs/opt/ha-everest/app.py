@@ -45,21 +45,23 @@ SELFTEST_DELAY_S = 3
 DISCONNECT_LINE = re.compile(r"(Disconnected|connection failed|Failed to connect)", re.I)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 STAMP = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d")
-# The pinned demo image logs every composite schedule (multi-line JSON from
-# OCPP201, one line from API) every CompositeScheduleIntervalS. The OCPP
-# frames stay in /data/everest/ocpp_logs and on the Status page.
-JSON_START = re.compile(r"\] ocpp:OCPP201\s*: \{$")
-# The demo build also prints certificate-chain debug lines (SHANKARI:).
+# The everest-demo image (App 0.1.13 and earlier) logged every composite
+# schedule (multi-line JSON from the OCPP module, one line from API) every
+# CompositeScheduleIntervalS; the from-source build does not, but the filter
+# stays for either OCPP module name. The OCPP frames stay in
+# /data/everest/ocpp_logs and on the Status page.
+JSON_START = re.compile(r"\] ocpp:OCPP(?:201|multi)\s*: \{$")
+# The demo build also printed certificate-chain debug lines (SHANKARI:).
 NOISY = ("Received OCPP charging schedule update", "About to publish composite charging schedules",
          "SHANKARI: ")
-# libocpp computes a station-level (EVSE 0) composite with every composite,
-# and OCPP201 warns every CompositeScheduleIntervalS that no EVSE 0 sink is
-# wired. That is deliberate (configure.py): EVSE 1's composite already
-# includes station-level profiles. Neither upstream module can skip EVSE 0
-# (EVerest 2025.10.0, libocpp v0.30.3), so only this warning is dropped
-# (issue #28). The same warning for EVSE 1 would still be logged.
+# libocpp computes a station-level (EVSE 0) composite with every composite.
+# OCPP201 (2025.10.0) warned every CompositeScheduleIntervalS that no EVSE 0
+# sink is wired; that is deliberate (configure.py): EVSE 1's composite
+# already includes station-level profiles. Only that repeated warning is
+# dropped (issue #28). OCPPmulti (2026.10) warns once at start instead
+# ("No evse energy sink configured for evse_id 0, ..."), which stays.
 STATION_SINK_WARNING = re.compile(
-    r"ocpp:OCPP201\s*: Can not apply external limits! No evse energy sink configured for evse_id: 0$")
+    r"ocpp:OCPP(?:201|multi)\s*: Can not apply external limits! No evse energy sink configured for evse_id: 0$")
 
 
 def write_state(**values):
@@ -182,10 +184,12 @@ def run():
     print("Private ISO 15118 link and inbound firewall ready; test PKI "
           + ("generated." if renewed else "reused."), flush=True)
     try:
-        settings, config_path = configure.configure(DATA, options, SOURCE, PREFIX, key_password)
+        settings, config_path = configure.configure(DATA, options, SOURCE, PREFIX, key_password, RUN)
     except (ValueError, KeyError, TypeError, OSError) as error:
         print(f"Invalid options/state ({error}). No processes started.", flush=True)
         return 1
+    # Written by the HaGridSupport module once EVerest runs (DER control).
+    (RUN / configure.DER_STATE).unlink(missing_ok=True)
     connected = bool(settings["csms_url"])
     offered = configure.VERSIONS[settings["ocpp_version"]]
     configure.atomic_write(RUN / "state.json", json.dumps({
@@ -215,10 +219,9 @@ def run():
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    # The demo build is coverage-instrumented; keep its exit-time .gcda
-    # writes away from the (absent) build tree.
-    env = dict(os.environ, LD_LIBRARY_PATH=str(PREFIX / "lib"), PYTHONUNBUFFERED="1",
-               GCOV_PREFIX="/tmp/gcov", GCOV_PREFIX_STRIP="0")
+    # EVerest is built without coverage instrumentation (the everest-demo
+    # image of 0.1.13 and earlier was instrumented and needed GCOV_PREFIX).
+    env = dict(os.environ, LD_LIBRARY_PATH=str(PREFIX / "lib"), PYTHONUNBUFFERED="1")
     result = 1
     manager = None
     try:
@@ -226,7 +229,7 @@ def run():
             ["mosquitto", "-c", str(ROOT / "mosquitto.conf")]))
         time.sleep(0.5)
         manager = subprocess.Popen(
-            [str(PREFIX / "bin/manager"), "--prefix", str(PREFIX), "--conf", str(config_path)],
+            [str(PREFIX / "bin/manager"), "--prefix", str(PREFIX), "--config", str(config_path)],
             cwd=DATA / "everest", env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace", start_new_session=True)
         children.append(manager)

@@ -17,14 +17,27 @@
 # Differences elsewhere (Debian packages resolved by apt at build time) are
 # listed for information. Reviewed, intended strict differences are listed
 # in everest_runtime/EXPECTED_DIFFERENCES. Reports go to identical-files/.
+#
+# Only Apps that pin a runtime of the same EVerest version as
+# everest_runtime/VERSION are compared. An App on another EVerest version
+# (everest_v2g_simulator on the from-source 2026.10 runtime,
+# everest_runtime_source/) is skipped and listed: that runtime is new, so
+# there is no earlier build to be identical to; its App image checks cover it.
 set -eu
 runtime=$1
 arch=$2
 here=$(dirname "$0")
+everest=$(sed 's/-[0-9][0-9]*$//' everest_runtime/VERSION)
 mkdir -p identical-files
 for app in everest_simulator everest_v2g_simulator; do
   version=$(sed -n 's/^version: "\(.*\)"$/\1/p' "$app/config.yaml")
   pinned=$(sed -n 's/^ARG EVEREST_RUNTIME=//p' "$app/Dockerfile")
+  tag=${pinned%@*}
+  tag=${tag##*:}
+  if [ "$(echo "$tag" | sed 's/-[0-9][0-9]*$//')" != "$everest" ]; then
+    echo "== $app $version: skipped, it pins $pinned (not EVerest $everest)"
+    continue
+  fi
   echo "$pinned" | grep -q '@sha256:[0-9a-f]\{64\}$' || {
     echo "::error::$app/Dockerfile EVEREST_RUNTIME is not digest-pinned: $pinned"; exit 1; }
   baseline="identical-check/$app-pinned:$arch"

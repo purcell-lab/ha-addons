@@ -22,18 +22,28 @@ echo "== Packaged runtime has the DC V2G modules and no private keys"
 docker run --rm --entrypoint sh "$IMAGE" -c '
   set -e
   ls /opt/everest/libexec/everest/modules
-  for m in Evse15118D20 PyEvJosev DCSupplySimulator SlacSimulator IMDSimulator; do
+  for m in Evse15118D20 PyEvJosev DCSupplySimulator SlacSimulator IMDSimulator OCPPmulti HaGridSupport; do
     test -d /opt/everest/libexec/everest/modules/$m
   done
-  ! ls /opt/everest/libexec/everest/modules | grep -x EvseV2G
+  ! ls /opt/everest/libexec/everest/modules | grep -x -e EvseV2G -e OCPP201
+  # OCPPmulti reads libocpp data from the OCPP201 share directory; 7 = DER controls.
+  test -f /opt/everest/share/everest/modules/OCPP201/component_config/standardized/InternalCtrlr.json
+  test -f /opt/everest/share/everest/modules/OCPP201/core_migrations/7_up-der_controls_db.sql
+  /opt/everest/bin/manager --version
   test ! -e /opt/everest/etc/everest/certs
   test -z "$(find / -xdev \( -name "*.key" -o -name "*LEAF*" -o -name "*.p12" \) \
     -not -path "/proc/*" -not -path "/usr/share/*" 2>/dev/null)"
   grep -q "ha-everest: EV ISO 15118 stack stopped" /opt/everest/libexec/everest/modules/PyEvJosev/module.py
-  grep -q "ha-everest: send SDP on the configured interface" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
+  # Upstream since EVerest 2026.10 (patched up to 0.1.13).
+  grep -q "^        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
   grep -q "ha-everest: 25 kW EV discharge" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py
   grep -q "ha-everest: EV waits for authorisation as long as the charger" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py
-  python3 /opt/ha-everest/patch_yeti.py --check
+  # Every EVerest binary and library resolves its shared libraries.
+  missing=$(find /opt/everest -type f \( -name "*.so*" -o -perm -u+x \) | while read -r f; do
+      [ "$(head -c 4 "$f" | od -An -c | tr -d " ")" = "177ELF" ] || continue
+      LD_LIBRARY_PATH=/opt/everest/lib ldd "$f" 2>&1 | grep "not found" | sed "s|^|$f: |"
+    done)
+  test -z "$missing" || { echo "$missing"; exit 1; }
   java -version 2>&1 | head -1; nft --version
   test "$(readlink -f /usr/bin/java)" = /opt/java/bin/java
   test ! -e /usr/lib/jvm'

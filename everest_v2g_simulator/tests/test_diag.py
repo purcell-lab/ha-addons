@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rootfs/opt/ha-everest"))
 import diag  # noqa: E402
 import patch_josev  # noqa: E402
-import patch_yeti  # noqa: E402
 
 IF_INET6 = """fe80000000000000a8bbccfffe000001 05 40 20 80     v2g0
 fe80000000000000a8bbccfffe000002 06 40 20 40     v2g1
@@ -167,21 +166,32 @@ class SelftestTest(unittest.TestCase):
 
 
 # The two upstream methods the patch edits, verbatim from everest-core
-# 2025.10.0 modules/EV/PyEvJosev/module.py (not adjacent upstream).
+# 2026.10.0-rc1 modules/EV/PyEvJosev/module.py (not adjacent upstream).
 UPSTREAM = '''    def start_evcc_handler(self):
-        while True:
-            self._ready_event.wait()
-            try:
-                asyncio.run(evcc_handler_main_loop(self._setup.configs.module))
-                self._mod.publish_variable('ev', 'v2g_session_finished', None)
-            except KeyboardInterrupt:
-                log.debug("SECC program terminated manually")
-                break
-            self._ready_event.clear()
+        exi_codec = ExificientEXICodec()
+        try:
+            while True:
+                self._ready_event.wait()
+                self._ready_event.clear()
+                try:
+                    asyncio.run(evcc_handler_main_loop(self._setup.configs.module, exi_codec))
+                    self._mod.publish_variable('ev', 'v2g_session_finished', None)
+                except KeyboardInterrupt:
+                    log.debug("SECC program terminated manually")
+                    break
+        finally:
+            exi_codec.shutdown()
 
     def _handler_start_charging(self, args) -> bool:
 
+        self._es.DepartureTime = args['DepartureTime']
+        self._es.EAmount_kWh = args['EAmount']
         self._es.EnergyTransferMode = args['EnergyTransferMode']
+
+        if "payment_option" in args['SelectedPaymentOption']:
+            self._es.PaymentOption = args['SelectedPaymentOption']['payment_option']
+        if "enforce_payment_option" in args['SelectedPaymentOption']:
+            self._es.enforce_payment_option = args['SelectedPaymentOption']['enforce_payment_option']
 
         self._ready_event.set()
 
@@ -189,7 +199,8 @@ UPSTREAM = '''    def start_evcc_handler(self):
 '''
 UPSTREAM_FILE = Path("/tmp/everest-core/modules/EV/PyEvJosev/module.py")
 SIM_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py")
-# The BPT discharge limits of Josev 2025.9.0 iso15118/evcc/controller/simulator.py.
+# The BPT discharge limits of Josev iso15118/evcc/controller/simulator.py
+# (2025.9.0, unchanged at 1b3ea741 for EVerest 2026.10.0-rc1).
 SIM_UPSTREAM = '''def f(RationalNumber, a, d):
     ac = dict(
         **a,
@@ -213,7 +224,8 @@ SIM_UPSTREAM = '''def f(RationalNumber, a, d):
     return ac, dc, dynamic
 '''
 AUTH_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py")
-# Verbatim excerpts of Josev 2025.9.0 iso15118/evcc/states/iso15118_20_states.py:
+# Verbatim excerpts of Josev iso15118/evcc/states/iso15118_20_states.py
+# (2025.9.0, unchanged at 1b3ea741):
 # the import and the Authorization state's ongoing loop.
 AUTH_UPSTREAM = '''import time
 from iso15118.shared.messages.timeouts import Timeouts as TimeoutsShared
@@ -243,7 +255,8 @@ def ongoing(comm_session, create_next_message, stop_state_machine):
     )
 '''
 UDP_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py")
-# Verbatim excerpt of Josev's UDPClient._create_socket (EVerest 2025.10.0).
+# Excerpt of Josev's UDPClient._create_socket at 1b3ea741 (EVerest
+# 2026.10.0-rc1): upstream now sets IPV6_MULTICAST_IF (patched up to 0.1.13).
 UDP_UPSTREAM = '''import socket
 import struct
 
@@ -253,7 +266,7 @@ def _create_socket(iface: str) -> socket.socket:
         ttl = struct.pack("@i", 1)
         sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, ttl)
         interface_index = socket.if_nametoindex(iface)
-        # sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)
 
         return sock
 '''
@@ -271,10 +284,21 @@ class Log:
 
 def load(behaviours):
     """Patched class with Josev replaced by scripted main loops."""
-    namespace = {"asyncio": asyncio, "log": Log()}
+    codecs = []
+
+    class Codec:  # stands in for Josev's ExificientEXICodec (a Java gateway)
+        def __init__(self):
+            self.closed = False
+            codecs.append(self)
+
+        def shutdown(self):
+            self.closed = True
+
+    namespace = {"asyncio": asyncio, "log": Log(), "ExificientEXICodec": Codec, "codecs": codecs}
     runs = []
 
-    async def main_loop(config):
+    async def main_loop(config, exi_codec):
+        assert exi_codec is codecs[0]  # one codec for every stack
         behaviour = behaviours[len(runs)]
         runs.append(behaviour)
         if behaviour == "hang":  # Josev after SDPFailedError: never returns
@@ -292,11 +316,13 @@ def load(behaviours):
     module._es = type("E", (), {})()
     module.published = []
     module._mod = type("M", (), {"publish_variable": lambda self, *a: module.published.append(a)})()
+    module.codecs = codecs
     return module, runs, namespace["log"]
 
 
 def plug_in(module):
-    return module._handler_start_charging({"EnergyTransferMode": "DC_extended"})
+    return module._handler_start_charging({"EnergyTransferMode": "DC_extended", "DepartureTime": 86400,
+                                           "EAmount": 0, "SelectedPaymentOption": {}})
 
 
 def wait_until(predicate, timeout=5):
@@ -329,6 +355,9 @@ class PatchJosevTest(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(runs, ["hang", "ok", "exit"])
         self.assertEqual(len(module.published), 2)
+        # One EXI codec for all stacks, shut down when the loop ends.
+        self.assertEqual(len(module.codecs), 1)
+        self.assertTrue(module.codecs[0].closed)
 
     def test_failed_session_waits_for_next_plug_in(self):
         module, runs, log = load(["fail", "exit"])
@@ -341,15 +370,14 @@ class PatchJosevTest(unittest.TestCase):
         thread.join(5)
         self.assertEqual(runs, ["fail", "exit"])
 
-    def test_udp_client_sends_on_configured_interface(self):
+    def test_udp_client_sends_on_configured_interface_upstream(self):
+        # Patched up to 0.1.13; upstream since Josev 1b3ea741. The build now
+        # only checks that it stays so.
         upstream = (UDP_UPSTREAM if not UDP_FILE.exists() else UDP_FILE.read_text())
-        patched = patch_josev.patch_udp(upstream)
-        self.assertIn("        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)\n",
-                      patched)
-        self.assertNotIn("# sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF", patched)
-        self.assertEqual(patch_josev.patch_udp(patched), patched)
+        self.assertEqual(patch_josev.check_udp(upstream), upstream)
         with self.assertRaises(ValueError):
-            patch_josev.patch_udp(upstream.replace("interface_index = socket", "index = socket"))
+            patch_josev.check_udp(upstream.replace("        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF",
+                                                   "        # sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF"))
 
     def test_ev_discharges_25_kw(self):
         upstream = (SIM_UPSTREAM if not SIM_FILE.exists() else SIM_FILE.read_text())
@@ -369,7 +397,9 @@ class PatchJosevTest(unittest.TestCase):
         self.assertIn(patch_josev.AUTH_MARKER, patched)
         self.assertNotIn("TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT", patched)
         self.assertEqual(patch_josev.patch_auth(patched), patched)
-        self.assertGreater(patch_josev.AUTH_WAIT_S, 180)  # libiso15118 TIMEOUT_EIM_ONGOING
+        # Longer than the charger's limit: 55 s from 2026.10 (Evse15118D20),
+        # 3 minutes up to 0.1.13 (libiso15118 v0.9.0 TIMEOUT_EIM_ONGOING).
+        self.assertGreater(patch_josev.AUTH_WAIT_S, 180)
         with self.assertRaises(ValueError):
             patch_josev.patch_auth(upstream.replace("TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT", "60", 1))
         if AUTH_FILE.exists():
@@ -400,7 +430,7 @@ class PatchJosevTest(unittest.TestCase):
             auth.write_text(AUTH_UPSTREAM)
             patch_josev.main(path, udp, sim, auth)
             self.assertIn(patch_josev.MARKER, path.read_text())
-            self.assertIn(patch_josev.UDP_MARKER, udp.read_text())
+            self.assertEqual(udp.read_text(), UDP_UPSTREAM)  # checked, not changed
             self.assertIn(patch_josev.SIM_MARKER, sim.read_text())
             self.assertIn(patch_josev.AUTH_MARKER, auth.read_text())
 
@@ -413,48 +443,3 @@ class PatchJosevTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class YetiBoardLimitTest(unittest.TestCase):
-    """patch_yeti.py: exact binaries and bytes only; real files when present."""
-
-    REAL = {"amd64": Path("/tmp/yeti/amd64_YetiSimulator"), "arm64": Path("/tmp/yeti/arm64_YetiSimulator")}
-
-    def test_known_binary_is_patched_at_exact_offsets(self):
-        data = bytearray(64)
-        data[8:12] = patch_yeti.F32
-        data[16:20] = patch_yeti.FMOV_16
-        digest = __import__("hashlib").sha256(bytes(data)).hexdigest()
-        edits = [(8, patch_yeti.F32, patch_yeti.F128), (16, patch_yeti.FMOV_16, patch_yeti.MOVI_128)]
-        original = dict(patch_yeti.PATCHES)
-        patch_yeti.PATCHES[digest] = ("test", edits)
-        try:
-            patched, arch = patch_yeti.patch(bytes(data))
-            self.assertEqual(arch, "test")
-            self.assertEqual(patched[8:12], patch_yeti.F128)
-            self.assertEqual(patched[16:20], patch_yeti.MOVI_128)
-            self.assertEqual(sum(a != b for a, b in zip(patched, data)), 5)
-            self.assertEqual(patch_yeti.patch(patched), (patched, "test"))
-            broken = bytearray(data)
-            broken[20] = 1
-            with self.assertRaises(ValueError):
-                patch_yeti.patch(bytes(broken))
-        finally:
-            patch_yeti.PATCHES.clear()
-            patch_yeti.PATCHES.update(original)
-
-    def test_constants(self):
-        self.assertEqual(struct.unpack("<f", patch_yeti.F128)[0], 128.0)
-        # movi v0.2s, #imm8, lsl #24: imm8 0x42 -> 32.0, 0x43 -> 128.0 (bits 9:5 differ).
-        self.assertEqual(int.from_bytes(patch_yeti.MOVI_128, "little") - int.from_bytes(patch_yeti.MOVI_32, "little"),
-                         1 << 5)
-        # 128 A x 3 x 230 V carries the 25 kW rating with margin.
-        self.assertGreater(patch_yeti.BOARD_AMPS * 230, 25000)
-
-    def test_real_binaries_when_present(self):
-        for arch, path in self.REAL.items():
-            if not path.exists():
-                continue
-            patched, found = patch_yeti.patch(path.read_bytes())
-            self.assertEqual(found, arch)
-            self.assertEqual(patch_yeti.patch(patched), (patched, arch))

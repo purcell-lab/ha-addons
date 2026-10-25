@@ -11,6 +11,8 @@ import unittest
 import urllib.error
 import urllib.request
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "rootfs/opt/ha-everest"
 sys.path.insert(0, str(APP))
@@ -61,8 +63,10 @@ def component_fixture(directory):
         return {"properties": {p: {"attributes": [{"type": "Actual", "value": None}]} for p in props}}
     std = directory / "standardized"
     std.mkdir(parents=True)
+    # As in libocpp for EVerest 2026.10.0-rc1: InternalCtrlr has no
+    # ChargePointId (SecurityCtrlr Identity is the station identity).
     files = {
-        "InternalCtrlr": doc("ChargePointId", "NetworkConnectionProfiles", "SupportedOcppVersions",
+        "InternalCtrlr": doc("NetworkConnectionProfiles", "SupportedOcppVersions",
                              "ChargePointVendor", "ChargePointModel", "ChargeBoxSerialNumber",
                              "LogMessagesFormat", "LogRotation", "LogRotationMaximumFileSize",
                              "LogRotationMaximumFileCount"),
@@ -157,8 +161,9 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(configure.validate({})["max_power_kw"], 25)
         rating = configure.ratings(configure.validate(dict(GOOD, max_power_kw=7)))
         self.assertEqual(rating, {"watts": 7000, "phase_amps": 31, "dc_amps": 19})
-        # 25 kW: 109 A per phase stays below the patched 128 A board limit
-        # (patch_yeti.py), and 66 A DC at 380 V is the EV's discharge limit.
+        # 25 kW: 109 A per phase is also the simulated board's limit
+        # (YetiSimulator caps_max_current_A), and 66 A DC at 380 V is the
+        # EV's discharge limit (patch_josev.py).
         rating = configure.ratings({"max_power_kw": 25})
         self.assertEqual(rating, {"watts": 25000, "phase_amps": 109, "dc_amps": 66})
         # One phase must carry the full rating (see configure.ratings).
@@ -359,6 +364,40 @@ class GeneratedConfigTest(unittest.TestCase):
             for targets in module.get("connections", {}).values():
                 self.assertNotIn("extensions", {t["implementation_id"] for t in targets})
 
+    def test_der_control_wiring(self):
+        # OCPP 2.1 DER: OCPPmulti -> the App's grid_support provider (EVSE 1
+        # mapping, DC capability) -> Evse15118D20's grid_support (relay).
+        config = configure.everest_config(configure.validate(dict(GOOD, max_power_kw=7)), Path("/data"),
+                                          "b" * 24, Path("/run/test"))
+        active = config["active_modules"]
+        ocpp = active["ocpp"]
+        self.assertEqual(ocpp["connections"]["grid_support"],
+                         [{"module_id": "grid_support", "implementation_id": "main"}])
+        self.assertEqual(ocpp["config_module"]["GridSupportHeartbeatS"], 60)
+        provider = active["grid_support"]
+        self.assertEqual(provider["module"], "HaGridSupport")
+        self.assertEqual(provider["mapping"], {"module": {"evse": 1}})
+        self.assertEqual(provider["connections"]["relay"],
+                         [{"module_id": "iso15118_charger", "implementation_id": "grid_support"}])
+        cfg = provider["config_module"]
+        self.assertEqual(cfg["state_file"], "/run/test/der.json")
+        self.assertEqual(cfg["rated_power_W"], 7000.0)
+        self.assertEqual(cfg["nominal_voltage_V"], 380.0)
+        types = cfg["supported_types"].split(",")
+        self.assertEqual(len(types), 22)
+        self.assertEqual(len(set(types)), 22)
+        self.assertIn("LimitMaxDischarge", types)
+        # Only OCPP 2.1 DERControlEnum names (libocpp ModesSupported valuesList).
+        self.assertNotIn("ZeroCurrent", types)
+        # The relay has no mapping of its own: OCPPmulti routes by the provider's.
+        self.assertNotIn("mapping", active["iso15118_charger"])
+        manifest = yaml.safe_load((ROOT / "rootfs/opt/everest/libexec/everest/modules/HaGridSupport/manifest.yaml")
+                                  .read_text())
+        self.assertEqual(manifest["provides"]["main"]["interface"], "grid_support")
+        self.assertEqual(manifest["requires"]["relay"], {"interface": "grid_support", "min_connections": 0,
+                                                         "max_connections": 1})
+        self.assertEqual(set(cfg), set(manifest["config"]))
+
     def test_disconnected_url_is_closed_loopback(self):
         _, target = self.build({"csms_url": ""})
         profile = json.loads(value(target, "InternalCtrlr", "NetworkConnectionProfiles"))[0]
@@ -374,11 +413,16 @@ class GeneratedConfigTest(unittest.TestCase):
         for needed in ("Evse15118D20", "PyEvJosev", "DCSupplySimulator", "IMDSimulator", "SlacSimulator"):
             self.assertIn(needed, modules)
         self.assertNotIn("EvseV2G", modules)
-        self.assertLessEqual(modules, set(DOCKERFILE.split("MODULES=")[1].split('"')[1].split()))
+        # Every EVerest module comes from the runtime, except the App's own.
+        self.assertLessEqual(modules - {"HaGridSupport"},
+                             set(DOCKERFILE.split("MODULES=")[1].split('"')[1].split()))
+        self.assertTrue((ROOT / "rootfs/opt/everest/libexec/everest/modules/HaGridSupport/manifest.yaml").is_file())
         evse = active["evse_manager_1"]["config_module"]
         self.assertEqual(evse["charge_mode"], "DC")
-        self.assertEqual(evse["max_current_import_A"], 31)
-        self.assertEqual(evse["max_current_export_A"], 31)
+        # EvseManager 2026.10 has no own current limits; the board's apply.
+        self.assertNotIn("max_current_import_A", evse)
+        self.assertNotIn("max_current_export_A", evse)
+        self.assertEqual(active["yeti_driver_1"]["config_module"]["caps_max_current_A"], 31)
         self.assertFalse(evse["session_logging"])
         supply = next(m for m in active.values() if m["module"] == "DCSupplySimulator")
         self.assertTrue(supply["config_implementation"]["main"]["bidirectional"])
@@ -405,7 +449,11 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(security["private_key_password"], "b" * 24)
         manager = next(m for m in active.values() if m["module"] == "EnergyManager")["config_module"]
         self.assertEqual(manager["switch_3ph1ph_while_charging_mode"], "Both")
-        ocpp = next(m for m in active.values() if m["module"] == "OCPP201")
+        ocpp = next(m for m in active.values() if m["module"] == "OCPPmulti")
+        self.assertNotIn("OCPP201", modules)
+        self.assertEqual(ocpp["config_module"]["Mode"], "Only2")
+        # The core database keeps its 0.1.x path, so an upgrade keeps it.
+        self.assertEqual(ocpp["config_module"]["CoreDatabasePath"], "/data/everest/ocpp201")
         sinks = [c["module_id"] for c in ocpp["connections"]["evse_energy_sink"]]
         self.assertEqual(sinks, ["evse_manager_1_ocpp_sink"])
         # Issue #28: no EVSE 0 sink (it capped targets at a third); every
@@ -413,7 +461,9 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertEqual(active["evse_manager_1_ocpp_sink"]["mapping"], {"module": {"evse": 1}})
         self.assertEqual(ocpp["config_module"]["CompositeScheduleIntervalS"], 10)
         for path in json.dumps(config).split('"'):
-            if path.startswith("/") and "everest" in path and not path.startswith(("/data", "/opt/everest")):
+            # /run/ha-everest: the DER Status-page copy, rebuilt every start.
+            if path.startswith("/") and "everest" in path and not path.startswith(
+                    ("/data", "/opt/everest", "/run/ha-everest/")):
                 self.fail(f"state outside /data: {path}")
 
     def test_ev_session_is_dc_bidirectional_ready(self):
@@ -660,6 +710,19 @@ class LogFilterTest(unittest.TestCase):
         log_filter = app.LogFilter()
         kept = [line for line in lines if log_filter.keep(line)]
         self.assertEqual(kept, lines[4:7])
+
+    def test_ocpp_multi_module_name(self):
+        # EVerest 2026.10 runs OCPPmulti: the same filters apply to its lines.
+        import app
+        lines = ["2026-10-25 07:27:41.098538 [INFO] ocpp:OCPPmulti  : {", '    "limit": 1', "}",
+                 "2026-10-25 07:27:42.000000 [INFO] ocpp:OCPPmulti  : OCPP client successfully connected "
+                 "to server with version: ocpp2.1"]
+        log_filter = app.LogFilter()
+        self.assertEqual([line for line in lines if log_filter.keep(line)], lines[3:])
+        self.assertEqual(app.VERSION_LINE.search(lines[3]).group(1), "ocpp2.1")
+        warning = ("2026-10-25 06:50:38.123456 [WARN] ocpp:OCPPmulti  : Can not apply external limits! "
+                   "No evse energy sink configured for evse_id: 0")
+        self.assertFalse(app.LogFilter().keep(warning))
 
     def test_drops_only_the_station_sink_warning(self):
         # Issue #28: logged every 10 s because EVSE 0 deliberately has no sink.
@@ -1084,19 +1147,26 @@ class SessionCostTest(unittest.TestCase):
         self.ui = ui_server
 
     def test_topic_and_var_unwrapping(self):
+        # EVerest 2026.10 framework: one topic per var, payload
+        # {"msg_type": "Var", "data": {"data": <value>}} (lib/everest.cpp).
         self.assertEqual(self.ui.TOPICS[self.ui.SESSION_COST_TOPIC], "session_cost")
-        self.assertEqual(self.ui.SESSION_COST_TOPIC, "everest/modules/ocpp/impl/session_cost/var")
-        self.assertEqual(self.ui.unwrap_var({"name": "session_cost", "data": {"a": 1}}), ("session_cost", {"a": 1}))
-        self.assertEqual(self.ui.unwrap_var({"name": "tariff_message", "data": {}}), (None, None))
+        self.assertEqual(self.ui.SESSION_COST_TOPIC, "everest/modules/ocpp/impl/session_cost/var/session_cost")
+        self.assertEqual(self.ui.unwrap_var({"msg_type": "Var", "data": {"data": {"a": 1}}}),
+                         ("session_cost", {"a": 1}))
+        self.assertEqual(self.ui.unwrap_var({"msg_type": "Cmd", "data": {"data": {}}}), (None, None))
+        # The 2025.10.0 envelope is not on this topic any more.
+        self.assertEqual(self.ui.unwrap_var({"name": "session_cost", "data": {"a": 1}}), (None, None))
         self.assertEqual(self.ui.unwrap_var("garbage"), (None, None))
 
     def test_bus_stores_only_session_cost(self):
         bus = self.ui.Bus()
         message = type("Message", (), {})
-        for name in ("tariff_message", "session_cost"):
+        for topic, payload in (("everest/modules/ocpp/impl/session_cost/var/tariff_message",
+                                {"msg_type": "Var", "data": {"data": {}}}),
+                               (self.ui.SESSION_COST_TOPIC, {"msg_type": "Var", "data": {"data": SESSION_COST}})):
             m = message()
-            m.topic = self.ui.SESSION_COST_TOPIC
-            m.payload = json.dumps({"name": name, "data": SESSION_COST if name == "session_cost" else {}}).encode()
+            m.topic = topic
+            m.payload = json.dumps(payload).encode()
             bus.on_message(None, None, m)
         self.assertEqual(bus.snapshot()["session_cost"]["value"], SESSION_COST)
         self.assertEqual(set(bus.snapshot()), {"session_cost"})

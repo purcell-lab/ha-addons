@@ -1,0 +1,41 @@
+description: >-
+  purcell-lab/ha-addons App module (not part of EVerest). grid_support provider for the simulated
+  bidirectional DC charger: declares a DC DER capability, so that OCPPmulti enables the DCDERCtrlr
+  device-model component and libocpp accepts OCPP 2.1 DER controls of the declared types; records the
+  active directive set for the App's Status page; forwards it unchanged to an optional grid_support
+  device (Evse15118D20, which relays curve directives to AC DER sessions only) and passes that
+  device's grid alarms on. It does not apply any directive to power.
+config:
+  evse_id:
+    description: EVSE the capability and the directives belong to
+    type: integer
+    default: 1
+  supported_types:
+    description: Comma-separated grid_support DirectiveType values to declare (OCPP 2.1 DERControlEnum names)
+    type: string
+    default: LimitMaxDischarge
+  rated_power_W:
+    description: Nameplate active and apparent power, charging and discharging, in W
+    type: number
+    default: 25000
+  nominal_voltage_V:
+    description: Nameplate nominal voltage in V
+    type: number
+    default: 380
+  state_file:
+    description: JSON file the capability, the active directive set and alarms are written to (atomically)
+    type: string
+    default: /run/ha-everest/der.json
+provides:
+  main:
+    interface: grid_support
+    description: DER capability, active directives and alarms for one EVSE
+requires:
+  relay:
+    interface: grid_support
+    min_connections: 0
+    max_connections: 1
+metadata:
+  license: https://opensource.org/licenses/Apache-2.0
+  authors:
+    - purcell-lab

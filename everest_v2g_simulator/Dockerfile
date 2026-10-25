@@ -1,19 +1,24 @@
-# EVerest 2025.10.0 software-in-the-loop bidirectional DC charger (ISO 15118-20
-# DC_BPT) and EV simulator, repackaged for Home Assistant.
+# EVerest 2026.10.0-rc1 software-in-the-loop bidirectional DC charger
+# (ISO 15118-20 DC_BPT) and EV simulator with OCPP 2.1 DER control,
+# repackaged for Home Assistant.
 #
-# The EVerest runtime comes from ghcr.io/purcell-lab/everest-runtime
-# (everest_runtime/), a stripped extract of the upstream 4.3 GB demo image,
-# so this build pulls about 50 MB instead. This stage selects the modules
-# this App uses into a Debian 12 base (same ABI as the upstream build).
-# The release check (everest-runtime.yml) proves the result is file-for-file
-# identical to the image built from the upstream demo image directly.
-ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:2025.10.0-1@sha256:ad99f273e062f09c58fa030cd938df1d612ccbe04b65d1201864b4a72a8e455f
+# The EVerest runtime comes from ghcr.io/purcell-lab/everest-runtime. For
+# 2026.10 there is no prebuilt everest-demo image, so that runtime is
+# everest-core compiled from source (everest_runtime_source/) and extracted
+# like the 2025.10.0 one (everest_runtime/Dockerfile): stripped, FROM
+# scratch. This stage selects the modules this App uses into a Debian 12 base
+# (the same ABI as the everest-ci build image).
+#
+# Until the runtime is published and pinned by digest, CI compiles it
+# (everest-runtime-source-build.yml) and builds this App from that local
+# image; releases accept only the pinned, public runtime.
+ARG EVEREST_RUNTIME=ghcr.io/purcell-lab/everest-runtime:2026.10.0-rc1-1
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 FROM ${EVEREST_RUNTIME} AS runtime
 
 FROM ${DEBIAN_IMAGE} AS slim
-ARG MODULES="API Auth DCSupplySimulator DummyTokenProviderManual EnergyManager EnergyNode ErrorHistory Evse15118D20 EvManager EvseManager EvseSecurity IMDSimulator OCPP201 PersistentStore PyEvJosev SlacSimulator System YetiSimulator"
+ARG MODULES="API Auth DCSupplySimulator DummyTokenProviderManual EnergyManager EnergyNode ErrorHistory Evse15118D20 EvManager EvseManager EvseSecurity IMDSimulator OCPPmulti PersistentStore PyEvJosev SlacSimulator System YetiSimulator"
 COPY --from=runtime /opt/everest/bin/manager /stage/opt/everest/bin/manager
 COPY --from=runtime /opt/everest/lib/ /stage/opt/everest/lib/
 COPY --from=runtime /opt/everest/share/everest/ /stage/opt/everest/share/everest/
@@ -62,7 +67,7 @@ LABEL io.hass.type="app" \
       org.opencontainers.image.licenses="Apache-2.0"
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends \
-       libboost-log1.74.0 libboost-program-options1.74.0 libboost-filesystem1.74.0 \
+       libboost-log1.74.0 libboost-program-options1.74.0 libboost-filesystem1.74.0 libboost-thread1.74.0 \
        libssl3 libsqlite3-0 libcap2 libstdc++6 ca-certificates \
        mosquitto nginx-light python3 python3-paho-mqtt python3-yaml procps \
        python3-pydantic python3-cryptography python3-netifaces \
@@ -74,17 +79,17 @@ COPY --from=pydeps /stage/ /
 COPY --from=jre /stage/ /
 COPY rootfs/ /
 COPY UPSTREAM.md /usr/share/doc/everest/UPSTREAM.md
-# Upstream's admin-panel controller listens on all interfaces; this App
-# replaces it with a stub that only tracks the manager's lifetime.
-# patch_josev.py: a failed EV session (for example an unanswered SDP request)
-# no longer ends upstream's plug-in loop; each plug-in starts a fresh stack;
-# the simulated EV may discharge 25 kW and waits 3 minutes, not 60 s, for
-# authorisation, as the charger does. patch_yeti.py: the simulated board's
-# 16 A / 32 A per-phase limits (11 / 22 kW) become 128 A, checked by SHA-256.
-RUN install -m 0755 /opt/ha-everest/controller-stub.sh /opt/everest/bin/controller \
-    && python3 /opt/ha-everest/patch_josev.py \
-    && python3 /opt/ha-everest/patch_yeti.py \
+# EVerest 2026.10's manager no longer starts the admin-panel controller, so
+# the stub that replaced it (0.1.x) is gone. patch_josev.py: a failed EV
+# session (for example an unanswered SDP request) no longer ends upstream's
+# plug-in loop; each plug-in starts a fresh stack; the simulated EV may
+# discharge 25 kW and waits for authorisation longer than the charger. The
+# board limits come from YetiSimulator's caps_max_current_A (configure.py),
+# not a binary patch. rootfs/ adds the App's HaGridSupport module.
+RUN python3 /opt/ha-everest/patch_josev.py \
     && python3 -m py_compile /opt/ha-everest/*.py \
+    && python3 -c "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]" \
+       /opt/everest/libexec/everest/modules/HaGridSupport/module.py \
     && python3 -c "import pydantic, py4j, aiofile, environs, netifaces, psutil, cryptography"
 WORKDIR /data
 ENTRYPOINT ["python3", "/opt/ha-everest/app.py"]

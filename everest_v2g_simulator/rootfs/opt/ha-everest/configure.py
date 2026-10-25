@@ -17,10 +17,11 @@ from netguard import EVCC_LINK, SECC_LINK  # noqa: E402  private veth pair
 # supply's default 200 V minimum set the voltage whenever it discharged.
 DC_VOLTAGE = 380
 GRID_VOLTAGE = 230
-# The simulated board (YetiSimulator) reported 32 A import and 16 A export per
-# phase (22.08 / 11.04 kW). patch_yeti.py raises both to 128 A at build time,
-# so the per-phase allowance below (up to 109 A) is the limit; patch_josev.py
-# lets the simulated EV discharge 25 kW.
+# The simulated board (YetiSimulator) reports 32 A import and 16 A export per
+# phase by default (22.08 / 11.04 kW), and EvseManager uses these as the
+# EVSE's own limit, for DC too. Its caps_max_current_A option sets both to the
+# per-phase allowance below (up to 109 A); patch_josev.py lets the simulated
+# EV discharge 25 kW.
 MAX_POWER_KW = 25
 # ISO 15118 EVSEID syntax with a test-only operator code.
 EVSE_ID = "AU*PUR*ESIM01*1"
@@ -33,6 +34,28 @@ VERSIONS = {
     "2.1": "ocpp2.1,ocpp2.0.1",
     "2.0.1": "ocpp2.0.1",
 }
+# OCPP 2.1 DER control (SetDERControl and the rest) reaches EVerest through a
+# grid_support provider that declares a capability. Evse15118D20 provides
+# grid_support but declares none (it relays curve directives to AC DER
+# sessions only), so libocpp would answer NotSupported to every control. The
+# App's HaGridSupport module declares the simulated charger's DC capability
+# with these control types (all 22 OCPP 2.1 DERControlEnum values), records
+# the active set for the Status page and forwards it to Evse15118D20.
+DER_CONTROL_TYPES = (
+    "EnterService", "FreqDroop", "FreqWatt", "FixedPFAbsorb", "FixedPFInject", "FixedVar", "Gradients",
+    "HFMustTrip", "HFMayTrip", "HVMustTrip", "HVMomCess", "HVMayTrip", "LimitMaxDischarge", "LFMustTrip",
+    "LVMustTrip", "LVMomCess", "LVMayTrip", "PowerMonitoringMustTrip", "VoltVar", "VoltWatt", "WattPF",
+    "WattVar")
+# Seconds between OCPPmulti's republications of the active DER set (also
+# what keeps the Status page's copy fresh after a restart of the module).
+GRID_SUPPORT_HEARTBEAT_S = 60
+DER_STATE = "der.json"
+# libocpp core database (transactions, charging profiles, DER controls) and
+# the schema version EVerest 2026.10.0-rc1 migrates it to on open: 7 adds the
+# DER_CONTROLS table. EVerest 2025.10.0 (App 0.1.13 and earlier) stops at 6
+# and cannot migrate a version 7 database back.
+CORE_DB = "cp.db"
+CORE_SCHEMA = 7
 
 
 def validate(options):
@@ -168,7 +191,8 @@ def basic_auth_password(data, provisioned=""):
     return value
 
 
-# Device-model property keys (libocpp v0.30.3 component config) to values.
+# Device-model property keys (libocpp component config, EVerest 2026.10.0-rc1)
+# to values.
 PRICING = {
     "TariffCostCtrlrAvailableTariff": True,  # Available[Tariff]
     "TariffCostCtrlrEnabledTariff": True,  # Enabled[Tariff]
@@ -234,8 +258,13 @@ def component_config(source, target, settings, password):
             "securityProfile": 1,
         },
     }]
+    # libocpp (EVerest 2026.10) keeps connection profiles in
+    # NetworkConfiguration_<slot> components and imports this legacy
+    # profile list into slot 1 at boot (identity and Basic Auth password from
+    # SecurityCtrlr). The device model is rebuilt on every start, so the
+    # import runs every start. InternalCtrlr has no ChargePointId any more;
+    # SecurityCtrlr Identity is the station identity.
     edit("InternalCtrlr", {
-        "ChargePointId": cpid,
         "NetworkConnectionProfiles": json.dumps(profile),
         "SupportedOcppVersions": VERSIONS[settings["ocpp_version"]],
         "ChargePointVendor": "purcell-lab",
@@ -257,11 +286,12 @@ def component_config(source, target, settings, password):
         "CompositeScheduleDefaultLimitWatts": rating["watts"],
         "CompositeScheduleDefaultNumberPhases": 3,
     })
-    # Power rating in the device model (GetBaseReport). EVerest 2025.10.0
-    # builds the EVSE component itself (OCPP201 EverestDeviceModelStorage):
-    # EVSE 1 Power has only an Actual attribute and a maxLimit of the board's
-    # unclamped capabilities (patch_yeti: 128 A x 3 x 230 V = 88,320 W), and
-    # it shadows any EVSE file in component_config. The rating is therefore
+    # Power rating in the device model (GetBaseReport). EVerest builds the
+    # EVSE component itself (EverestDeviceModelStorage, 2025.10.0 and
+    # 2026.10.0-rc1): EVSE 1 Power has only an Actual attribute and a maxLimit
+    # of the board's AC capabilities (per-phase allowance x 3 x 230 V, for
+    # 25 kW 109 A x 690 V = 75,210 W), and it shadows any EVSE file in
+    # component_config. The rating is therefore
     # reported on the ChargingStation component, which only this file
     # defines: MaxSet = rating (charging), MinSet = -rating (discharge, OCPP
     # 2.1 sign), and the same as maxLimit / minLimit. CitrineOS stores MaxSet
@@ -304,8 +334,9 @@ def component_config(source, target, settings, password):
     # totalCost to EVerest (session_cost) only when Cost is available and
     # enabled, and reads California Pricing customData (current and next
     # price, price text) only with costmsg enabled. Available is ReadOnly, so
-    # it can only be set here. libocpp v0.30.3 still answers the OCPP 2.1
-    # tariff messages (SetDefaultTariff and others) NotImplemented.
+    # it can only be set here. libocpp (EVerest 2026.10.0-rc1, as v0.30.3)
+    # still answers the OCPP 2.1 tariff messages (SetDefaultTariff and
+    # others) NotImplemented.
     edit("TariffCostCtrlr", PRICING)
     edit("CustomizationCtrlr", CALIFORNIA_PRICING)
 
@@ -317,13 +348,16 @@ def ev_session():
             "iso_wait_v2g_session_stopped;unplug")
 
 
-def everest_config(settings, data, pki_password):
+def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
     """One bidirectional DC EVSE (ISO 15118-20 DC_BPT over TLS 1.3) with simulated EV.
 
     Charger and EV talk over a private veth pair; SLAC, isolation monitor and
     DC supply are simulators. Discharge happens only when energy management
     hands the EVSE a negative target, which here means an OCPP 2.1
-    CentralSetpoint period with a negative setpoint.
+    CentralSetpoint period with a negative setpoint. OCPP 2.1 DER controls
+    reach the App's grid_support module (HaGridSupport), which records them
+    and forwards them to the ISO 15118-20 charger; nothing applies them to
+    power (DOCS.md, DER control).
     """
     store = str(data / "everest")
     rating = ratings(settings)
@@ -341,8 +375,9 @@ def everest_config(settings, data, pki_password):
                     "connector_id": 1, "evse_id": EVSE_ID, "connector_type": "cCCS2",
                     "charge_mode": "DC",
                     "bpt_channel": "Unified", "bpt_generator_mode": "GridFollowing",
-                    "max_current_import_A": rating["phase_amps"],
-                    "max_current_export_A": rating["phase_amps"],
+                    # The EVSE's own current limit is the board's (YetiSimulator
+                    # caps_max_current_A below); EvseManager 2026.10 has no
+                    # max_current_import_A / max_current_export_A any more.
                     "session_logging": False,
                     "request_zero_power_in_idle": True,
                     "external_ready_to_start_charging": True,
@@ -359,7 +394,10 @@ def everest_config(settings, data, pki_password):
             "yeti_driver_1": {
                 "module": "YetiSimulator",
                 "mapping": {"module": {"evse": 1}},
-                "config_module": {"connector_id": 1},
+                # Board limit in both directions = the per-phase allowance
+                # (replaces patch_yeti.py, which raised the fixed 32 A / 16 A
+                # of the 2025.10.0 binary to 128 A).
+                "config_module": {"connector_id": 1, "caps_max_current_A": rating["phase_amps"]},
             },
             "powersupply_dc": {
                 "module": "DCSupplySimulator",
@@ -408,8 +446,14 @@ def everest_config(settings, data, pki_password):
                 },
             },
             "ocpp": {
-                "module": "OCPP201",
+                # OCPP 1.6 / 2.0.1 / 2.1 module; DER control is wired only
+                # here (OCPP201 builds no DER components). Only2: OCPP 2.x,
+                # the version list comes from InternalCtrlr
+                # SupportedOcppVersions. The databases keep their 0.1.x paths
+                # (ocpp201/) so an upgrade keeps the core database.
+                "module": "OCPPmulti",
                 "config_module": {
+                    "Mode": "Only2",
                     "MessageLogPath": store + "/ocpp_logs",
                     "CoreDatabasePath": store + "/ocpp201",
                     "DeviceModelDatabasePath": store + "/ocpp201/device_model_storage.db",
@@ -417,8 +461,11 @@ def everest_config(settings, data, pki_password):
                     "DeviceModelConfigPath": store + "/component_config",
                     "RequestCompositeScheduleUnit": "W",
                     "CompositeScheduleIntervalS": 10,
+                    "GridSupportHeartbeatS": GRID_SUPPORT_HEARTBEAT_S,
                 },
                 "connections": {
+                    # DER: OCPPmulti routes by the provider's EVSE mapping.
+                    "grid_support": [{"module_id": "grid_support", "implementation_id": "main"}],
                     "evse_manager": [{"module_id": "evse_manager_1", "implementation_id": "evse"}],
                     "auth": [{"module_id": "auth", "implementation_id": "main"}],
                     "system": [{"module_id": "system", "implementation_id": "main"}],
@@ -435,6 +482,21 @@ def everest_config(settings, data, pki_password):
                     # v2.0.1 rejects ISO 15118-20 DC_BPT needs, and libocpp then
                     # stops every OCPP 2.1 transaction (ReqEnergyTransferRejected).
                 },
+            },
+            "grid_support": {
+                # App module (rootfs/opt/everest/libexec/everest/modules/HaGridSupport).
+                "module": "HaGridSupport",
+                "mapping": {"module": {"evse": 1}},
+                "config_module": {
+                    "evse_id": 1,
+                    "supported_types": ",".join(DER_CONTROL_TYPES),
+                    "rated_power_W": float(rating["watts"]),
+                    "nominal_voltage_V": float(DC_VOLTAGE),
+                    "state_file": str(run / DER_STATE),
+                },
+                # Evse15118D20's grid_support: the same directives it would get
+                # wired directly (relayed to AC DER sessions only).
+                "connections": {"relay": [{"module_id": "iso15118_charger", "implementation_id": "grid_support"}]},
             },
             "persistent_store": {
                 "module": "PersistentStore",
@@ -504,7 +566,47 @@ def archive_if_requested(data, options):
     return archive
 
 
-def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=None):
+def core_schema(path):
+    """SQLite user_version of the libocpp core database, or None if absent."""
+    if not path.is_file():
+        return None
+    import sqlite3
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return connection.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        connection.close()
+
+
+def preserve_core_db(store):
+    """Copy an older-schema core database aside before libocpp migrates it.
+
+    libocpp applies the up migrations when it opens the database (EVerest
+    2026.10.0-rc1: schema 6 to 7, the DER_CONTROLS table). EVerest 2025.10.0
+    ships no down migration for 7, so a rollback to App 0.1.13 cannot open
+    the migrated file. The copy (cp-schema<N>.db.bak, made once, never
+    overwritten) keeps the pre-upgrade state; DOCS.md, Upgrading.
+    Returns the backup path when one was made.
+    """
+    path = store / "ocpp201" / CORE_DB
+    try:
+        schema = core_schema(path)
+    except Exception as error:  # report, never block the start
+        print(f"Core database schema unreadable ({type(error).__name__}: {error}); libocpp decides.", flush=True)
+        return None
+    if schema is None or schema >= CORE_SCHEMA:
+        return None
+    backup = path.with_name(f"cp-schema{schema}.db.bak")
+    if backup.exists():
+        return None
+    shutil.copy2(path, backup)
+    backup.chmod(0o600)
+    print(f"Core database at schema {schema}: kept a copy as {backup.name} before libocpp migrates it "
+          f"to {CORE_SCHEMA}.", flush=True)
+    return backup
+
+
+def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=None, run=Path("/run/ha-everest")):
     """Return (settings, path_to_everest_yaml). Raises ValueError on unsafe input."""
     settings = validate(options)
     data.mkdir(parents=True, exist_ok=True)
@@ -519,12 +621,13 @@ def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=N
     component_config(source, store / "component_config", settings, password)
     # Rebuild the device model from the generated files on every start so
     # option changes take effect deterministically. Core data (transactions,
-    # charging profiles) is retained.
+    # charging profiles, DER controls) is retained; libocpp migrates it.
     for name in ("device_model_storage.db", "everest_device_model_storage.db"):
         (store / "ocpp201" / name).unlink(missing_ok=True)
+    preserve_core_db(store)
     import yaml  # runtime dependency only
     path = store / "config-ha-sil-ocpp.yaml"
     if pki_password is None:
         raise ValueError("test PKI is not ready")
-    atomic_write(path, yaml.safe_dump(everest_config(settings, data, pki_password), sort_keys=False))
+    atomic_write(path, yaml.safe_dump(everest_config(settings, data, pki_password, run), sort_keys=False))
     return settings, path

@@ -64,6 +64,35 @@ Local finding: even without the firewall, the upstream SDP server answered
 only on its configured interface (`v2g0`), not from another network
 namespace on global or link-local addresses.
 
+## 0.2.0: EVerest 2026.10.0-rc1 from source, OCPPmulti, DER control (2026-10-25)
+
+Static checks before any image existed (no Docker in the authoring
+sandbox), against everest-core `2026.10.0-rc1` (`f45ba0d`) and Josev
+`1b3ea741`:
+
+| Check | Result |
+|---|---|
+| Generated EVerest config: every module exists, every `config_module` key, type, enum and bound is in the module's manifest, required keys present, every connection's interface matches and connection counts are within the manifests' limits (20 modules, including HaGridSupport) | Pass |
+| Generated config and the HaGridSupport manifest against the framework's `config.yaml` and `manifest.yaml` JSON schemas | Pass |
+| HaGridSupport capability payload and command result against `types/grid_support.yaml` (`EVSECapability`, `SetDirectivesResponse`) | Pass |
+| Device-model keys the App edits exist in libocpp's 2026.10 component configs (`ChargePointId` removed from InternalCtrlr; `ChargingStation` still has no `Power`) | Pass |
+| `patch_josev.py` against the real 2026.10 `PyEvJosev/module.py` and Josev `simulator.py`, `iso15118_20_states.py`; `udp_client.py` sets `IPV6_MULTICAST_IF` upstream | Pass |
+| Unit tests (`python3 -m unittest discover -s everest_v2g_simulator/tests`) | 107 tests pass; the one IPv6 socket test needs IPv6, absent in the sandbox (CI has it) |
+
+Image build and acceptance (CI, both architectures; `CHECKS=minimal`
+on pull requests): **pending**, recorded here from the PR runs. The PR
+acceptance run (v2g21) adds the DER scenario: DCDERCtrlr `Available`,
+`Enabled` and `ModesSupported` (22 types) by GetVariables; SetDERControl
+`LimitMaxDischarge` 50 % with a past `startTime` Accepted and
+NotifyDERStartStop `started: true`; a default `FixedPFInject` Accepted; a
+`LimitMaxDischarge` carrying `fixedVar` Rejected; both controls on the
+Status page; GetDERControl `requestId` 42 Accepted with ReportDERControl
+holding both; ClearDERControl by id Accepted then NotFound; ClearDERControl
+of all defaults Accepted; an empty active set on the Status page; a
+GetDERControl NotFound. Not claimed: any effect of DER controls on power
+(there is none, DOCS.md), and the 2025.10.0 limitations in DOCS.md are not
+re-measured on 2026.10 beyond what the acceptance scenarios assert.
+
 ## 0.1.7: sample interval option, any-purpose profile panel (2026-10-17)
 
 `tx_sample_interval_s` (default 5, 1 to 60) sets
