@@ -9,9 +9,10 @@ before preparing an update.
 This App runs pinned CitrineOS **v2.1.0**, not an OCPP protocol version. The
 image builds it from source at the release commit
 (`4fd7599b91c2fb6e6065e7c9b94be69880cced27`) with this App's source patches
-(`patches/`, see "Upstream changes in this App"), so installing or updating
-the App needs network access to GitHub and the npm registry and takes several
-minutes.
+(`patches/`, see "Upstream changes in this App"). The image is built in
+GitHub Actions for amd64 and aarch64 and published to GHCR
+(`ghcr.io/purcell-lab/{arch}-citrineos-server`); Home Assistant pulls it and
+does not build on the host. See `RELEASE.md`.
 Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
 Nothing binds a host port. No OCPP listener is enabled by default.
 Existing physical chargers, simulators, Home Assistant OCPP entries and payments
@@ -505,8 +506,9 @@ from the pinned upstream release. The schema is v2.1.0's: the
 `LatestStatusNotifications` table is gone (upstream migration
 20261015140000; each connector has a `LatestStatusNotification` relationship
 instead), and `NetworkAlerts`, `NetworkAlertOccurrences` and `WebsocketEvents`
-are new. An Operator UI built from v2.0.1 shows errors where it reads the old
-table until it is rebuilt from v2.1.0.
+are new. Use the Operator UI App 0.2.0 or later (built from v2.1.0); 0.1.0
+(v2.0.1) shows errors where it reads the old
+table.
 
 ## Plugfest listener (opt-in, external charging stations)
 

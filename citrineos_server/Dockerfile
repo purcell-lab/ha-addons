@@ -4,7 +4,8 @@
 # node images are pinned here (multi-arch index digests) and in
 # compatibility-lock.json; no build argument can select another source or base.
 # Each stage runs on the target architecture (no --platform), so native modules
-# (sqlite3, bufferutil) are built for it.
+# (sqlite3, bufferutil) are built for it. Published by GitHub Actions
+# (citrineos-server-publish.yml); Home Assistant pulls the image.
 FROM node:24.16.0@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7 AS build
 WORKDIR /usr/local/apps/citrineos
 RUN git init -q . \

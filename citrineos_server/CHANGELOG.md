@@ -8,8 +8,11 @@
   App's source patches with `git apply` (the build fails if one does not
   apply cleanly) and builds as upstream's `deploy.Dockerfile` does, on
   digest-pinned `node:24.16.0` images, natively for amd64 and aarch64.
-  Installing or updating the App now builds CitrineOS (network access to
-  GitHub and npm, several minutes). No new features: the gateway, operator
+- Prebuilt image: GitHub Actions builds that Dockerfile and publishes
+  `ghcr.io/purcell-lab/{arch}-citrineos-server:<version>`
+  (`citrineos-server-publish.yml`, approval-gated, see `RELEASE.md`), and
+  Home Assistant pulls it instead of building on the host. PR CI still builds
+  and tests the image from source. No new features: the gateway, operator
   routes, Plugfest listeners, pricing and metering SetVariables behave as in
   0.7.7.
 - The 0.7.4 to 0.7.7 fixes are source patches now (`patches/`), replacing the
@@ -32,7 +35,7 @@
   `LatestStatusNotification` relationship instead); `NetworkAlerts`,
   `NetworkAlertOccurrences` and `WebsocketEvents` are readable, without
   the connection's remote address. `ha_reader` (`metadata.json`) is
-  unchanged.
+  unchanged. Use the Operator UI App 0.2.0 (built from v2.1.0) with it.
 - Simulator provisioning looks up the station-level `SecurityCtrlr` with
   `evseDatabaseId IS NULL` (v2.1.0 keys components by EVSE too).
 - v2.1.0 defaults kept and documented: Calls time out after 20 s, a Call not

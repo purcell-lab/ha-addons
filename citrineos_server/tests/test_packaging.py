@@ -14,8 +14,10 @@ class PackagingSafety(unittest.TestCase):
         for field in ("host_network", "hassio_api", "homeassistant_api",
                       "docker_api", "ingress"):
             self.assertIs(config[field], False)
-        for field in ("map", "devices", "privileged", "services", "image"):
+        for field in ("map", "devices", "privileged", "services"):
             self.assertNotIn(field, config)
+        # Home Assistant pulls the prebuilt image (citrineos-server-publish.yml).
+        self.assertEqual(config["image"], "ghcr.io/purcell-lab/{arch}-citrineos-server")
         # Only the opt-in Plugfest listeners may be published, and only by an
         # operator-set host port (null by default).
         self.assertEqual(config["ports"],

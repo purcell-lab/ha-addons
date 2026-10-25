@@ -4,6 +4,7 @@ on:
     paths:
       - "citrineos_*/**"
       - ".github/workflows/citrineos.yml"
+      - ".github/workflows/citrineos-server-publish.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,6 +24,7 @@ jobs:
       - run: python3 -m unittest discover -s citrineos_server/tests -p test_v2g_readiness.py -v
       - run: node --test citrineos_server/tests/*.test.mjs
       - run: python3 -m unittest discover -s citrineos_simulator/tests -v
+      - run: sh -n citrineos_server/tests/ci_image_checks.sh
       - run: git diff --check
   upstream-patches:
     # The source patches apply to the pinned CitrineOS commit, the patched
@@ -74,13 +76,34 @@ jobs:
             docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
               -t "citrine-${app}:test" "citrineos_${app}"
           done
-      - name: Upstream routes and permissions in the image (no /dev routes in jwt mode)
-        run: |
-          docker run --rm -v "$PWD/citrineos_server/tests:/probe:ro" --entrypoint node \
-            citrine-server:test /probe/route-probe.mjs
+      - name: Server image checks (same as the publish gate)
+        run: sh citrineos_server/tests/ci_image_checks.sh citrine-server:test
       - name: Authentication, discovery, persistence and logical restore
         env:
           TEST_NATIVE_SIMULATOR: "1"
           TEST_PLUGFEST: "1"
           TEST_OPERATOR: "1"
         run: python3 citrineos_server/tests/stack_smoke.py
+  published-image:
+    # Merge gate: config.yaml points HA at a prebuilt server image, so the
+    # exact version must already be publicly pullable (anonymous, both
+    # arches). Publish it first with the approval-gated
+    # citrineos-server-publish.yml. PR CI above still builds and tests the
+    # image from source.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prebuilt image for this version is public on GHCR
+        run: |
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' citrineos_server/config.yaml)
+          image=$(sed -n 's/^image: //p' citrineos_server/config.yaml)
+          test -n "$version" && test -n "$image"
+          for arch in amd64 aarch64; do
+            ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"
+            if docker manifest inspect "$ref" > /dev/null; then
+              echo "public: $ref"
+            else
+              echo "::error::$ref is not publicly pullable. Publish it (citrineos-server-publish.yml, version $version) and make the package public before merging."
+              exit 1
+            fi
+          done
