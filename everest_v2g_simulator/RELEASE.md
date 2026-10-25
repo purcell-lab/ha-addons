@@ -14,9 +14,10 @@ Each step below is a separate operator decision; none happens automatically.
 The publish job below accepts only a runtime pinned by digest and public.
 For 0.2.0 that runtime does not exist yet:
 
-1. With approval, push `everest_runtime_source-v<everest_runtime_source/VERSION>`
-   (for example `everest_runtime_source-v2026.10.0-rc1-1`) on the reviewed
-   commit. `everest-runtime-source-publish.yml` compiles EVerest on both
+1. With approval, run `everest-runtime-source-publish.yml` with the version
+   in `everest_runtime_source/VERSION` (for example `2026.10.0-rc1-1`) and the
+   reviewed commit, or push the tag `everest_runtime_source-v<version>` on
+   that commit. A manual run tags the commit it built. The workflow compiles EVerest on both
    architectures (a cold compile takes a long time; see the run), pushes
    `<version>-amd64` and `<version>-aarch64`, then the multi-arch index
    `<version>` with a provenance attestation. Its summary prints the line

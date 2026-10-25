@@ -41,7 +41,7 @@ OCPPmulti reads.
 |---|---|---|
 | `everest-runtime-source-build.yml` | Called by the two below | Per architecture, natively (`ubuntu-24.04`, `ubuntu-24.04-arm`): compile (cached in the Actions cache per architecture, so an unchanged `Dockerfile` and `MODULES` do not recompile), extract, check, upload `everest-runtime-source-<arch>` (kept 7 days). Never publishes. |
 | `everest-v2g.yml` (`runtime-source` job) | Pull requests, while the App pins a runtime that is not yet published by digest, or when this directory changes | Builds the runtime, then each architecture's App image job loads it and runs the image checks |
-| `everest-runtime-source-publish.yml` | Tag `everest_runtime_source-v<VERSION>` only | Tag must match `VERSION`; refuses to overwrite; builds, pushes `<VERSION>-amd64`, `<VERSION>-aarch64`, then the index `<VERSION>` with a provenance attestation |
+| `everest-runtime-source-publish.yml` | Tag `everest_runtime_source-v<VERSION>`, or a manual run with `version` and `target` | Tag or version must match `VERSION`; refuses to overwrite or move a tag; builds, pushes `<VERSION>-amd64`, `<VERSION>-aarch64`, then the index `<VERSION>` with a provenance attestation |
 
 A cold compile takes much longer than the extract-only 2025.10.0 runtime
 build (the job allows 5 hours); a cache hit takes minutes.
@@ -56,7 +56,10 @@ EVerest version than `everest_runtime/VERSION` and says so.
 
 1. Approve publication of a public image with the Apache-2.0 EVerest
    runtime, Josev and the third-party licence files.
-2. Push the tag on the reviewed commit:
+2. Run **Publish EVerest runtime image (built from source)** with the
+   version and the reviewed commit sha. The run publishes, then creates the
+   annotated tag `everest_runtime_source-v<VERSION>` on the commit it built.
+   Pushing that tag on the reviewed commit yourself does the same:
 
    ```bash
    git tag -a everest_runtime_source-v$(cat everest_runtime_source/VERSION) \

@@ -1,20 +1,34 @@
 name: Publish EVerest runtime image (built from source)
-# Publication is an explicit operator action: it runs only when a maintainer
-# pushes a tag everest_runtime_source-v<version> matching
-# everest_runtime_source/VERSION, normally on main after the reviewed change
-# is merged. Pull requests and branch pushes never publish (they build the
-# same image in everest-v2g.yml and keep it in the run only).
+# Publication is an explicit operator action, started one of two ways:
+# - a maintainer pushes a tag everest_runtime_source-v<version> matching
+#   everest_runtime_source/VERSION, or
+# - a maintainer runs this workflow manually (workflow_dispatch) with the
+#   version and the commit to publish. That run publishes the image and then
+#   creates the annotated tag on the exact commit it built, because a tag made
+#   with the workflow token would not start this workflow again.
+# Pull requests and branch pushes never publish (they build the same image in
+# everest-v2g.yml and keep it in the run only).
 # Each architecture is compiled natively (everest-runtime-source-build.yml),
 # pushed as <version>-<arch>, then one multi-arch index <version> is created
-# with a provenance attestation. Nothing is overwritten.
+# with a provenance attestation. Nothing is overwritten and no tag is moved.
 on:
   push:
     tags:
       - "everest_runtime_source-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Runtime version without a leading v, e.g. 2026.10.0-rc1-1. Must match everest_runtime_source/VERSION at the target."
+        required: true
+        type: string
+      target:
+        description: "Commit sha (preferred) or branch to publish, e.g. the reviewed PR head."
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: everest-runtime-source-publish-${{ github.ref }}
+  group: everest-runtime-source-publish-${{ inputs.version || github.ref }}
   cancel-in-progress: false
 env:
   REPO: ghcr.io/purcell-lab/everest-runtime
@@ -23,15 +37,38 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - name: Tag must match everest_runtime_source/VERSION
+        with:
+          ref: ${{ inputs.target || github.ref }}
+      - name: Tag or requested version must match everest_runtime_source/VERSION
         id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REQUESTED: ${{ inputs.version }}
         run: |
           version=$(cat everest_runtime_source/VERSION)
-          test "$GITHUB_REF_NAME" = "everest_runtime_source-v$version" || {
-            echo "::error::tag $GITHUB_REF_NAME does not match everest_runtime_source/VERSION $version"; exit 1; }
+          tag="everest_runtime_source-v$version"
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "$REQUESTED" | grep -Eq '^[0-9A-Za-z][0-9A-Za-z.-]*$' || {
+              echo "::error::version '$REQUESTED' is not a plain version string"; exit 1; }
+            test "$REQUESTED" = "$version" || {
+              echo "::error::requested $REQUESTED but everest_runtime_source/VERSION at the target says $version"; exit 1; }
+            # Never move a tag: a dispatch publishes only an untagged version.
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "::error::tag $tag already exists; this workflow never moves a tag"; exit 1
+            fi
+          else
+            test "$GITHUB_REF_NAME" = "$tag" || {
+              echo "::error::tag $GITHUB_REF_NAME does not match everest_runtime_source/VERSION $version"; exit 1; }
+          fi
+          sha=$(git rev-parse HEAD)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Publishing $version from $sha ($EVENT)" >> "$GITHUB_STEP_SUMMARY"
       - name: Refuse to overwrite a published version
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -44,6 +81,8 @@ jobs:
   build:
     needs: check
     uses: ./.github/workflows/everest-runtime-source-build.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
   push:
     needs: [check, build]
     strategy:
@@ -102,3 +141,31 @@ jobs:
           subject-name: ${{ env.REPO }}
           subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
+  tag:
+    # Manual runs only: tag the exact commit the check job resolved, after the
+    # index is pushed and attested. A tag push already has its tag.
+    # If only this job fails, use "Re-run failed jobs": a full re-run would
+    # stop at "Refuse to overwrite a published version".
+    needs: [check, index]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - name: Create the annotated release tag on the published commit
+        env:
+          SHA: ${{ needs.check.outputs.sha }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SHA"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "::error::tag $TAG appeared during the run; not moving it"; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "EVerest runtime ${TAG#everest_runtime_source-v} (built from source)" "$SHA"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $TAG at $SHA" >> "$GITHUB_STEP_SUMMARY"
