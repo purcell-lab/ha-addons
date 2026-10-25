@@ -630,8 +630,10 @@ export function validateDer(url,p,station=STATION,real=false) {
 export const derTargetAllows=(result,station)=>observed(result,station,'ocpp2.1')!==null;
 // The command station's database id, once derTargetAllows has passed.
 export const derStationId=result=>result.data.ChargingStations[0].id;
+// ha_reader may filter only on columns it can select; its permission adds the
+// tenant scope (metadata.json).
 export const DER_EVENTS_QUERY=`query DerEvents($stationId: Int!, $actions: [String!]!, $limit: Int!) {
-  OCPPMessages(where: {tenantId: {_eq: 1}, stationId: {_eq: $stationId}, origin: {_eq: "cs"}, type: {_eq: 2},
+  OCPPMessages(where: {stationId: {_eq: $stationId}, origin: {_eq: "cs"}, type: {_eq: 2},
       action: {_in: $actions}}, order_by: [{timestamp: desc}, {id: desc}], limit: $limit) {
     id action timestamp payload
   }

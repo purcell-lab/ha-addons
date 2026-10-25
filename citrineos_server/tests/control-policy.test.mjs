@@ -695,3 +695,15 @@ test('DER control: policy, target and the DER messages read back',async()=>{
     {data:{OCPPMessages:Array(DER_EVENT_LIMIT+1).fill(row('ReportDERControl',{}))}}])
     assert.equal(derEvents(bad),null);
 });
+test('DER events query filters and sorts only on columns ha_reader may select',async()=>{
+  const {DER_EVENTS_QUERY}=await import('../rootfs/control-policy.mjs');
+  const meta=JSON.parse((await import('node:fs')).readFileSync(new URL('../rootfs/metadata.json',import.meta.url)));
+  const table=meta.sources[0].tables.find(t=>t.table.name==='OCPPMessages');
+  const cols=table.select_permissions[0].permission.columns;
+  const used=[...DER_EVENTS_QUERY.matchAll(/([A-Za-z]+): \{_(?:eq|in)/g),...DER_EVENTS_QUERY.matchAll(/\{([A-Za-z]+): desc\}/g)]
+    .map(m=>m[1]);
+  assert.ok(used.length>=5);
+  for(const c of used)assert.ok(cols.includes(c),c);
+  // The selected fields: the block after the argument list.
+  for(const c of DER_EVENTS_QUERY.match(/limit: \$limit\)\s*\{([^}]*)\}/)[1].trim().split(/\s+/))assert.ok(cols.includes(c),c);
+});
