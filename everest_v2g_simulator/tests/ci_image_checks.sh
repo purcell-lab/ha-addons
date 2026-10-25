@@ -130,7 +130,16 @@ ip4=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$net\").IPAddress}
 ip6=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$net\").GlobalIPv6Address}}" "$name")
 echo "App addresses: $ip4 $ip6"
 probe() { docker run --rm --network "$net" -v "$PWD/$TESTS:/t:ro" --entrypoint python3 "$IMAGE" /t/fwprobe.py "$@"; }
+# The 2026.10 charger is silent before a plug-in in any case, so the SDP part
+# of expect-silence also needs the charger's drop count unchanged: a request
+# that got through the firewall would be counted (fwprobe.py, app.py).
+drops_before=$(docker exec "$name" python3 /tmp/fwprobe.py dlink-drops)
 probe expect-silence "$ip4" ${ip6:+"$ip6"}
+sleep 1
+drops_after=$(docker exec "$name" python3 /tmp/fwprobe.py dlink-drops)
+echo "charger SDP drops before SLAC: $drops_before before, $drops_after after the external probe"
+test "$drops_before" != None && test "$drops_before" = "$drops_after" \
+  || { echo "an external SDP request reached the charger"; exit 1; }
 # Negative control: without the nftables table, nginx on 8099 answers.
 docker exec "$name" nft delete table inet ha_everest_v2g
 probe expect-reachable "$ip4"
