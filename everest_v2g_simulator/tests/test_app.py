@@ -78,6 +78,7 @@ def component_fixture(directory):
                                "SampledDataTxUpdatedMeasurands",
                                "SampledDataTxEndedMeasurands"),
         "OCPPCommCtrlr": doc("HeartbeatInterval"),
+        "ISO15118Ctrlr": doc("PnCEnabled"),
         "ChargingStation": doc("ChargingStationSupplyPhases"),
     }
     for event in ("Started", "Updated", "Ended"):
@@ -320,6 +321,12 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertLessEqual(len(value(target, "InternalCtrlr", "ChargePointVendor")), 50)
         self.assertLessEqual(len(value(target, "InternalCtrlr", "ChargeBoxSerialNumber")), 25)
 
+    def test_no_plug_and_charge(self):
+        # OCPPmulti pushes PnCEnabled into EvseManager at start, overriding
+        # payment_enable_contract, so both are off.
+        _, target = self.build(GOOD)
+        self.assertIs(value(target, "ISO15118Ctrlr", "PnCEnabled"), False)
+
     def test_pinned_2_0_1(self):
         _, target = self.build(dict(GOOD, ocpp_version="2.0.1"))
         self.assertEqual(value(target, "InternalCtrlr", "SupportedOcppVersions"), "ocpp2.0.1")
@@ -431,6 +438,13 @@ class GeneratedConfigTest(unittest.TestCase):
         self.assertNotIn("max_current_import_A", evse)
         self.assertNotIn("max_current_export_A", evse)
         self.assertEqual(active["yeti_driver_1"]["config_module"]["caps_max_current_A"], 31)
+        # A 0 W setpoint must not end the ISO 15118 session (EvseManager
+        # 2026.10 stopped it after 5 s, and the next steps were missed).
+        self.assertEqual(evse["hlc_charge_loop_without_energy_timeout_s"], 86400)
+        # EIM only: with Contract offered the EV chose PnC and the 2026.10
+        # charger ended the session (CitrineOS native trial).
+        self.assertFalse(evse["payment_enable_contract"])
+        self.assertIn("iso_wait_for_stop 86400", configure.ev_session())
         self.assertFalse(evse["session_logging"])
         supply = next(m for m in active.values() if m["module"] == "DCSupplySimulator")
         self.assertTrue(supply["config_implementation"]["main"]["bidirectional"])

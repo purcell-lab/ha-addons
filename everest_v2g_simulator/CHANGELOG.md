@@ -44,6 +44,17 @@
   and EVerest builds that variable as `ChargingOnly,Idle`. HaGridSupport
   writes `Idle,ChargingOnly,CentralSetpoint` once OCPP has started
   (GetVariables shows it; the Status API carries the write result).
+- **A 0 W setpoint keeps the session.** EvseManager 2026.10 ends the
+  ISO 15118 session after `hlc_charge_loop_without_energy_timeout_s`
+  (default 5 s) without available energy, and the session came back only
+  after a re-plug about a minute later, so the setpoints after a 0 W step
+  were missed (a 47 kW sample at the restart). The App sets 86,400 s, the
+  EV session's own limit.
+- **EIM only.** libocpp's default ISO15118Ctrlr `PnCEnabled` true made the
+  charger offer Contract (Plug and Charge); when the start had not arrived
+  yet the simulated EV chose it, and the 2026.10 charger rejected Josev's
+  ecdsa-sha256 signature, ending every session before charging (CitrineOS
+  trial). `PnCEnabled` is now false and EvseManager offers EIM only.
 - **Discovery self-test:** the 2026.10 charger answers SDP only after SLAC
   (a plug-in) and logs each earlier request as dropped. A probe it logged is
   now `received` and passes; a probe it never saw is still `silent` and

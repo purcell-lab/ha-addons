@@ -23,6 +23,9 @@ GRID_VOLTAGE = 230
 # per-phase allowance below (up to 109 A); patch_josev.py lets the simulated
 # EV discharge 25 kW.
 MAX_POWER_KW = 25
+# Seconds the charger keeps an ISO 15118 session open at 0 W (EvseManager
+# hlc_charge_loop_without_energy_timeout_s); the EV session's own limit.
+HOLD_WITHOUT_ENERGY_S = 86400
 # ISO 15118 EVSEID syntax with a test-only operator code.
 EVSE_ID = "AU*PUR*ESIM01*1"
 # Per-session ISO 15118 traces stay in the container, never in /data.
@@ -346,6 +349,12 @@ def component_config(source, target, settings, password):
     # others) NotImplemented.
     edit("TariffCostCtrlr", PRICING)
     edit("CustomizationCtrlr", CALIFORNIA_PRICING)
+    # No Plug and Charge (DOCS, Scope). libocpp's default PnCEnabled true
+    # reaches EvseManager at start, which then offers Contract next to EIM;
+    # the simulated EV takes Contract when the start has not arrived yet, and
+    # EVerest 2026.10's ISO 15118-20 charger rejects Josev's ecdsa-sha256
+    # signature (SHA-512 is required), ending the session before charging.
+    edit("ISO15118Ctrlr", {"PnCEnabled": False})
 
 
 def ev_session():
@@ -386,6 +395,14 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
                     # caps_max_current_A below); EvseManager 2026.10 has no
                     # max_current_import_A / max_current_export_A any more.
                     "session_logging": False,
+                    # A 0 W CentralSetpoint holds the EV at 0 W (DOCS). EvseManager
+                    # 2026.10 stops the ISO 15118 session after this many seconds
+                    # without available energy (default 5); the session then came
+                    # back only after a PWM wake-up about a minute later, missing
+                    # the next setpoints. Hold as long as the EV's session (1 day).
+                    "hlc_charge_loop_without_energy_timeout_s": HOLD_WITHOUT_ENERGY_S,
+                    # EIM only (no Plug and Charge; see ISO15118Ctrlr PnCEnabled).
+                    "payment_enable_contract": False,
                     "request_zero_power_in_idle": True,
                     "external_ready_to_start_charging": True,
                 },
