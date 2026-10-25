@@ -510,12 +510,19 @@ export async function main() {
   // DER control (der_commands_enabled): OCPP 2.1 Set, Get and ClearDERControl
   // to the command station. A Get also returns the station's ReportDERControl
   // messages for its requestId, read back from OCPPMessages.
-  function derMessages(stationId) {
-    return jsonFetch(`http://${o.hasura_host}:8080/v1/graphql`,{
-      method:'POST',headers:{'Content-Type':'application/json',
+  // {events} or {error}: Hasura's own message (no secret in it), so a refused
+  // read says why.
+  async function derMessages(stationId) {
+    const r=await fetch(`http://${o.hasura_host}:8080/v1/graphql`,{
+      method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json',
         'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
       body:JSON.stringify({query:DER_EVENTS_QUERY,variables:{stationId,actions:DER_EVENT_ACTIONS,limit:DER_EVENT_LIMIT}}),
     });
+    const data=await r.json().catch(()=>null);
+    const refused=data?.errors?.[0]?.message;
+    if(!r.ok||refused)return {error:`DER events read refused (${r.status}): ${String(refused??'no reply').slice(0,300)}`};
+    const events=derEvents(data);
+    return events?{events}:{error:'DER events read returned unexpected rows'};
   }
   async function derCommand(req,res,url,controller) {
     if(!derEnabled(o)){res.writeHead(403);res.end('{"error":"DER commands are off (der_commands_enabled)"}');return;}
@@ -536,8 +543,9 @@ export async function main() {
     let found={reports:[],complete:false};
     for(const until=Date.now()+DER_REPORT_WAIT_MS;!found.complete&&Date.now()<until;) {
       await delay(500);
-      const events=derEvents(await derMessages(derStationId(state)).catch(()=>null));
-      if(events)found=derReports(events,parsed.requestId);
+      const read=await derMessages(derStationId(state)).catch(()=>({error:'DER events read failed'}));
+      if(read.events)found=derReports(read.events,parsed.requestId);
+      else console.log(`${read.error}.`);
     }
     res.end(JSON.stringify({...payload,reports:found.reports}));
   }
@@ -548,9 +556,9 @@ export async function main() {
     if(!Array.isArray(s)||s.length!==1||s[0].ocppConnectionName!==station||s[0].tenantId!==1){
       res.writeHead(409);res.end('{"error":"The command station is not known"}');return;
     }
-    const events=derEvents(await derMessages(s[0].id));
-    if(!events)throw new Error('Unexpected DER events');
-    res.end(JSON.stringify({station_id:station,events}));
+    const read=await derMessages(s[0].id);
+    if(read.error){console.log(`${read.error}.`);res.writeHead(502);res.end(JSON.stringify({error:read.error}));return;}
+    res.end(JSON.stringify({station_id:station,events:read.events}));
   }
   const gateway=http.createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
