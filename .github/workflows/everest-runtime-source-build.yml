@@ -1,0 +1,86 @@
+name: Build EVerest runtime from source
+# Reusable: compiles everest-core (everest_runtime_source/) natively on each
+# architecture and extracts the FROM scratch runtime image with the unchanged
+# everest_runtime/Dockerfile. Never publishes. The result is an artifact
+# everest-runtime-source-<arch> (docker save of everest-runtime:local) for
+# the calling workflow: App image checks (everest-v2g.yml) or publication
+# (everest-runtime-source-publish.yml).
+#
+# The compile step is cached per architecture in the GitHub Actions cache
+# (type=gha, scope everest-runtime-source-<arch>), keyed by the Dockerfile
+# and its build arguments, so a change elsewhere does not recompile EVerest.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to check out (default: the triggering commit)."
+        required: false
+        type: string
+        default: ""
+      arches:
+        description: 'JSON list of {"runner", "arch"} to build (default: amd64 and aarch64).'
+        required: false
+        type: string
+        default: '[{"runner": "ubuntu-24.04", "arch": "amd64"}, {"runner": "ubuntu-24.04-arm", "arch": "aarch64"}]'
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.arches) }}
+    runs-on: ${{ matrix.runner }}
+    # A cold compile of the selected modules takes most of this; a cache hit
+    # takes a few minutes.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Read the runtime version and module list
+        id: meta
+        run: |
+          echo "version=$(cat everest_runtime_source/VERSION)" >> "$GITHUB_OUTPUT"
+          echo "modules=$(cat everest_runtime_source/MODULES)" >> "$GITHUB_OUTPUT"
+      - name: Free runner disk (the build image is about 3 GB, the build tree several GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          docker system prune -af || true
+          df -h /
+      - name: Set up a BuildKit builder with the Actions cache
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          # Keep the default (docker) builder current: the extraction step
+          # below must see the locally loaded everest-dist:local image.
+          use: false
+      - name: Compile everest-core (no publication)
+        uses: docker/build-push-action@v6
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: everest_runtime_source
+          build-args: |
+            BUILD_MODULES=${{ steps.meta.outputs.modules }}
+          tags: everest-dist:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=everest-runtime-source-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=everest-runtime-source-${{ matrix.arch }}
+      - name: Extract the runtime image (everest_runtime/Dockerfile)
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          MODULES: ${{ steps.meta.outputs.modules }}
+        run: sh .github/scripts/everest_runtime_source.sh everest-dist:local everest-runtime:local
+      - name: Save the runtime image
+        run: |
+          docker image rm everest-dist:local
+          docker save everest-runtime:local | gzip -1 > everest-runtime-source.tar.gz
+          ls -l everest-runtime-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: everest-runtime-source-${{ matrix.arch }}
+          path: everest-runtime-source.tar.gz
+          retention-days: 7
+          compression-level: 0
