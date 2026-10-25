@@ -53,8 +53,11 @@ def der_round_trip(request, until, commander):
     status, policy = request("/lab/control-policy", extra=auth)
     der = policy["der_commands"]
     assert status == 200 and der["enabled"] and der["station_id"] == STATION, policy
+    # A control with a startTime: the station sends NotifyDERStartStop when it starts.
+    start = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
     control = {"isDefault": False, "controlId": "ha-ci-der-1", "controlType": "LimitMaxDischarge",
-               "limitMaxDischarge": {"priority": 1, "pctMaxDischargePower": 50, "duration": 600}}
+               "limitMaxDischarge": {"priority": 1, "pctMaxDischargePower": 50, "startTime": start,
+                                     "duration": 600}}
     assert request(route("set"), body=control)[0] == 403, "Reader must not send DER controls"
     over = {**control, "limitMaxDischarge": {"priority": 1, "pctMaxDischargePower": 101}}
     assert request(route("set"), body=over, extra=auth)[0] == 400, "DER control outside lab bounds"
@@ -62,6 +65,8 @@ def der_round_trip(request, until, commander):
     assert status == 200 and sent.get("status") == "Accepted", sent
     def started():
         status, body = request("/lab/der-events", extra=auth)
+        # Not swallowed by until(): a refused events read fails at once.
+        assert status == 200 and isinstance(body.get("events"), list), body
         return next((e for e in body.get("events", []) if e["action"] == "NotifyDERStartStop"
                      and e["payload"].get("controlId") == "ha-ci-der-1" and e["payload"].get("started")), None)
     notified = until(started, "NotifyDERStartStop for the control", 30)
