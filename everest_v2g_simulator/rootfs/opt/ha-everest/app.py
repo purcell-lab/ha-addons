@@ -198,11 +198,20 @@ def run():
     (RUN / configure.DER_STATE).unlink(missing_ok=True)
     connected = bool(settings["csms_url"])
     offered = configure.VERSIONS[settings["ocpp_version"]]
+    # Scheme, profile and trust anchor only: never the URL or the password.
+    scheme = settings["csms_url"].split("://", 1)[0] if connected else None
+    profile = settings["security_profile"] if connected else None
+    trust = None
+    if profile == 2:
+        trust = settings["csms_ca_certificate"] or "system CA store"
     configure.atomic_write(RUN / "state.json", json.dumps({
         "charge_point_id": settings["charge_point_id"],
         "csms_configured": connected,
         "ocpp_version_option": settings["ocpp_version"],
         "offered_subprotocols": offered.split(","),
+        "csms_scheme": scheme,
+        "security_profile": profile,
+        "csms_trust": trust,
         "max_power_kw": settings["max_power_kw"],
         "charger": "DC bidirectional (ISO 15118-20 DC_BPT)",
         "negotiated": None,
@@ -213,8 +222,9 @@ def run():
         "charger_sdp_blocked": False,
         "charger_sdp_dlink_ignored": 0,
     }), mode=0o644)
+    link = f"{scheme}://, Security Profile {profile}" + (f", CSMS trust: {trust}" if trust else "")
     print("EVerest DC V2G test charger: " + (
-        f"connection enabled, offering {offered}." if connected else "disconnected."), flush=True)
+        f"connection enabled ({link}), offering {offered}." if connected else "disconnected."), flush=True)
 
     children = []
     extras = []

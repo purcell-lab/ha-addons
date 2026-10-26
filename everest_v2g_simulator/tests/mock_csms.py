@@ -1,7 +1,8 @@
 """Minimal test-only OCPP 2.x CSMS (never for production use).
 
 Selects the configured subprotocol, answers station-initiated calls, records
-every frame and lets an acceptance script send CSMS-initiated calls.
+every frame and lets an acceptance script send CSMS-initiated calls. Serves
+ws:// or, with an SSL context, wss://.
 """
 import asyncio
 import base64
@@ -17,9 +18,15 @@ def now():
 
 
 class MockCsms:
-    def __init__(self, accept=("ocpp2.1", "ocpp2.0.1"), host="127.0.0.1", port=0):
+    def __init__(self, accept=("ocpp2.1", "ocpp2.0.1"), host="127.0.0.1", port=0, ssl=None):
         self.accept = list(accept)
         self.host, self.port = host, port
+        # wss:// when given an ssl.SSLContext: every TLS ClientHello (with its
+        # SNI name, None if absent) is recorded, failed handshakes included.
+        self.ssl = ssl
+        self.client_hellos = []
+        if ssl is not None:
+            ssl.sni_callback = lambda sock, name, ctx: self.client_hellos.append(name)
         self.frames = []           # (direction, decoded frame, monotonic time)
         self.subprotocol = None
         self.path = None
@@ -35,7 +42,7 @@ class MockCsms:
         self.server = await websockets.serve(
             self._handler, self.host, self.port,
             subprotocols=self.accept, select_subprotocol=self._select,
-            ping_interval=None)
+            ping_interval=None, ssl=self.ssl)
         self.port = self.server.sockets[0].getsockname()[1]
         return self
 
