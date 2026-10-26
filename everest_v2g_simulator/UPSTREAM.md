@@ -154,6 +154,16 @@ SPEC 70121 and ISO 15118-2). With the DC supply at its 200 V default
 minimum, discharge stopped at 5 kW. The patch sets 66 A and 25 kW (25 kW at
 the App's 380 V).
 
+The same file hard-codes the EV's ISO 15118-20 needs: `DepartureTime`
+7200 s, `MinimumSOC` 30 %, `TargetSOC` 80 % and fixed energy requests and
+V2X window in ScheduleExchangeReq (Dynamic mode), a 1 Wh minimum and 60 kWh
+maximum energy request in every DC CurrentDemandReq, and only `PresentSOC`
+in DisplayParameters. A second patch (`patch_needs`, after the 25 kW one)
+wraps those four returns: when `/run/ha-everest/ev-iso20.json` is fresh
+(written every second by the App's UI service from the operator's needs,
+`ev_model.py`) its values replace Josev's, validated again by Josev's
+pydantic models; otherwise Josev's values are sent unchanged.
+
 Josev `iso15118/evcc/states/iso15118_20_states.py`: the EV gives up 60 s
 after the first Ongoing AuthorizationRes, and PyEvJosev allows one SDP
 retry cycle, so the EV starts no new session in that plug-in. The patch

@@ -16,15 +16,38 @@ const tone = (w, dead = 50) => (typeof w !== "number" || !isFinite(w)) ? "idle" 
 // Signed text so meaning never depends on colour alone.
 const signed = (v, d = 0) => (typeof v === "number" && isFinite(v)) ? (v > 0 ? "+" : v < 0 ? "\u2212" : "") + fmt(Math.abs(v), d) : "\u2013";
 
-// items: [label, value, iconName, toneClass]
+// Protocol tags: kind "ocpp" (OCPP 2.1 names) or "iso" (ISO 15118-20 names).
+function tag(text, kind) {
+  const code = document.createElement("code"); code.className = "tag " + (kind || "ocpp"); code.textContent = text;
+  return code;
+}
+
+// items: [label, value, iconName, toneClass, ocppTags]
 function setLive(items) {
-  $("live").replaceChildren(...items.map(([label, value, name, cls]) => {
+  $("live").replaceChildren(...items.map(([label, value, name, cls, tags]) => {
     const div = document.createElement("div"); div.className = "chip " + (cls || "idle");
     const text = document.createElement("div");
     const dt = document.createElement("dt"); dt.textContent = label;
     const dd = document.createElement("dd"); dd.textContent = value;
-    text.append(dt, dd); div.append(icon(name || "state"), text); return div;
+    text.append(dt, dd);
+    if (tags && tags.length) { const t = document.createElement("div"); t.className = "chip-tags"; t.append(...tags.map((x) => tag(x))); text.append(t); }
+    div.append(icon(name || "state"), text); return div;
   }));
+}
+
+// Security Profile chip: 0 and 1 red (no TLS), 2 amber (TLS, password), 3+ green (mutual TLS).
+const SECURITY = {
+  0: ["sp-bad", "no authentication"], 1: ["sp-bad", "Basic Auth, unencrypted"],
+  2: ["sp-warn", "TLS + Basic Auth"], 3: ["sp-ok", "TLS + client certificate"],
+};
+function showSecurity(app) {
+  const el = $("security"), p = app.security_profile;
+  if (p === null || p === undefined) { el.hidden = true; return; }
+  const [cls, what] = SECURITY[p] || (p >= 3 ? SECURITY[3] : ["sp-bad", "unknown"]);
+  el.className = "pill " + cls; el.hidden = false; el.replaceChildren(icon("shield"));
+  el.append("Security Profile " + p + ": " + what + (app.csms_scheme ? " (" + app.csms_scheme + "://" +
+    (app.csms_trust ? ", trust " + app.csms_trust : "") + ")" : ""));
+  el.title = "OCPP SecurityCtrlr.SecurityProfile " + p;
 }
 
 // Power bar and two-minute trend (client-side history at the refresh rate).
@@ -82,19 +105,20 @@ async function refreshStatus() {
     if (!r.ok) throw new Error(r.status);
     s = await r.json();
   } catch (e) {
-    $("conn").textContent = "Status unavailable"; $("conn").className = "badge bad";
+    $("conn").textContent = "Status unavailable"; $("conn").className = "pill bad";
     setLive([]); drawPower(null); return;
   }
   const app = s.app || {};
   const conn = val(s.ocpp_connection);
-  if (!app.csms_configured) { $("conn").textContent = "Disconnected (no CSMS URL)"; $("conn").className = "badge"; }
-  else if (conn === "connected" && app.negotiated) { $("conn").textContent = "Connected: " + app.negotiated; $("conn").className = "badge ok"; }
-  else { $("conn").textContent = "Not connected"; $("conn").className = "badge bad"; }
+  if (!app.csms_configured) { $("conn").textContent = "Disconnected (no CSMS URL)"; $("conn").className = "pill"; }
+  else if (conn === "connected" && app.negotiated) { $("conn").textContent = "Connected: " + app.negotiated; $("conn").className = "pill ok"; }
+  else { $("conn").textContent = "Not connected"; $("conn").className = "pill bad"; }
   $("ident").textContent = app.charge_point_id || "";
   $("offer").textContent = app.offered_subprotocols ? "Offers " + app.offered_subprotocols.join(", ") : "";
-  $("security").textContent = app.security_profile
-    ? app.csms_scheme + ":// Security Profile " + app.security_profile + (app.csms_trust ? " (trust: " + app.csms_trust + ")" : "")
-    : "";
+  showSecurity(app);
+  const np = $("needspill"); np.hidden = !app.csms_configured;
+  np.textContent = "NotifyEVChargingNeeds " + (app.ev_charging_needs ? "on" : "off");
+  np.className = "pill " + (app.ev_charging_needs ? "ok" : "muted");
 
   const si = val(s.evse.session_info) || {};
   const pm = val(s.evse.powermeter) || {};
@@ -105,15 +129,17 @@ async function refreshStatus() {
   const dir = w === null ? "\u2013" : t === "pos" ? "Charging" : t === "neg" ? "Discharging (V2G)" : "Idle";
   const dirIcon = t === "pos" ? "in" : t === "neg" ? "out" : "swap";
   const it = tone(typeof i.DC === "number" ? i.DC : null, 0.5);
+  const ev = s.ev || {};
   setLive([
     // EVerest reports "Charging" in both directions; the Direction chip carries the sign.
     ["State", si.state || "\u2013", "state", "idle"],
     ["Direction", dir, dirIcon, t],
-    ["Power", signed(w) + " W", "bolt", t],
-    ["Meter import", fmt(e.total, 1) + " Wh", "in", "pos"],
-    ["Meter export", fmt(x.total, 1) + " Wh", "out", "neg"],
-    ["DC voltage", fmt(v.DC, 1) + " V", "volt", "idle"],
-    ["DC current", signed(i.DC, 1) + " A", "amp", it],
+    ["Power", signed(w) + " W", "bolt", t, [w < 0 ? "Power.Active.Export" : "Power.Active.Import"]],
+    ["Meter import", fmt(e.total, 1) + " Wh", "in", "pos", ["Energy.Active.Import.Register"]],
+    ["Meter export", fmt(x.total, 1) + " Wh", "out", "neg", ["Energy.Active.Export.Register"]],
+    ["DC voltage", fmt(v.DC, 1) + " V", "volt", "idle", ["Voltage"]],
+    ["DC current", signed(i.DC, 1) + " A", "amp", it, [typeof i.DC === "number" && i.DC < 0 ? "Current.Export" : "Current.Import"]],
+    ["EV SoC", typeof ev.soc === "number" ? fmt(ev.soc, 1) + " %" : "\u2013", "battery", "idle", ["SoC"]],
     ["Rated power", "\u00b1" + fmt(app.max_power_kw) + " kW", "gauge", "idle"],
     ...priceChips(s.session_cost),
   ]);
@@ -135,6 +161,7 @@ async function refreshStatus() {
   } else { cell(body.insertRow(), "No schedule published yet").colSpan = 4; }
   showPrice(s.session_cost);
   showDer(s.der);
+  showEv(ev, si, app);
 }
 
 // OCPP 2.1 DER control: the active set the CSMS's controls produce, as
@@ -188,7 +215,9 @@ function priceChips(entry) {
   const cur = (p && p.currency) || "";
   const now = p && p.kwh_price != null ? money(p.kwh_price, cur) + "/kWh" : "\u2013";
   const next = p && p.next_kwh_price != null ? money(p.next_kwh_price) + (p.next_at ? " from " + clock(p.next_at) : "") : "\u2013";
-  return [["Price now", now, "price", "idle"], ["Next price", next, "price", "idle"]];
+  return [["Price now", now, "price", "idle", ["CostUpdated customData"]],
+          ["Next price", next, "price", "idle", ["CostUpdated customData"]],
+          ["Total cost", p && p.total_cost != null ? money(p.total_cost, cur) : "\u2013", "price", "idle", ["totalCost"]]];
 }
 const duration = (s) => typeof s !== "number" ? "–" : s % 3600 === 0 ? fmt(s / 3600) + " h" : s % 60 === 0 ? fmt(s / 60) + " min" : fmt(s) + " s";
 
@@ -283,6 +312,8 @@ async function refreshProfiles() {
     const what = cp.chargingProfilePurpose ? cp.chargingProfilePurpose + " #" + cp.id + ", stack level " + cp.stackLevel + ". " : "";
     const left = (tx.omitted || []).length ? " Shown without its " + tx.omitted.join(" and ") + " (" + fmt(tx.payload_bytes / 1024, 1) + " KiB in full); the price schedule is summarised in the Price panel." : "";
     $("txmeta").textContent = what + "Received " + local(tx.received) + ", message " + tx.message_id + ". " + reply + "." + left;
+    $("txpurpose").textContent = cp.chargingProfilePurpose || "TxProfile";
+    showProfileSummary(cp);
     if (tx.payload) { lastJson = JSON.stringify(tx.payload, null, 2); $("txjson").textContent = lastJson; $("copy").disabled = false; }
     else { lastJson = ""; $("txjson").textContent = "Payload larger than 8 KiB (" + tx.payload_bytes + " bytes); see the App's OCPP message log."; $("copy").disabled = true; }
   } else { $("txmeta").textContent = "No charging profile received yet."; $("txjson").textContent = ""; $("copy").disabled = true; }
@@ -299,6 +330,7 @@ async function refreshProfiles() {
   showPriceSchedules(d.price_schedules);
   showPricing(d.pricing);
   showDerMessages(d.der);
+  showNeedsMessages(d.charging_needs);
 }
 
 for (const b of document.querySelectorAll("button[data-cmd]")) {
@@ -320,9 +352,9 @@ $("copy").addEventListener("click", async () => {
 
 function showSelftest(t) {
   const badge = $("selftest");
-  if (!t) { badge.textContent = "Not run yet"; badge.className = "badge muted"; return; }
+  if (!t) { badge.textContent = "Not run yet"; badge.className = "pill muted"; return; }
   badge.textContent = (t.pass ? "Passed" : "Failed") + " (" + (t.source || "") + ", " + new Date(t.at * 1000).toLocaleTimeString("en-AU") + ")";
-  badge.className = "badge " + (t.pass ? "ok" : "bad");
+  badge.className = "pill " + (t.pass ? "ok" : "bad");
   const cap = (n) => { const c = (t.capture || {})[n]; if (!c) return "not captured"; if (!c.available) return "capture unavailable"; return c.count ? c.frames.map(f => f.direction + " " + f.sdp).join(", ") : "no SDP frames"; };
   const items = [["Unicast to charger", (t.unicast || {}).result || "–"], ["Multicast ff02::1", (t.multicast || {}).result || "–"],
                  ["Seen on v2g1 (EV)", cap("v2g1")], ["Seen on v2g0 (charger)", cap("v2g0")]];
@@ -346,12 +378,154 @@ async function refreshDiagnostics() {
 }
 
 $("runtest").addEventListener("click", async () => {
-  $("runtest").disabled = true; $("selftest").textContent = "Running"; $("selftest").className = "badge muted";
+  $("runtest").disabled = true; $("selftest").textContent = "Running"; $("selftest").className = "pill muted";
   try {
     const r = await fetch("api/diag/selftest", { method: "POST", headers: { "X-HA-EVerest": "1" } });
     if (r.ok) showSelftest(await r.json()); else $("selftest").textContent = "Self-test request failed (" + r.status + ")";
   } catch (e) { $("selftest").textContent = "Self-test request failed"; }
   finally { $("runtest").disabled = false; refreshDiagnostics(); }
+});
+
+
+// ---- Simulated EV: SoC, charging needs and the ISO 15118-20 session ----
+const pct = (v) => (typeof v === "number" && isFinite(v)) ? fmt(v) + " %" : "–";
+const wh = (v) => (typeof v === "number" && isFinite(v)) ? signed(v) + " Wh" : "–";
+const span = (s) => typeof s !== "number" ? "–" : s >= 3600 ? fmt(Math.floor(s / 3600)) + " h " + fmt(Math.floor(s % 3600 / 60)) + " min" : fmt(Math.round(s / 60)) + " min";
+
+function kv(el, items) {
+  el.replaceChildren(...items.map(([label, value, tags]) => {
+    const div = document.createElement("div");
+    const dt = document.createElement("dt"); dt.textContent = label;
+    for (const [text, kind] of tags || []) dt.append(" ", tag(text, kind));
+    const dd = document.createElement("dd"); dd.textContent = value;
+    div.append(dt, dd); return div;
+  }));
+}
+
+function showEv(ev, si, app) {
+  const iso = ev.iso20 || {}, needs = ev.needs || {}, info = (ev.ev_info && ev.ev_info.value) || {};
+  const soc = typeof ev.soc === "number" ? ev.soc : null;
+  $("socvalue").textContent = soc === null ? "–" : fmt(soc, 1);
+  $("socfill").style.width = (soc || 0) + "%";
+  $("socmeter").setAttribute("aria-valuenow", soc === null ? 0 : Math.round(soc));
+  const floor = iso.min_soc, target = iso.target_soc;
+  $("socmin").style.left = (floor || 0) + "%"; $("socmin").hidden = typeof floor !== "number";
+  $("soctarget").style.left = (target || 0) + "%"; $("soctarget").hidden = typeof target !== "number";
+  $("soclegend").textContent = "minimum " + pct(floor) + ", target " + pct(target);
+  $("socnote").textContent = ev.in_session
+    ? "Battery model: " + fmt((ev.capacity_wh || 0) / 1000) + " kWh, from the charger's import and export meter since plug-in."
+    : "Unplugged: the EV plugs in at " + pct(needs.start_soc) + ".";
+
+  if (!needsDirty) fillNeeds(needs);
+  const proto = (ev.selected_protocol && ev.selected_protocol.value) || "";
+  kv($("isostatus"), [
+    ["Protocol", proto || "none yet"],
+    ["Energy service", "DC_BPT (bidirectional DC)", [["SelectedEnergyService", "iso"]]],
+    ["Control mode", "Dynamic: the charger sets the target", [["ControlMode", "iso"]]],
+    ["Transport", "TLS 1.3, mutual (EV certificate)"],
+    ["EVCCID", info.evcc_id || "–", [["EVCCID", "iso"]]],
+    ["EVSE state", si.state || "–"],
+    ["SoC at the charger", pct(info.soc), [["PresentSOC", "iso"]]],
+    ["EV maximum voltage", typeof info.maximum_voltage_limit === "number" ? fmt(info.maximum_voltage_limit) + " V" : "–", [["EVMaximumVoltage", "iso"]]],
+  ]);
+
+  const departure = typeof iso.departure_time === "number" ? span(iso.departure_time) +
+    " (" + local((iso.at + iso.departure_time) * 1000, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + ")" : "–";
+  const rows = [
+    ["DepartureTime", "departureTime", departure],
+    ["TargetSOC", "v2xChargingParameters.targetSoC", pct(iso.target_soc)],
+    ["MinimumSOC", "(in evMinEnergyRequest)", pct(iso.min_soc)],
+    ["PresentSOC", "dcChargingParameters.stateOfCharge", pct(iso.present_soc)],
+    ["EVTargetEnergyRequest", "evTargetEnergyRequest", wh(iso.target_wh)],
+    ["EVMaximumEnergyRequest", "evMaxEnergyRequest", wh(iso.max_wh)],
+    ["EVMinimumEnergyRequest", "evMinEnergyRequest", wh(iso.min_wh)],
+    ["EVMinimumV2XEnergyRequest", "evMinV2XEnergyRequest", iso.v2x_min_wh == null ? "none (no discharge window)" : wh(iso.v2x_min_wh)],
+    ["EVMaximumV2XEnergyRequest", "evMaxV2XEnergyRequest", iso.v2x_max_wh == null ? "none" : wh(iso.v2x_max_wh)],
+    ["EVMaximumDischargePower", "maxDischargePower", typeof iso.max_discharge_w === "number" ? fmt(iso.max_discharge_w) + " W" : "–"],
+    ["EVMaximumDischargeCurrent", "maxDischargeCurrent", typeof iso.max_discharge_a === "number" ? fmt(iso.max_discharge_a) + " A" : "–"],
+    ["RemainingTimeToTargetSOC", "–", span(iso.remaining_time_to_target_soc)],
+    ["BatteryEnergyCapacity", "dcChargingParameters.evEnergyCapacity", typeof iso.battery_capacity_wh === "number" ? fmt(iso.battery_capacity_wh) + " Wh" : "–"],
+  ];
+  const body = $("evsends").tBodies[0]; body.replaceChildren();
+  for (const [isoName, ocppName, value] of rows) {
+    const row = body.insertRow();
+    row.insertCell().append(tag(isoName, "iso"));
+    const oc = row.insertCell(); if (ocppName.startsWith("(") || ocppName === "–") oc.textContent = ocppName; else oc.append(tag(ocppName));
+    cell(row, value, "num");
+  }
+  $("needsmeta").textContent = app.ev_charging_needs
+    ? "The station forwards these needs to the CSMS in NotifyEVChargingNeeds (App option ev_charging_needs). On OCPP 2.1 a Rejected reply ends the transaction (ReqEnergyTransferRejected)."
+    : "Not forwarded: the App option ev_charging_needs is off, so the needs reach the charger over ISO 15118-20 only.";
+}
+
+function showNeedsMessages(events) {
+  const body = $("needsmsgs").tBodies[0]; body.replaceChildren();
+  for (const ev of events || []) {
+    const row = body.insertRow(), n = (ev.payload && ev.payload.chargingNeeds) || {};
+    cell(row, local(ev.received));
+    cell(row, ev.status || "pending", "st-" + (ev.status || "pending"));
+    cell(row, n.requestedEnergyTransfer || "–");
+    const v = n.v2xChargingParameters || {};
+    cell(row, [n.controlMode, v.targetSoC != null ? "targetSoC " + v.targetSoC + " %" : null,
+      n.departureTime ? "departure " + local(n.departureTime) : null].filter(Boolean).join(", ") || "–");
+  }
+  if (!(events || []).length) cell(body.insertRow(), "None sent").colSpan = 4;
+}
+
+function showProfileSummary(cp) {
+  const sched = (Array.isArray(cp.chargingSchedule) ? cp.chargingSchedule[0] : cp.chargingSchedule) || {};
+  const periods = sched.chargingSchedulePeriod || [];
+  const modes = [...new Set(periods.map((p) => p.operationMode).filter(Boolean))];
+  kv($("txsummary"), [
+    ["Purpose", cp.chargingProfilePurpose || "–", [["chargingProfilePurpose"]]],
+    ["Profile", cp.id != null ? "#" + cp.id + ", stack level " + cp.stackLevel : "–", [["id"], ["stackLevel"]]],
+    ["Kind", cp.chargingProfileKind || "–", [["chargingProfileKind"]]],
+    ["Unit", sched.chargingRateUnit || "–", [["chargingRateUnit"]]],
+    ["Periods", periods.length ? String(periods.length) : "–", [["chargingSchedulePeriod"]]],
+    ["Operation mode", modes.join(", ") || "–", [["operationMode"]]],
+  ]);
+}
+
+// Charging needs form. Kept as typed until applied or reset by a refresh.
+let needsDirty = false;
+const form = $("needsform");
+function toLocalInput(epoch) {
+  if (!epoch) return "";
+  const d = new Date(epoch * 1000), p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+function modeFields() {
+  const mode = form.elements.mode.value;
+  for (const el of form.querySelectorAll("[data-mode]")) el.hidden = el.dataset.mode !== mode;
+  form.elements.ready_by.required = mode === "charge_by";
+  $("needshelp").textContent = mode === "charge_by"
+    ? "Charge by: the EV asks to reach the target by the ready-by time. Its minimum SoC is the target, so it offers no discharge (EVMaximumDischargePower 0 W)."
+    : "Allow discharge: the EV may be discharged down to the minimum SoC and stops offering discharge there. Ready by is optional (24 hours if empty).";
+}
+function fillNeeds(n) {
+  if (!n || !n.mode) return;
+  form.elements.mode.value = n.mode;
+  form.elements.target_soc.value = n.target_soc;
+  form.elements.min_soc.value = n.min_soc;
+  form.elements.start_soc.value = n.start_soc;
+  form.elements.ready_by.value = toLocalInput(n.ready_by);
+  modeFields();
+}
+form.addEventListener("input", () => { needsDirty = true; });
+form.addEventListener("change", modeFields);
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const f = form.elements, body = { mode: f.mode.value, target_soc: Number(f.target_soc.value), start_soc: Number(f.start_soc.value) };
+  if (f.mode.value === "allow_discharge") body.min_soc = Number(f.min_soc.value);
+  if (f.ready_by.value) body.ready_by = Math.floor(new Date(f.ready_by.value).getTime() / 1000);
+  $("needsapply").disabled = true;
+  try {
+    const r = await fetch("api/ev/needs", { method: "POST", headers: { "X-HA-EVerest": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const reply = await r.json().catch(() => ({}));
+    $("needsmsg").textContent = r.ok ? "Applied. The EV sends these needs from its next ISO 15118-20 message." : "Not applied: " + (reply.error || r.status);
+    if (r.ok) needsDirty = false;
+  } catch (e) { $("needsmsg").textContent = "Not applied: request failed"; }
+  finally { $("needsapply").disabled = false; refreshStatus(); }
 });
 
 refreshStatus(); refreshProfiles(); refreshDiagnostics();

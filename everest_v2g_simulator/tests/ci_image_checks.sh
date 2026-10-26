@@ -38,6 +38,7 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   # Upstream since EVerest 2026.10 (patched up to 0.1.13).
   grep -q "^        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, interface_index)" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/transport/udp_client.py
   grep -q "ha-everest: 25 kW EV discharge" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py
+  grep -q "ha-everest: EV charging needs from the App" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/controller/simulator.py
   grep -q "ha-everest: EV waits for authorisation as long as the charger" /opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py
   # Every EVerest binary and library resolves its shared libraries.
   missing=$(find /opt/everest -type f \( -name "*.so*" -o -perm -u+x \) | while read -r f; do

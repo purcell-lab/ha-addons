@@ -69,12 +69,13 @@ def read_logs(directory):
     return "\n".join(reversed(chunks))
 
 
-def tracked_events(text, actions=TRACKED, limit=10):
-    """Latest CSMS requests of the given actions, each paired with the
-    station's reply (CALLRESULT, or CALLERROR such as NotImplemented)."""
+def tracked_events(text, actions=TRACKED, limit=10, origin="csms"):
+    """Latest requests of the given actions from origin ("csms", or "station"
+    for the station's own requests), each paired with the other side's reply
+    (CALLRESULT, or CALLERROR such as NotImplemented)."""
     requests, order = {}, []
     for stamp, direction, action, frame in frames(text):
-        if direction == "csms" and len(frame) == 4 and frame[0] == 2 and frame[2] in actions:
+        if direction == origin and len(frame) == 4 and frame[0] == 2 and frame[2] in actions:
             uid = frame[1]
             payload = frame[3]
             size = len(json.dumps(payload))
@@ -89,7 +90,7 @@ def tracked_events(text, actions=TRACKED, limit=10):
                 "responded": None,
             }
             order.append(uid)
-        elif direction == "station" and frame and frame[0] in (3, 4) and frame[1] in requests:
+        elif direction != origin and frame and frame[0] in (3, 4) and frame[1] in requests:
             entry = requests[frame[1]]
             entry["responded"] = stamp
             if frame[0] == 3 and isinstance(frame[2], dict):
@@ -152,6 +153,13 @@ def der_events(text, limit=10):
     """Latest SetDERControl, GetDERControl and ClearDERControl requests with
     the station's replies (Accepted, Rejected, NotSupported, NotFound)."""
     return tracked_events(text, DER_ACTIONS, limit)
+
+
+def charging_needs_events(text, limit=5):
+    """The station's NotifyEVChargingNeeds with the CSMS's replies (Accepted,
+    Rejected, Processing, NoChargingProfile). On OCPP 2.1 a Rejected reply to
+    ISO 15118-20 needs makes libocpp stop the transaction."""
+    return tracked_events(text, ("NotifyEVChargingNeeds",), limit, origin="station")
 
 
 def latest_profile(events):

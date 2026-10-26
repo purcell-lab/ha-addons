@@ -103,6 +103,7 @@ still needs `archive_and_rebind` once.
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 | `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |
 | `csms_ca_certificate` | Empty | `wss://` only. A PEM file under `/ssl/` (`.pem` or `.crt`) holding the CSMS's self-signed root CA, or its self-signed server certificate. It then replaces the system CA store as the only trust anchor. Empty uses the system CA store. Refused with `ws://`; ignored while `csms_url` is empty. |
+| `ev_charging_needs` | `false` | Sends the EV's ISO 15118-20 needs to the CSMS in NotifyEVChargingNeeds (OCPPmulti `extensions_15118`). On OCPP 2.1 a Rejected reply ends the transaction, and the CitrineOS lab App currently rejects needs that arrive before its transaction exists ([ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)); see EV charging needs. |
 | `tx_sample_interval_s` | `5` | Seconds between transaction MeterValues samples sent to the CSMS (`SampledDataTxUpdatedInterval`), 1 to 60. Change it in the App configuration and restart; no rebuild. |
 
 **Basic Auth.** Security Profiles 1 and 2 send the charge-point ID as the
@@ -170,9 +171,20 @@ name), and either case queues an `InvalidCsmsCertificate` security event.
 
 ## Using the simulated EV
 
-The Status page has three controls. They only drive EVerest's EV simulator;
-the UI cannot send OCPP messages, choose direction or set power. Direction
-and power come only from the CSMS.
+The Status page opens with the simulated EV: its state of charge, the cable
+controls, its charging needs, the ISO 15118-20 session and what the EV sends.
+The header shows the connection, the station ID, the offered OCPP versions,
+whether NotifyEVChargingNeeds is on, and the OCPP Security Profile in colour:
+red for 0 and 1 (no TLS), amber for 2 (TLS with Basic Auth), green for 3 and
+above (TLS with a client certificate). Violet tags name the OCPP 2.1
+messages, data types and measurands behind each value (for example
+`Power.Active.Import`, `Energy.Active.Export.Register`, `SoC`,
+`SetChargingProfile`, `CostUpdated`, `SetDERControl`); teal tags name the
+ISO 15118-20 parameters (`PresentSOC`, `TargetSOC`, `DepartureTime`).
+
+The cable controls only drive EVerest's EV simulator; the UI cannot send
+OCPP messages, choose direction or set power. Direction and power come only
+from the CSMS.
 
 - **Plug in**: the EV runs SLAC, opens the ISO 15118-20 TLS session, offers
   DC_BPT and waits for authorisation. Start the transaction from the CSMS
@@ -183,6 +195,42 @@ and power come only from the CSMS.
   Cable check and pre-charge take about 15 s.
 - **EV stop session**: the EV ends the ISO 15118 session and unplugs.
 - **Unplug now**: immediate unplug, which ends any transaction.
+
+**Charging needs.** An ISO 15118-20 EV never chooses charge or discharge;
+it states its needs and the charger, steered by the CSMS, sets power and
+direction. The EV panel sets what the simulated EV states (`ev_model.py`,
+sent by the patched Josev, UPSTREAM.md):
+
+- **Charge by**: reach the target SoC by the ready-by time. The minimum SoC
+  is the target, so the EV sends no discharge window and
+  `EVMaximumDischargePower` 0 W.
+- **Allow discharge**: the EV may be discharged down to the minimum SoC
+  (it offers 0 W discharge once it is there) and wants the target SoC by
+  the ready-by time, or in 24 hours if none is set.
+
+The needs go into `ScheduleExchangeReq` (`DepartureTime`, `MinimumSOC`,
+`TargetSOC` and the energy requests) at session start, and into every
+DC_BPT `CurrentDemandReq` (energy requests, `EVMinimumV2XEnergyRequest` and
+`EVMaximumV2XEnergyRequest`, discharge limits) and `DisplayParameters`, so a
+change applies within a second during a session. They are kept in
+`/data/ev-needs.json`; the default is Allow discharge, minimum 30 %, target
+80 %, plug-in at 50 %. `POST /api/ev/needs` (Ingress, the same request header
+as the cable controls) takes the same JSON: `mode` (`charge_by` or
+`allow_discharge`), `target_soc`, `min_soc`, `start_soc` and `ready_by`
+(Unix time, within 7 days; required for Charge by).
+
+**State of charge.** EVerest's car simulator counts DC power as charging in
+either direction, so its SoC rose while the EV discharged. The App models
+the battery instead: 60 kWh, starting at the plug-in SoC, plus the charger's
+import minus export energy since plug-in. The EV reports this SoC as
+`PresentSOC`, and the Status page shows it with the minimum and target SoC.
+
+The table "What the EV sends" lists each ISO 15118-20 value with the
+NotifyEVChargingNeeds field it maps to (`departureTime`,
+`v2xChargingParameters.targetSoC`, `evMinEnergyRequest`,
+`evMinV2XEnergyRequest`, `maxDischargePower` and so on). "Charging needs at
+the CSMS" lists the NotifyEVChargingNeeds the station sent and the CSMS's
+replies.
 
 Live readings refresh every second and show state, direction, signed power
 (negative is discharge), meter import and export energy, DC voltage and
@@ -418,20 +466,24 @@ and overwrites it. The DER nameplate (`DCDERCtrlr` `MaxW`, `MaxVA`,
 
 ### EV charging needs
 
-The station sends no NotifyEVChargingNeeds, by design. EVerest's
-ISO 15118-20 module (Evse15118D20) publishes the EV's needs on its
-`extensions` interface, and the OCPP module (OCPP201, OCPPmulti from 0.2.0)
-sends them only when its `extensions_15118` requirement is connected to it
-(with an EVSE mapping on the ISO 15118 module); the App does not connect
-it. CitrineOS v2.0.1
-accepts charging needs only for AC with `acChargingParameters` or DC with
-`dcChargingParameters`. For ISO 15118-20 EVerest sends `DC_BPT` (or `DC`)
-with `v2xChargingParameters` only, so CitrineOS answers Rejected and stores
-nothing, and libocpp v0.30.3 on OCPP 2.1 then stops the transaction
-(`ReqEnergyTransferRejected`, K18.FR.23). On OCPP 2.0.1 the message is not
-valid 2.0.1. Connecting it would end every V2G session; it needs CitrineOS
-support for `v2xChargingParameters` first (UPSTREAM.md). The EV's
-discharge limits (Josev: 66 A, 25 kW) are therefore not reported over OCPP.
+With `ev_charging_needs: true` the station sends the EV's needs to the CSMS
+in NotifyEVChargingNeeds: EVerest's ISO 15118-20 module (Evse15118D20,
+mapped to EVSE 1) publishes them on its `extensions` interface and OCPPmulti
+sends them through its `extensions_15118` requirement. For ISO 15118-20
+EVerest sends `DC_BPT` with `v2xChargingParameters`, `departureTime` and
+`controlMode`.
+
+It is off by default. On OCPP 2.1 libocpp stops the transaction
+(`ReqEnergyTransferRejected`, K19.FR.16) when the CSMS answers Rejected to
+ISO 15118-20 needs, and the station sends them at schedule exchange, before
+TransactionEvent Started (`TxStartPoints` is `PowerPathClosed`). The
+CitrineOS lab App accepts DC_BPT and V2X needs
+(`patches/0001-ocpp21-charging-needs.patch`) but still answers Rejected
+when it has no active transaction, which ends every V2G session:
+[ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106). Turn the
+option on with a CSMS that answers Accepted, Processing or
+NoChargingProfile; pull request CI does so against its mock CSMS and checks
+the message. The Status page shows each NotifyEVChargingNeeds and the reply.
 
 ### CSMS requirements
 

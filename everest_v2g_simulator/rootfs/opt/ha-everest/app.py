@@ -216,6 +216,7 @@ def run():
         "charger": "DC bidirectional (ISO 15118-20 DC_BPT)",
         "negotiated": None,
         "ha_control": settings["ha_control"],
+        "ev_charging_needs": settings["ev_charging_needs"],
         "ev_stack_restarts": 0,
         "ev_gave_up_count": 0,
         "ev_gave_up_at": None,
