@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import subprocess
 import time
 from urllib.parse import urlsplit
 
@@ -32,6 +33,17 @@ EVSE_ID = "AU*PUR*ESIM01*1"
 ISO_LOG_DIR = "/tmp/iso15118"
 # A closed loopback port: "disconnected" never reaches another host.
 DISCONNECTED_URL = "ws://127.0.0.1:9"
+# Security profile by URL scheme: Basic Auth over plain WebSocket (1) or
+# over TLS (2). Profile 3 (client certificates) is out of scope.
+SECURITY_PROFILES = {"ws": 1, "wss": 2}
+# Optional CSMS trust anchor for wss:// (option csms_ca_certificate): a PEM
+# file in Home Assistant's /ssl share (mapped read-only). It is copied into
+# /data on every start and becomes EvseSecurity's CSMS CA bundle.
+SSL_DIR = Path("/ssl")
+CA_OPTION = re.compile(r"/ssl/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.(?:pem|crt)")
+CSMS_CA_DIR = "csms-ca"
+CSMS_CA_FILE = "CSMS_ROOT_CA.pem"
+CSMS_CA_MAX_BYTES = 65536
 VERSIONS = {
     # Offer 2.1 first; libocpp falls back when the CSMS selects 2.0.1.
     "2.1": "ocpp2.1,ocpp2.0.1",
@@ -79,6 +91,7 @@ def validate(options):
     ha_control = options.get("ha_control", False)
     provisioned = options.get("csms_basic_auth_password", "")
     interval = options.get("tx_sample_interval_s", 5)
+    ca = options.get("csms_ca_certificate", "")
     if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 60:
         raise ValueError("tx_sample_interval_s must be 1-60")
     if not isinstance(provisioned, str) or (provisioned and not re.fullmatch(r"[0-9a-f]{32}", provisioned)):
@@ -93,20 +106,32 @@ def validate(options):
         raise ValueError(f"max_power_kw must be 3-{MAX_POWER_KW}")
     if not isinstance(csms, str) or len(csms) > 200:
         raise ValueError("csms_url must be a string of at most 200 characters")
+    if not isinstance(ca, str) or len(ca) > 200 or (ca and (not CA_OPTION.fullmatch(ca) or ".." in ca)):
+        raise ValueError("csms_ca_certificate must be empty or a .pem/.crt file under /ssl/")
+    profile = 1
     if csms:
         try:
             url = urlsplit(csms)
             port = url.port
         except ValueError:
             raise ValueError("invalid CSMS URL") from None
+        # wss:// may omit the port (443, as libocpp's URI parser defaults);
+        # ws:// keeps its explicit port.
+        if url.scheme == "wss" and port is None and not url.netloc.endswith(":"):
+            port = 443
         if (
-            url.scheme != "ws" or not url.hostname or not port
+            url.scheme not in SECURITY_PROFILES or not csms.startswith(url.scheme + "://")
+            or not url.hostname or not port
             or url.username is not None or url.password is not None
             or url.query or url.fragment
             or any(c.isspace() or ord(c) < 32 for c in csms)
             or "\\" in csms or "%" in csms
         ):
-            raise ValueError("use ws://test-host:port[/base-path], without credentials")
+            raise ValueError("use ws://test-host:port[/base-path] or wss://test-host[:port][/base-path], "
+                             "without credentials")
+        profile = SECURITY_PROFILES[url.scheme]
+        if ca and profile != 2:
+            raise ValueError("csms_ca_certificate needs a wss:// csms_url")
         if url.hostname in ("127.0.0.1", "localhost", "::1") and port == 9:
             raise ValueError("port 9 is reserved for the disconnected state")
         if acknowledged is not True:
@@ -116,6 +141,10 @@ def validate(options):
             raise ValueError("csms_url must not include charge_point_id")
     return {
         "csms_url": csms.rstrip("/"),
+        # Disconnected starts use the closed ws:// loopback URL (profile 1).
+        "security_profile": profile,
+        # Ignored while disconnected; only a wss:// URL uses it.
+        "csms_ca_certificate": ca if csms else "",
         "charge_point_id": cpid,
         "ocpp_version": version,
         "max_power_kw": power,
@@ -265,7 +294,7 @@ def component_config(source, target, settings, password):
             "ocppInterface": "Wired0",
             "ocppTransport": "JSON",
             "ocppVersion": "OCPP20",
-            "securityProfile": 1,
+            "securityProfile": settings["security_profile"],
         },
     }]
     # libocpp (EVerest 2026.10) keeps connection profiles in
@@ -284,11 +313,30 @@ def component_config(source, target, settings, password):
         "LogRotation": True,
         "LogRotationMaximumFileSize": 1048576,
         "LogRotationMaximumFileCount": 3,
+        # CSMS server certificate checks for wss:// (libocpp, EVerest
+        # 2026.10.0-rc1 as v0.30.3: DeviceModel::get_websocket_connection_options
+        # reads them, WebsocketLibwebsockets::tls_init and verify_csms_cn
+        # apply them; UPSTREAM.md); verification
+        # itself (SSL_VERIFY_PEER) cannot be turned off. The trust anchor is
+        # either the system CA store (Debian ca-certificates, OpenSSL's
+        # default paths) or, with csms_ca_certificate, only that CA: libocpp
+        # then loads EvseSecurity's CSMS bundle and no default paths.
+        "UseSslDefaultVerifyPaths": not settings["csms_ca_certificate"],
+        # Hostname must match a SAN or CN of the server certificate.
+        "VerifyCsmsCommonName": True,
+        # Allows a whole left-most wildcard label only (OpenSSL
+        # X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, as browsers): Cloudflare
+        # Universal SSL and many Let's Encrypt certificates cover
+        # ocpp.example.org only through *.example.org.
+        "VerifyCsmsAllowWildcards": True,
     })
     edit("SecurityCtrlr", {
         "SecurityCtrlrIdentity": cpid,
         "BasicAuthPassword": password,
-        "SecurityProfile": 1,
+        # Must equal the profile's: libocpp's ConnectivityManager drops
+        # connection profiles below SecurityCtrlr.SecurityProfile (and
+        # 2026.10 sets it to the connected slot's profile after connecting).
+        "SecurityProfile": settings["security_profile"],
     })
     rating = ratings(settings)
     edit("SmartChargingCtrlr", {
@@ -377,6 +425,11 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
     """
     store = str(data / "everest")
     rating = ratings(settings)
+    security = {"private_key_password": pki_password}
+    if settings["csms_ca_certificate"]:
+        # Absolute, so outside the renewable test PKI (pki.py replaces the
+        # whole certs directory on renewal).
+        security["csms_ca_bundle"] = str(data / CSMS_CA_DIR / CSMS_CA_FILE)
     return {
         "settings": {
             "telemetry_enabled": False,
@@ -531,7 +584,7 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
                 "module": "PersistentStore",
                 "config_module": {"sqlite_db_file_path": store + "/persistent_store.db"},
             },
-            "evse_security": {"module": "EvseSecurity", "config_module": {"private_key_password": pki_password}},
+            "evse_security": {"module": "EvseSecurity", "config_module": security},
             "token_provider_1": {"module": "DummyTokenProviderManual"},
             "auth": {
                 "module": "Auth",
@@ -580,6 +633,49 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
             "system": {"module": "System"},
         },
     }
+
+
+def csms_ca_check(path):
+    """True when the first certificate in `path` is valid now and chains to
+    a self-signed certificate in the same file.
+
+    libevse-security only treats a CSMS bundle as installed when it holds a
+    valid self-signed root; a private CA or a self-signed server certificate
+    both qualify.
+    """
+    for command in (["openssl", "x509", "-noout", "-checkend", "0", "-in", str(path)],
+                    ["openssl", "verify", "-no-CApath", "-no-CAstore", "-CAfile", str(path), str(path)]):
+        if subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+            return False
+    return True
+
+
+def install_csms_ca(data, settings, ssl_dir=SSL_DIR):
+    """Copy the csms_ca_certificate PEM into /data, or remove a stale copy.
+
+    Copied fresh on every start: a CSMS-installed CSMSRootCertificate lasts
+    until the next start. Refuses anything but certificates (no keys).
+    """
+    target = data / CSMS_CA_DIR
+    option = settings["csms_ca_certificate"]
+    if not option:
+        shutil.rmtree(target, ignore_errors=True)
+        return None
+    root = ssl_dir.resolve()
+    source = (ssl_dir / option[len("/ssl/"):]).resolve()
+    if root not in source.parents or not source.is_file():
+        raise ValueError("csms_ca_certificate is not a file under /ssl/")
+    if source.stat().st_size > CSMS_CA_MAX_BYTES:
+        raise ValueError("csms_ca_certificate is larger than 64 KiB")
+    text = source.read_text(errors="replace")
+    if "PRIVATE KEY" in text:
+        raise ValueError("csms_ca_certificate must hold certificates only, never a private key")
+    if "-----BEGIN CERTIFICATE-----" not in text or not csms_ca_check(source):
+        raise ValueError("csms_ca_certificate must be a PEM self-signed CA certificate valid now")
+    target.mkdir(mode=0o700, exist_ok=True)
+    path = target / CSMS_CA_FILE
+    atomic_write(path, text, mode=0o644)
+    return path
 
 
 def archive_if_requested(data, options):
@@ -635,10 +731,13 @@ def preserve_core_db(store):
     return backup
 
 
-def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=None, run=Path("/run/ha-everest")):
+def configure(data, options, source, prefix=Path("/opt/everest"), pki_password=None, run=Path("/run/ha-everest"),
+              ssl_dir=SSL_DIR):
     """Return (settings, path_to_everest_yaml). Raises ValueError on unsafe input."""
     settings = validate(options)
     data.mkdir(parents=True, exist_ok=True)
+    # Before archiving or binding: an unusable CA file changes nothing.
+    install_csms_ca(data, settings, ssl_dir)
     archive_if_requested(data, options)
     archived = bind(data, settings)
     if archived:

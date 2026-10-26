@@ -46,7 +46,10 @@ This is a test tool, not a physical charger. It sits beside the AC
 - DC charging and discharging between the simulated charger and EV, using
   the ISO 15118-20 Dynamic control mode. Power, voltage and energy come
   from EVerest's DC supply simulator, not from real hardware.
-- OCPP over `ws://` with Security Profile 1. No TLS to the CSMS.
+- OCPP over `ws://` (Security Profile 1, Basic Auth) or, from 0.2.1,
+  `wss://` (Security Profile 2, Basic Auth over TLS with a verified server
+  certificate). Security Profile 3 (TLS client certificates) is not
+  supported.
 - OCPP 2.1 DER control messages are accepted, reported and shown, never
   applied to power.
 - No Plug and Charge. The test PKI only secures the ISO 15118 link inside
@@ -66,8 +69,9 @@ This is a test tool, not a physical charger. It sits beside the AC
    from physical charger automations, driver registration and BSV
    settlement. The App cannot enforce those exclusions in another
    integration.
-4. Set `csms_url` to `ws://test-host:port[/base-path]` without the station
-   ID, set a unique `SIM-EV-` charge-point ID and
+4. Set `csms_url` to `ws://test-host:port[/base-path]` or
+   `wss://test-host[:port][/base-path]` (Remote CSMS over TLS) without the
+   station ID, set a unique `SIM-EV-` charge-point ID and
    `acknowledge_test_isolation: true`. Restart the App.
 5. Confirm BootNotification and the negotiated version in the test CSMS and
    on the Status page.
@@ -91,18 +95,78 @@ still needs `archive_and_rebind` once.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `csms_url` | Empty | OCPP base URL without the station ID. `ws://` on an explicit port, no credentials, query or `%` encoding. |
+| `csms_url` | Empty | OCPP base URL without the station ID. `ws://` on an explicit port (Security Profile 1) or `wss://` with an optional port, default 443 (Security Profile 2). No credentials, query, fragment or `%` encoding. |
 | `charge_point_id` | `SIM-EV-EVEREST-V2G-01` | Required `SIM-EV-` namespace, up to 36 suffix characters. Also the Basic Auth user. |
 | `ocpp_version` | `2.1` | `2.1` offers `ocpp2.1, ocpp2.0.1`. `2.0.1` offers only `ocpp2.0.1`. |
 | `max_power_kw` | `25` | Charger rating in both directions, 3 to 25 kW. Also the default composite limit and the DER nameplate. The simulated battery is at 380 V, so 25 kW is 66 A DC. Upstream's simulated board allows only 11.04 kW discharge and 22.08 kW charge by default; the App sets its limits to the rating (`caps_max_current_A`, up to 109 A per phase). |
 | `acknowledge_test_isolation` | `false` | Operator assertion that the endpoint and downstream automations are test-only. Required for a nonempty `csms_url`. |
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 | `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |
+| `csms_ca_certificate` | Empty | `wss://` only. A PEM file under `/ssl/` (`.pem` or `.crt`) holding the CSMS's self-signed root CA, or its self-signed server certificate. It then replaces the system CA store as the only trust anchor. Empty uses the system CA store. Refused with `ws://`; ignored while `csms_url` is empty. |
 | `tx_sample_interval_s` | `5` | Seconds between transaction MeterValues samples sent to the CSMS (`SampledDataTxUpdatedInterval`), 1 to 60. Change it in the App configuration and restart; no rebuild. |
 
-**Basic Auth.** Security Profile 1 sends a random 32-character password,
-generated once in `/data/basic-auth-password`. The App never logs or shows
-it. Use a test CSMS that does not require Basic Auth (HA OCPP does not).
+**Basic Auth.** Security Profiles 1 and 2 send the charge-point ID as the
+user and a random 32-character password, generated once in
+`/data/basic-auth-password` (or `csms_basic_auth_password`). The App never
+logs or shows it. Under `ws://` it crosses the network unencrypted; use
+`wss://` for any CSMS beyond the local test network. A test CSMS that does
+not check Basic Auth (HA OCPP does not) also works.
+
+## Remote CSMS over TLS
+
+For a CSMS reachable only over TLS, for example one behind Cloudflare or a
+vendor's cloud CSMS, use `wss://` (Security Profile 2).
+
+1. Stop the App and make sure no transaction is active.
+2. Set `csms_url` to the CSMS base URL without the station ID, for
+   example `wss://ocpp.example.org` or `wss://csms.example.org:8443/ocpp`.
+   Without a port, 443 is used.
+3. A changed URL is a new destination, even `ws://` to `wss://` for the same
+   host: set `archive_and_rebind: true` for one start (state is moved to
+   `/data/archive-<time>/`), then set it back to `false`.
+4. Start the App. The log shows `connection enabled (wss://, Security
+   Profile 2, CSMS trust: system CA store)`, and the Status page shows
+   `wss:// Security Profile 2` next to the offered versions. Confirm
+   BootNotification in the CSMS.
+
+The station always verifies the server certificate, and nothing turns this
+off (libocpp: `UseSslDefaultVerifyPaths`, `VerifyCsmsCommonName`,
+`VerifyCsmsAllowWildcards`, set in the generated device model):
+
+- **Trust.** By default the system CA store (Debian `ca-certificates` in the
+  image), so a publicly trusted certificate, such as Cloudflare's or Let's
+  Encrypt's, verifies with no further setup.
+- **Host name.** The URL's host must match a DNS name (or the common name)
+  in the certificate. A wildcard is allowed only as a whole left-most label
+  (`*.example.org` matches `ocpp.example.org`, not `a.b.example.org`):
+  Cloudflare's Universal SSL and many Let's Encrypt certificates cover
+  subdomains only that way.
+- **TLS versions.** TLS 1.3, or TLS 1.2 with libocpp's OCPP ciphers
+  (`ECDHE-ECDSA-AES128-GCM-SHA256`, `ECDHE-ECDSA-AES256-GCM-SHA384`,
+  `AES128-GCM-SHA256`, `AES256-GCM-SHA384`). Cloudflare offers TLS 1.3.
+- **Server name.** The station sends the host as SNI, which Cloudflare
+  needs.
+
+**Private test CSMS.** For a CSMS whose certificate comes from a private
+CA, put that CA certificate (PEM, no key) in Home Assistant's `/ssl` share,
+for example `/ssl/test-csms/ca.pem`, and set `csms_ca_certificate` to that
+path. The App maps `/ssl` read-only. On every start it checks the file
+(certificates only, no key, at most 64 KiB; the first certificate valid
+now and chaining to a self-signed one in the same file) and copies it to
+`/data/csms-ca/CSMS_ROOT_CA.pem`, EvseSecurity's CSMS CA bundle. That CA is then the only trust anchor: the system store is not
+used, so a public certificate no longer verifies. A self-signed server
+certificate also works as its own anchor; it must still name the host. A
+file that fails the checks stops the start with `Invalid options/state`
+before any binding changes. A CSMSRootCertificate the CSMS installs with
+InstallCertificate is kept only until the next start. Without
+`csms_ca_certificate`, such a certificate is trusted in addition to the
+system store until the test PKI is next renewed.
+
+A certificate that does not verify keeps the station disconnected. On
+every retry the connection fails; for an untrusted chain libocpp logs
+`Invalid certificate error 'unable to get local issuer certificate'` (a
+host name mismatch has no specific line when the certificate has a common
+name), and either case queues an `InvalidCsmsCertificate` security event.
 
 ## Using the simulated EV
 
@@ -528,7 +592,8 @@ actual connection, not a forwarded header. The UI service and MQTT broker
 listen on loopback only. Only three fixed EV-simulator POST endpoints and
 the discovery self-test exist; all other paths are read-only. No host
 ports, host networking, hardware access, Supervisor API or Docker socket
-are requested. The Core API token serves only the opt-in control bridge
+are requested. The only mapped folder is `/ssl`, read-only, for
+`csms_ca_certificate`. The Core API token serves only the opt-in control bridge
 (Home Assistant control). Do not add a
 port mapping or widen the ACL to make direct probes pass; use **Open Web
 UI**.
@@ -561,8 +626,9 @@ real vehicles or chargers.
 All state is in the App's `/data`: OCPP message logs
 (`everest/ocpp_logs`, rotated at 1 MiB, 3 files), the core database with
 transactions, installed charging profiles and DER controls
-(`everest/ocpp201/cp.db`), the test PKI (`pki/`) and the generated EVerest
-configuration. The device model is rebuilt from the options on every start.
+(`everest/ocpp201/cp.db`), the test PKI (`pki/`), the copied
+`csms_ca_certificate` (`csms-ca/`) and the generated EVerest configuration.
+The device model is rebuilt from the options on every start.
 The DER panel's copy of the active set (`/run/ha-everest/der.json`) is not
 kept across restarts.
 

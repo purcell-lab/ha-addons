@@ -64,6 +64,35 @@ Local finding: even without the firewall, the upstream SDP server answered
 only on its configured interface (`v2g0`), not from another network
 namespace on global or link-local addresses.
 
+## 0.2.1: OCPP Security Profile 2 on EVerest 2026.10.0-rc1 (2026-10-26)
+
+**Pending on 2026.10.0-rc1.** The `tls` acceptance scenario has not yet run
+on a 0.2.1 image; it runs in pull request CI (`CHECKS=minimal`) and in the
+release gate. The 0.2.1 unit tests pass. The evidence below is from the
+unreleased 0.1.14 (EVerest 2025.10.0, libocpp v0.30.3). The libocpp TLS
+code it exercised (`tls_init`, `verify_csms_cn`, the URI checks and the
+device-model variables) reads the same in 2026.10.0-rc1 (UPSTREAM.md), but
+OCPPmulti, the `NetworkConfiguration_1` import and the rebuilt runtime are
+new, so this table is not evidence for 0.2.1.
+
+0.1.14 run: `wss://` to a TLS mock CSMS (acceptance scenario `tls`; P-256
+test CA, server certificate for `localhost` only), locally on 2026-10-22 in a
+sandbox whose kernel has no IPv6: the 0.1.13 image with this version's
+`rootfs/` copied over, plus a local-only change that skipped the link-local
+wait and left out the two ISO 15118 modules (with the EVSE in AC mode).
+OCPP, EvseSecurity and libocpp were unchanged. The full image checks
+(`ci_image_checks.sh`) were not run locally.
+
+| Case | `csms_url` | Trust | Result |
+|---|---|---|---|
+| Private CA | `wss://localhost:9221/ocpp` | `csms_ca_certificate` = the test CA | Connected: `ocpp2.1`, Basic Auth user = charge-point ID, SNI `localhost`, BootNotification; status `wss`, profile 2; password not in the log. Pass |
+| Host name mismatch | `wss://127.0.0.1:9221/ocpp` | the test CA | TLS ClientHello seen, no WebSocket connection in 15 s. Pass |
+| System store | `wss://localhost:9221/ocpp` | test CA added with `update-ca-certificates` | Connected as above. Pass |
+| Only the configured CA | `wss://localhost:9221/ocpp` | `csms_ca_certificate` = an unrelated CA; test CA still in the system store | No connection. Pass |
+
+Not tested here: a public certificate (Cloudflare, Let's Encrypt), a
+wildcard certificate, TLS 1.2 only servers and real CSMS Basic Auth checks.
+
 ## 0.2.0: EVerest 2026.10.0-rc1 from source, OCPPmulti, DER control (2026-10-25)
 
 Static checks before any image existed (no Docker in the authoring
@@ -270,6 +299,7 @@ any purpose (`latest_profile` in `/api/profiles`; `latest_tx_profile` kept).
 ## Not claimed
 
 OCPP 2.1 or ISO 15118-20 conformance beyond the messages above, AC
-bidirectional power, Plug and Charge, TLS to the CSMS, Security Profiles 2
-and 3, real vehicle or charger behaviour, grid-code compliance, and BSV
-settlement are out of scope.
+bidirectional power, Plug and Charge, Security Profile 2 against a real
+TLS CSMS (only the mock above), Security Profile 3, real vehicle or
+charger behaviour, grid-code compliance, and BSV settlement are out of
+scope.

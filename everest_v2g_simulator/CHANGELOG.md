@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.2.1
+
+- OCPP Security Profile 2, ported from the unreleased 0.1.14 onto EVerest
+  2026.10.0-rc1 and OCPPmulti: `csms_url` also takes
+  `wss://host[:port][/base-path]` (port 443 when omitted), for a CSMS
+  reachable only over TLS such as one behind Cloudflare. The profile follows
+  the scheme: `ws://` is 1, `wss://` is 2, set in the network connection
+  profile (libocpp imports it into `NetworkConfiguration_1`) and in
+  `SecurityCtrlr.SecurityProfile`. Basic Auth is unchanged. Every other URL
+  rule stays, and changing `ws://` to `wss://` is still a destination
+  change that needs `archive_and_rebind`. See "Remote CSMS over TLS".
+- The server certificate is always verified: against the system CA store
+  (`UseSslDefaultVerifyPaths`), with the host name checked
+  (`VerifyCsmsCommonName`) and whole-label wildcards allowed
+  (`VerifyCsmsAllowWildcards`, needed for Cloudflare and many Let's Encrypt
+  certificates). The libocpp code paths are unchanged from v0.30.3 in
+  2026.10.0-rc1 (UPSTREAM.md gives the files and lines).
+- New option `csms_ca_certificate`: a PEM CA under `/ssl/` (mapped
+  read-only) for a private test CSMS. It becomes the only trust anchor
+  (EvseSecurity `csms_ca_bundle`, copied to `/data/csms-ca/`), and the
+  system store is then not used. Refused with `ws://`; a file with a
+  private key, or without a valid self-signed certificate, stops the start.
+- The log line at start and the Status page show the scheme, the security
+  profile and the trust anchor (never the URL or the password).
+  `/api/status` adds `csms_scheme`, `security_profile` and `csms_trust`.
+- Acceptance scenario `tls` (also in pull request CI): a TLS mock CSMS
+  with a test CA. The station connects with `csms_ca_certificate` and,
+  with the CA in the system store, without it; it does not connect on a
+  host name mismatch, or when the configured CA is not the server's even
+  though the system store trusts it. The mock checks SNI and Basic Auth.
+  Security Profile 3 (client certificates) remains out of scope.
+
 ## 0.2.0
 
 - **EVerest 2026.10.0-rc1, compiled from source.** There is no prebuilt

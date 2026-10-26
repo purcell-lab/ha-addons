@@ -92,6 +92,43 @@ on. It applies nothing to power.
 - OCPPmulti `grid_support` connected to HaGridSupport (EVSE 1 mapping);
   `GridSupportHeartbeatS: 60`.
 - OCPP energy sink on EVSE 1 only (see DOCS, station-level limits).
+- `wss://` (Security Profile 2, 0.2.1). References are to everest-core
+  `2026.10.0-rc1` (`f45ba0d`), where libocpp is `lib/everest/ocpp` and
+  libevse-security `lib/everest/evse_security`:
+  - `lib/ocpp/v2/ctrlr_component_variables.cpp`
+    `migrate_from_blob_if_needed` (line 1975) imports the
+    `NetworkConnectionProfiles` entry, its `securityProfile` included
+    (`write_profile_to_device_model`, line 1860), into
+    `NetworkConfiguration_1`, whose URL is empty upstream.
+  - `lib/ocpp/v2/device_model.cpp` `get_websocket_connection_options`
+    (lines 1236-1288) takes the profile from that slot and reads
+    `UseSslDefaultVerifyPaths` (default true), `VerifyCsmsCommonName`
+    (default true) and `VerifyCsmsAllowWildcards` (default false) from
+    InternalCtrlr, as libocpp v0.30.3 did.
+  - `lib/ocpp/common/websocket/websocket_uri.cpp` `parse_and_validate`
+    (lines 63-84) refuses a scheme that does not fit the profile, and
+    `3rd_party/websocketpp_utils/uri.hpp` (line 44) defaults `wss://` to
+    port 443.
+  - `lib/ocpp/common/websocket/websocket_libwebsockets.cpp` `tls_init`
+    (lines 474-588) loads EvseSecurity's CSMS CA bundle when it holds a
+    valid self-signed root (lines 526-541; libevse-security
+    `lib/evse_security/evse_security.cpp`
+    `is_ca_certificate_installed_internal`, lines 1279-1299), then
+    OpenSSL's default paths when `UseSslDefaultVerifyPaths` is true (lines
+    543-550), and always sets `SSL_VERIFY_PEER` (line 585). The server
+    certificate callback (lines 1247-1258) runs `verify_csms_cn` (line 297),
+    which uses `X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS` when
+    `VerifyCsmsAllowWildcards` is true (lines 289-295). The host is sent
+    as the TLS server name (line 781).
+  - `lib/ocpp/common/connectivity_manager.cpp` drops profiles below
+    SecurityCtrlr `SecurityProfile` (lines 775-803 and 842); after a
+    connection it sets that variable to the slot's profile itself
+    (line 267), which libocpp v0.30.3 did not. The App still writes both.
+  - EvseSecurity `csms_ca_bundle` (`modules/EVSE/EvseSecurity/manifest.yaml`,
+    line 5, default `ca/csms/CSMS_ROOT_CA.pem`) is joined to the certs
+    directory (`main/evse_securityImpl.cpp`, line 14), so the absolute path
+    the App sets with `csms_ca_certificate` is used as given; the App then
+    sets `UseSslDefaultVerifyPaths` to false.
 
 ## Local patches
 
