@@ -16,7 +16,7 @@ class Packaging(unittest.TestCase):
 
     def test_least_privilege_ingress_only(self):
         c = self.config
-        self.assertEqual(c["arch"], ["aarch64", "amd64"])
+        self.assertEqual(c["arch"], ["aarch64"])
         self.assertEqual(c["image"], "ghcr.io/purcell-lab/{arch}-citrineos-operator-ui")
         self.assertEqual(c["boot"], "manual")
         self.assertIs(c["ingress"], True)

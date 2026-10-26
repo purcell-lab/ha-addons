@@ -10,9 +10,11 @@ This App runs pinned CitrineOS **v2.1.0**, not an OCPP protocol version. The
 image builds it from source at the release commit
 (`4fd7599b91c2fb6e6065e7c9b94be69880cced27`) with this App's source patches
 (`patches/`, see "Upstream changes in this App"). The image is built in
-GitHub Actions for amd64 and aarch64 and published to GHCR
+GitHub Actions for aarch64 and published to GHCR
 (`ghcr.io/purcell-lab/{arch}-citrineos-server`); Home Assistant pulls it and
-does not build on the host. See `RELEASE.md`.
+does not build on the host. amd64 hosts are not published for: they add the
+store entry `https://github.com/purcell-lab/ha-addons#local-build` instead, where Supervisor builds the
+image from the same Dockerfile on the host. See `RELEASE.md`.
 Its companion Apps provide dedicated PostgreSQL/PostGIS, RabbitMQ and Hasura.
 Nothing binds a host port. No OCPP listener is enabled by default.
 Existing physical chargers, simulators, Home Assistant OCPP entries and payments

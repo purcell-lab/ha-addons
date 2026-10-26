@@ -33,8 +33,8 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - runner: ubuntu-24.04
-            arch: amd64
+          # aarch64 only: amd64 hosts build these Apps themselves from the
+          # local-build store entry (local-build-mirror.yml).
           - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
@@ -120,8 +120,8 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
   tag:
-    # Manual runs only: tag the exact commit the publish job built, after both
-    # images are pushed and attested. A tag push already has its tag.
+    # Manual runs only: tag the exact commit the publish job built, after the
+    # image is pushed and attested. A tag push already has its tag.
     # If only this job fails, use "Re-run failed jobs": a full re-run would
     # stop at "Refuse to overwrite a published version".
     needs: publish

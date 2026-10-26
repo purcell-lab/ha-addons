@@ -12,6 +12,23 @@ In the HA UI:
 2. Paste: `https://github.com/purcell-lab/ha-addons`
 3. Add → close → the new section "purcell-lab Home Assistant Add-ons" appears in the store.
 
+### amd64 hosts: the `local-build` store entry
+
+The CitrineOS server, CitrineOS Operator UI, EVerest simulator and EVerest
+V2G simulator Apps publish prebuilt images for **aarch64 only** (low powered
+hosts such as a Home Assistant Green). An App that names an image is always
+pulled, so on an amd64 host add this store entry instead:
+
+`https://github.com/purcell-lab/ha-addons#local-build`
+
+It appears as "purcell-lab Home Assistant Add-ons (local build)". The
+`local-build` branch is generated from `main` on every push
+(`.github/workflows/local-build-mirror.yml`): the same files, with `image:`
+removed from those four Apps and amd64 listed, so Supervisor builds them from
+their Dockerfiles on the host. Never commit to it directly. An App already
+installed from the main entry stays tied to it; moving it means a reinstall
+from the new entry, which loses the App's data.
+
 ## OCPP Plugfest and CSIP-AUS testing
 
 The OCA Plugfest material (demonstration, runbook, acceptance plan, lab test

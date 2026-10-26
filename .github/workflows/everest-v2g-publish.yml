@@ -34,8 +34,8 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - runner: ubuntu-24.04
-            arch: amd64
+          # aarch64 only: amd64 hosts build these Apps themselves from the
+          # local-build store entry (local-build-mirror.yml).
           - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}

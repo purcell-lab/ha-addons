@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class PackagingSafety(unittest.TestCase):
     def test_supervisor_privileges_and_ports_are_absent(self):
         config = yaml.safe_load((ROOT / "config.yaml").read_text())
-        self.assertEqual(config["arch"], ["aarch64", "amd64"])
+        self.assertEqual(config["arch"], ["aarch64"])
         self.assertEqual(config["boot"], "manual")
         for field in ("host_network", "hassio_api", "homeassistant_api",
                       "docker_api", "ingress"):

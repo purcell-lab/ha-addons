@@ -1,14 +1,14 @@
 # Release
 
 Images are built and published only by
-`.github/workflows/citrineos-server-publish.yml` (GitHub Actions, amd64 and
-aarch64, CitrineOS built from source by `Dockerfile`). It never overwrites an
+`.github/workflows/citrineos-server-publish.yml` (GitHub Actions,
+aarch64 only, CitrineOS built from source by `Dockerfile`). It never overwrites an
 image or moves a tag. Each step is a separate approval:
 
 1. Bump `version` in `config.yaml`, the `io.hass.version` label in
    `Dockerfile` and `CHANGELOG.md`; PR CI must pass (`citrineos.yml`: tests,
    the patched upstream source, the from-source image build,
-   `tests/ci_image_checks.sh` and the private stack on both architectures).
+   `tests/ci_image_checks.sh` and the private stack on amd64 and aarch64).
 2. Run **Publish CitrineOS Isolated Lab App image** with the version and the
    reviewed commit SHA (or push the tag `citrineos_server-v<version>`). A
    manual run publishes, then tags the commit it built.

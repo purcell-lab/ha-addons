@@ -106,7 +106,7 @@ jobs:
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' citrineos_server/config.yaml)
           image=$(sed -n 's/^image: //p' citrineos_server/config.yaml)
           test -n "$version" && test -n "$image"
-          for arch in amd64 aarch64; do
+          for arch in aarch64; do
             ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"
             if docker manifest inspect "$ref" > /dev/null; then
               echo "public: $ref"

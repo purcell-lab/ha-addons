@@ -82,7 +82,7 @@ jobs:
         run: sh everest_simulator/tests/ci_image_checks.sh everest:test
   published-image:
     # Merge gate: config.yaml points HA at a prebuilt image, so the exact
-    # version must already be publicly pullable (anonymous, both arches).
+    # version must already be publicly pullable (anonymous, aarch64; amd64 hosts build locally).
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +100,7 @@ jobs:
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' everest_simulator/config.yaml)
           image=$(sed -n 's/^image: //p' everest_simulator/config.yaml)
           test -n "$version" && test -n "$image"
-          for arch in amd64 aarch64; do
+          for arch in aarch64; do
             ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"
             if docker manifest inspect "$ref" > /dev/null; then
               echo "public: $ref"

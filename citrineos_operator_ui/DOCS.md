@@ -95,6 +95,7 @@ requests. Each command is logged by the server.
 
 ## Resources
 
-About 150 to 200 MB of memory. Prebuilt for amd64 and aarch64
+About 150 to 200 MB of memory. Prebuilt for aarch64
 (`ghcr.io/purcell-lab/{arch}-citrineos-operator-ui`); Home Assistant pulls
-the image.
+the image. amd64 hosts add the store entry
+`https://github.com/purcell-lab/ha-addons#local-build` instead and build it on the host.

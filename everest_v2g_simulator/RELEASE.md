@@ -1,12 +1,16 @@
 # Publishing the prebuilt image
 
 `config.yaml` sets
-`image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, so Home Assistant pulls `<image>:<version>` for its architecture (about 560 to
+`image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator`, so Home Assistant on aarch64 pulls `<image>:<version>` (about 560 to
 585 MB) instead of building locally from the 4.3 GB EVerest build image.
 The App build itself copies EVerest from the small pinned runtime image,
 not a 4.3 GB build image. From 0.2.0 that runtime is EVerest
 2026.10.0-rc1 compiled from source (`everest_runtime_source/README.md`);
 up to 0.1.13 it was the 2025.10.0 extract (`everest_runtime/README.md`).
+Only aarch64 is published. amd64 hosts add the store entry
+`https://github.com/purcell-lab/ha-addons#local-build` (generated from `main` by
+`local-build-mirror.yml`, without `image:`), so Supervisor builds the same
+Dockerfile on the host.
 Each step below is a separate operator decision; none happens automatically.
 
 ## Before the first 0.2.x release: publish and pin the runtime
@@ -49,7 +53,7 @@ For 0.2.0 that runtime does not exist yet:
      git push origin everest_v2g_simulator-v<version>
      ```
 
-   `everest-v2g-publish.yml` then, per architecture: checks the tag or the
+   `everest-v2g-publish.yml` then, on an aarch64 runner: checks the tag or the
    requested version matches `config.yaml` (a manual run also refuses a
    version whose tag already exists), refuses to overwrite an existing version, builds, runs the
    same release gate as PR CI (`tests/ci_image_checks.sh`: DC V2G modules
@@ -58,13 +62,12 @@ For 0.2.0 that runtime does not exist yet:
    fail-closed without NET_ADMIN; listeners; external firewall probe with
    negative control; clean shutdown), pushes only the version tag (no
    `latest`) and adds a build provenance attestation. The run summary records each digest.
-3. **Make both packages public** (new GHCR packages start private):
-   GitHub, purcell-lab profile, Packages, `amd64-everest-v2g-simulator`,
-   Package settings, Change visibility, Public. Repeat for
-   `aarch64-everest-v2g-simulator`. Optionally link each package to this
+3. **Make the package public** (new GHCR packages start private):
+   GitHub, purcell-lab profile, Packages, `aarch64-everest-v2g-simulator`, Package
+   settings, Change visibility, Public. Optionally link it to this
    repository.
-4. **Re-run the PR checks.** The `published-image` job confirms anonymous
-   pulls for both architectures. It fails until steps 2 and 3 are done, which
+4. **Re-run the PR checks.** The `published-image` job confirms the anonymous
+   aarch64 pull. It fails until steps 2 and 3 are done, which
    prevents merging a manifest that HA cannot install.
 5. **Merge** only after explicit approval. Install, start and connection
    remain separate approvals.
@@ -79,6 +82,6 @@ For 0.2.0 that runtime does not exist yet:
   start a second publication; the job token can write only this repository's
   packages.
 - Verify a pull independently: `docker manifest inspect
-  ghcr.io/purcell-lab/amd64-everest-v2g-simulator:0.1.0` (no login).
+  ghcr.io/purcell-lab/aarch64-everest-v2g-simulator:0.1.0` (no login).
 - Attestation check: `gh attestation verify
-  oci://ghcr.io/purcell-lab/amd64-everest-v2g-simulator:0.1.0 --owner purcell-lab`.
+  oci://ghcr.io/purcell-lab/aarch64-everest-v2g-simulator:0.1.0 --owner purcell-lab`.
