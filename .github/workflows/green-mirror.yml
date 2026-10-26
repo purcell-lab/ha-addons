@@ -1,0 +1,32 @@
+name: Green follows main
+# The Green lab Home Assistant installs the CitrineOS stack and the V2G
+# simulator from the store entry for branch claude/green-e2e. Supervisor ties
+# an installed App to its store entry, so moving them to main would mean a
+# reinstall and the loss of their data. Instead that branch is only ever a
+# copy of main: every push to main moves it to the same commit. Never commit
+# to claude/green-e2e directly; a change reaches the Green by merging to main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: green-mirror
+  cancel-in-progress: false
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Move claude/green-e2e to main
+        run: |
+          sha=$(git rev-parse HEAD)
+          # The branch used to carry hand-made merge commits; the first run
+          # replaces them (same files). From then on each move is a fast-forward.
+          git push --force origin "$sha:refs/heads/claude/green-e2e"
+          echo "claude/green-e2e is now $sha (main)" >> "$GITHUB_STEP_SUMMARY"
