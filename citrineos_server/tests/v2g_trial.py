@@ -130,15 +130,17 @@ def trial(docker, request, server_options, names, secret_values, temporary):
             raise AssertionError("Client probe: " + json.dumps(value))
         return value
 
-    def ui(path="/api/status", method="GET"):
+    def ui(path="/api/status", method="GET", body=None):
         code = """import urllib.request,json,sys
 x=json.load(sys.stdin)
-r=urllib.request.Request('http://127.0.0.1:8000'+x['path'],method=x['method'],
- headers={'X-HA-EVerest':'1'})
+data=None if x['body'] is None else json.dumps(x['body']).encode()
+headers={'X-HA-EVerest':'1'}
+if data is not None: headers['Content-Type']='application/json'
+r=urllib.request.Request('http://127.0.0.1:8000'+x['path'],data=data,method=x['method'],headers=headers)
 with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as response: print(response.read().decode())
 """
         p = subprocess.run(["docker", "exec", "-i", "lab-v2g", "python3", "-c", code],
-            input=json.dumps({"path": path, "method": method}), capture_output=True, text=True, timeout=40 if method=="POST" else 12)
+            input=json.dumps({"path": path, "method": method, "body": body}), capture_output=True, text=True, timeout=40 if method=="POST" else 12)
         if p.returncode:
             raise RuntimeError("Simulator UI not ready")
         return json.loads(p.stdout)
@@ -152,6 +154,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
                 "export_wh": (meter.get("energy_Wh_export") or {}).get("total"),
                 "state": session.get("state"),
                 "limits": s.get("evse", {}).get("limits"),
+                "ev_max_discharge_w": ((s.get("ev") or {}).get("iso20") or {}).get("max_discharge_w"),
                 "composite_schedule": s.get("composite_schedule")}
 
     def stamp():
@@ -178,7 +181,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
     p = temporary / "lab-v2g.json"
     p.write_text(json.dumps({"csms_url": "ws://lab-server:8081", "charge_point_id": STATION,
         "ocpp_version": "2.1", "max_power_kw": 11, "acknowledge_test_isolation": True,
-        "csms_basic_auth_password": password, "ha_control": False}))
+        "csms_basic_auth_password": password, "ha_control": False, "ev_charging_needs": True}))
     p.chmod(0o600)
     names.append("lab-v2g")
 
@@ -196,6 +199,55 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         # session does not mean that this independent readiness test finished.
         until(lambda: discovery_ready(ui("/api/diagnostics?brief=1")),
               "Boot-time discovery self-test", 60)
+
+    def charging_needs(transaction_db_id):
+        """ha-addons#106: EVerest sends NotifyEVChargingNeeds before TransactionEvent
+        Started. CitrineOS answers NoChargingProfile (never Rejected, which would end
+        the session) and links the stored needs to the transaction when it starts."""
+        events = until(lambda: (e if (e := ui("/api/profiles").get("charging_needs"))
+                                and all(x["status"] for x in e) else None),
+                       "NotifyEVChargingNeeds answered", 30)
+        replies = [e["status"] for e in events]
+        assert replies and "Rejected" not in replies and set(replies) <= {"NoChargingProfile"}, events
+        sent = events[0]["payload"]["chargingNeeds"]  # newest first
+        assert sent["requestedEnergyTransfer"] == "DC_BPT" and sent.get("v2xChargingParameters"), sent
+        stored = until(lambda: gql('query { ChargingNeeds(where:{transactionDatabaseId:{_eq:%d}}) '
+            '{ requestedEnergyTransfer controlMode mobilityNeedsMode v2xChargingParameters } }'
+            % transaction_db_id)["ChargingNeeds"] or None, "Charging needs linked to the transaction", 30)
+        assert any(row["requestedEnergyTransfer"] == "DC_BPT" and row["controlMode"] == sent.get("controlMode")
+                   and row["v2xChargingParameters"] == sent["v2xChargingParameters"] for row in stored), stored
+        return {"station_events": events, "stored": stored}
+
+    def needs_profile(txid):
+        """The test profile: one discharge setpoint while the EV's needs go
+        allow_discharge, charge_by (no discharge offered: 0 W), allow_discharge."""
+        step, setpoint = 30, -5000
+        start = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=8)
+        periods = [{"startPeriod": 0, "limit": 11000, "dischargeLimit": -11000,
+                    "setpoint": setpoint, "operationMode": "CentralSetpoint"}]
+        dispatch = probe("profile", transaction_id=txid, periods=periods, duration=3*step+20,
+                         start_at=start.isoformat())
+        until(lambda: (p if (p := ui("/api/profiles").get("latest_tx_profile")) and p["status"] == "Accepted"
+                       and p["payload"]["chargingProfile"]["chargingSchedule"][0]["chargingSchedulePeriod"] == periods
+                       else None), "Needs profile Accepted", 25)
+        allow = {"mode": "allow_discharge", "target_soc": 80, "min_soc": 30}
+        plan = [("allow_discharge", allow, setpoint),
+                ("charge_by", {"mode": "charge_by", "target_soc": 80, "ready_by": int(time.time()) + 7200}, 0),
+                ("allow_discharge", allow, setpoint)]
+        samples, sent = [], []
+        for i, (mode, needs, _) in enumerate(plan):
+            while time.time() < start.timestamp() + i*step:
+                time.sleep(0.5)
+            reply = ui("/api/ev/needs", "POST", needs)
+            sent.append({"at": stamp(), "needs": needs, "reply": reply})
+            while time.time() < start.timestamp() + (i+1)*step:
+                sample = reading(); sample["relative_s"] = sample["time"] - start.timestamp()
+                samples.append(sample)
+                time.sleep(1)
+        steps, _, _ = evaluate_steps([w for _, _, w in plan], samples, step)
+        for s, (mode, _, _) in zip(steps, plan):
+            s["needs"] = mode
+        return {"dispatch": dispatch, "needs_sent": sent, "steps": steps, "samples": samples}
 
     def active(txid):
         return any(t["transactionId"] == txid and t["isActive"] for t in transactions())
@@ -233,6 +285,7 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         tx = until(lambda: next((t for t in transactions() if t["isActive"]), None), "CSMS active transaction")
         txid = tx["transactionId"]; report["transaction_id"] = txid
         report["charging_observed_at"] = stamp()
+        report["charging_needs"] = charging_needs(tx["id"])
         time.sleep(10)
         targets = [6000, -5000, 3000, 0]
         step = 30
@@ -289,6 +342,9 @@ with urllib.request.urlopen(r,timeout=30 if x['method']=='POST' else 5) as respo
         report["tariff_evidence"] = tariff
         assert tariff["dispatch"]["station_status"] == "CALLERROR NotImplemented", tariff
         report["der"] = der_round_trip(request, until, commander)
+        report["needs_profile"] = needs_profile(txid)
+        failures.extend(f"EV needs {s['needs']}: mean {s['mean_power_w']} W, expected {s['setpoint_w']} W"
+                        for s in report["needs_profile"]["steps"] if not s["passed"])
         report["client_meter"] = probe("meter")
         for key, expected in (("meter_transaction_id", txid), ("meter_fresh", True)):
             if report["client_meter"].get(key) != expected:

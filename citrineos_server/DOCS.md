@@ -159,9 +159,32 @@ answered Rejected and the station refuses the energy transfer
 `DC_ACDP`, `DC_ACDP_BPT`) match like `DC`, and needs with
 `v2xChargingParameters` (for example OCTT's `AC_BPT`) match whatever the mode;
 for a mode that is not an OCPP 2.0.1 mode, or any needs with
-`v2xChargingParameters`, CitrineOS stores the needs, answers Accepted and sends
-no automatic profile, so the lab's TxProfile (CentralSetpoint, discharge) stays
-in control. AC and `DC` needs without V2X parameters keep upstream's behaviour.
+`v2xChargingParameters`, CitrineOS stores the needs and sends no automatic
+profile, so the lab's TxProfile (CentralSetpoint, discharge) stays in control.
+AC and `DC` needs without V2X parameters keep upstream's behaviour.
+
+**Charging needs before the transaction (OCPP 2.1)**
+(`patches/0007-ocpp21-charging-needs-before-transaction.patch`,
+[ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)). With
+`TxStartPoints` `PowerPathClosed`, an ISO 15118-20 EV states its needs before
+the station sends TransactionEvent `Started`. Upstream answered Rejected when
+there was no transaction yet, and under OCPP 2.1 a station treats Rejected as
+a refusal of the energy transfer and ends the session
+(`ReqEnergyTransferRejected`, K19.FR.16). With the patch, under OCPP 2.1:
+
+- needs that arrive before the transaction are stored on the EVSE and
+  answered `NoChargingProfile`; TransactionEvent `Started` links the EVSE's
+  latest pending needs (from the last 10 minutes) to the new transaction;
+- needs for a 2.1 mode or with `v2xChargingParameters` are answered
+  `NoChargingProfile` (no schedule follows) instead of Accepted;
+- `Rejected` stays for needs without usable parameters, for example AC
+  parameters with a DC mode;
+- `v2xChargingParameters`, `controlMode` and `mobilityNeedsMode` are stored
+  (three new `ChargingNeeds` columns, migration
+  `20261026150000-add-charging-needs-v2x`).
+
+OCPP 2.0.1 is unchanged: needs without a transaction are Rejected, and AC and
+`DC` needs with one get upstream's automatic profile.
 
 **allowedEnergyTransfer patch (OCPP 2.1)**
 (`patches/0002-ocpp21-allowed-energy-transfer.patch`,
@@ -302,7 +325,7 @@ the gateway, and no command or Operator UI permission changes. Set
 | `Variables` | `id name instance` | rating variables only |
 | `VariableCharacteristics` | `id variableId maxLimit minLimit unit` | rating variables only |
 | `Components` | `id name instance evseDatabaseId` | all |
-| `ChargingNeeds` | `id evseId transactionDatabaseId acChargingParameters dcChargingParameters requestedEnergyTransfer departureTime createdAt updatedAt` | all |
+| `ChargingNeeds` | `id evseId transactionDatabaseId acChargingParameters dcChargingParameters v2xChargingParameters controlMode mobilityNeedsMode requestedEnergyTransfer departureTime createdAt updatedAt` | all |
 
 Rating variables are those named `Power`, `DischargePower`,
 `MaxDischargePower`, `PowerDischarge` or `V2XMaxDischargePower`, or matching
@@ -323,14 +346,21 @@ Upstream data model limits, which the App does not change:
   Per-station values are `VariableAttributes` rows (`stationId`, `type`
   `Actual`, `MaxSet` or `MinSet`), when the station reports them.
 - `ChargingNeeds` rows come only from NotifyEVChargingNeeds that CitrineOS
-  accepts: AC with `acChargingParameters`, or `DC`, `DC_BPT`, `DC_ACDP` or
-  `DC_ACDP_BPT` with `dcChargingParameters`, during an active transaction
-  (the 2.1 modes need the charging needs patch below). The table has no
-  column for `v2xChargingParameters`, so those are not stored. For AC and
-  `DC` needs CitrineOS itself sends the station a TxProfile computed from the
-  EV's maxima (not bounded by the lab policy); a physical ISO 15118-2 station
-  on the Plugfest listener can get such a profile. For the 2.1 modes it sends
-  none.
+  does not reject: AC with `acChargingParameters`, or `DC`, `DC_BPT`,
+  `DC_ACDP` or `DC_ACDP_BPT` with `dcChargingParameters`, or any needs with
+  `v2xChargingParameters` (the 2.1 modes need the charging needs patches
+  above). Under OCPP 2.0.1 they need an active transaction. Under OCPP 2.1
+  needs that arrive first have `transactionDatabaseId` null until
+  TransactionEvent `Started` links them; the linked needs are a new row (the
+  transaction's `createdAt` is part of the key) and the pending row is
+  removed. For AC and `DC` needs during a transaction CitrineOS itself sends
+  the station a TxProfile computed from the EV's maxima (not bounded by the
+  lab policy); a physical ISO 15118-2 station on the Plugfest listener can get
+  such a profile. For the 2.1 modes it sends none.
+- EVerest 2026.10 sends the ISO 15118-20 energy requests in
+  `v2xChargingParameters` (discharge values negative) but not
+  `departureTime` or `targetSoC`, so those stay empty for the V2G test
+  charger.
 
 ## Deliberate limits
 

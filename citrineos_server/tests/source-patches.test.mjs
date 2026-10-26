@@ -122,6 +122,33 @@ const PATCHES = {
         blob: '76f0d0cf3ea9daa2597b635fa215db2d7722f888', fixture: 'tls-and-ws-gaps.test.v2.1.0.ts', markers: 1},
     ],
   },
+  '0007-ocpp21-charging-needs-before-transaction.patch': {
+    files: [
+      {file: `${DIR}/notify-ev-charging-needs-request-ocpp-2-handler.ts`,
+        blob: '4db548aa871b81c3c482d35c940aee16ca2b5c34', fixture: 'notify-ev-charging-needs-request-ocpp-2-handler.v2.1.0.ts', markers: 2},
+      {file: `${DIR}/transaction-event-request-ocpp-2-handler.ts`,
+        blob: '43bdf4927da9a44a99174cdbd1adfdcf740cb1b7', fixture: 'transaction-event-request-ocpp-2-handler.v2.1.0.ts', markers: 1},
+      {file: 'packages/dal/src/db/drizzle/schema/charging-needs.ts',
+        blob: '394fcb28b3e25c0a4956981c3c51506f1ac030c8', fixture: 'dal-drizzle-schema-charging-needs.v2.1.0.ts', markers: 0},
+      {file: 'packages/dal/src/models/charging-profile/charging-needs.ts',
+        blob: '0b0e43b37edbc6ffef4e954096bf1e7102615bcc', fixture: 'dal-model-charging-needs.v2.1.0.ts', markers: 0},
+      {file: 'packages/dal/src/repositories/drizzle/charging-needs.ts',
+        blob: '724132c1dedd6ce6d25ea2b92e60f5ebc8c69590', fixture: 'dal-drizzle-repo-charging-needs.v2.1.0.ts', markers: 0},
+      {file: 'packages/dal/src/repositories/repositories.ts',
+        blob: 'c7da36b564a1e923fb1dbe5c2b22d07f976940d9', fixture: 'dal-repositories.v2.1.0.ts', markers: 0},
+      {file: 'packages/dal/src/repositories/sequelize/charging-profile.ts',
+        blob: '0a1284b0e8ff0c6838f6b199241adb2ca05d42da', fixture: 'dal-sequelize-charging-profile.v2.1.0.ts', markers: 1},
+      {file: 'packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts',
+        blob: 'f59557c75fa9d997e4af91a32b16aca727ab4325', fixture: 'notify-report-and-charging-needs.test.v2.1.0.ts', markers: 0},
+      {file: 'packages/ocpp/test/handlers/requests/2/transaction-event-request-ocpp-2-handler.test.ts',
+        blob: '179776ba87fa8b8caabe8d39bdb22a864b0b6b61', fixture: 'transaction-event-request-ocpp-2-handler.test.v2.1.0.ts', markers: 1},
+      {file: 'packages/types/src/interfaces/dto/charging-needs-dto.ts',
+        blob: '92f891469d9141a02dc8e93ecf002ea7a53b4ed5', fixture: 'dto-charging-needs.v2.1.0.ts', markers: 0},
+    ],
+    creates: [
+      {file: 'apps/ocpp-server/db/migrations/20261026150000-add-charging-needs-v2x.ts', markers: 1},
+    ],
+  },
 };
 // The upstream files a patch changes, and every file it touches.
 const changes = entry => entry.files ?? [entry];
@@ -152,6 +179,15 @@ function patched(name) {
   return fs.readFileSync(path.join(dir, file), 'utf8');
 }
 const fileURLPath = rel => new URL(rel, ROOT).pathname;
+// The file after a chain of patches, applied in order as the image build does.
+function patchedChain(names, file) {
+  const dir = tree(`chain-${Math.random()}`);
+  for (const name of names) {
+    const r = gitApply(dir, [fileURLPath(`patches/${name}`)]);
+    assert.equal(r.status, 0, `${name}: ${r.stderr}`);
+  }
+  return fs.readFileSync(path.join(dir, file), 'utf8');
+}
 
 test('fixtures are the upstream files at the pinned commit', () => {
   const lock = JSON.parse(read('compatibility-lock.json'));
@@ -210,7 +246,8 @@ async function load(source, stubs, name, className) {
 const NEEDS_STUBS = `class AbstractHandler{constructor(logger){this._logger=logger;}createHandlerReceivedMessageLog(n){return n;}}
 const EnergyTransferModeEnum={DC:'DC'};
 const EventGroup={SmartCharging:'SmartCharging'};
-const NotifyEVChargingNeedsStatusEnum={Accepted:'Accepted',Rejected:'Rejected'};
+const NotifyEVChargingNeedsStatusEnum={Accepted:'Accepted',Rejected:'Rejected',NoChargingProfile:'NoChargingProfile'};
+const OCPPVersion={OCPP2_0_1:'ocpp2.0.1',OCPP2_1:'ocpp2.1'};
 const OCPP_2_VER_LIST=[];const OCPP_CallAction={NotifyEVChargingNeeds:'NotifyEVChargingNeeds',SetChargingProfile:'SetChargingProfile'};
 const OCPP2_0_1_Mapper={ChargingProfileMapper:{fromChargingProfileType:p=>p}};
 `;
@@ -220,7 +257,7 @@ const upstreamNeeds = () => load(read(`tests/fixtures/${PATCHES[NEEDS].fixture}`
 const patchedNeeds = () => load(patched(NEEDS), NEEDS_STUBS, `patched-${Math.random()}`,
   'NotifyEVChargingNeedsRequestOcpp2Handler');
 function harness(Handler, {transaction = {id: 7}, storeFails = false} = {}) {
-  const log = {results: [], calls: [], needs: [], profiles: []};
+  const log = {results: [], calls: [], needs: [], pending: [], profiles: []};
   const handler = new Handler({
     logger: {info() {}, error() {}},
     ocppSender: {
@@ -233,6 +270,10 @@ function harness(Handler, {transaction = {id: 7}, storeFails = false} = {}) {
         if (storeFails) throw new Error('db');
         log.needs.push(request.chargingNeeds.requestedEnergyTransfer); return {id: 1};
       },
+      async createPendingChargingNeeds(_t, request) {
+        if (storeFails) throw new Error('db');
+        log.pending.push(request.chargingNeeds.requestedEnergyTransfer); return {id: 2};
+      },
       async createOrUpdateChargingProfile(_t, p) { log.profiles.push(p); return p; },
     },
     smartChargingService: {async calculateChargingProfile(request) {
@@ -243,7 +284,8 @@ function harness(Handler, {transaction = {id: 7}, storeFails = false} = {}) {
   });
   return {handler, log};
 }
-const msg = needs => ({payload: {evseId: 1, chargingNeeds: needs}, context: {tenantId: 1, ocppConnectionName: 'TRIALOG-201'}});
+const msg = (needs, protocol = 'ocpp2.0.1') => ({payload: {evseId: 1, chargingNeeds: needs}, protocol,
+  context: {tenantId: 1, ocppConnectionName: 'TRIALOG-201'}});
 // Trialog's NotifyEVChargingNeeds at 10:19:01 AEDT, 23 October 2026 (trimmed).
 const trialog = {controlMode: 'DynamicControl', requestedEnergyTransfer: 'DC_BPT', availableEnergyTransfer: ['DC_BPT'],
   dcChargingParameters: {evMaxPower: 50000, evMaxCurrent: 100000, evMaxVoltage: 500},
@@ -325,6 +367,56 @@ test('charging needs: 2.0.1 modes are unchanged, DC and AC get the upstream auto
     await h.handler.handle(msg(needs));
     assert.deepEqual(h.log.results, ['Rejected'], JSON.stringify(needs));
   }
+});
+
+const BEFORE_TX = '0007-ocpp21-charging-needs-before-transaction.patch';
+const finalNeeds = () => load(patchedChain([NEEDS, BEFORE_TX], PATCHES[NEEDS].file), NEEDS_STUBS,
+  `final-${Math.random()}`, 'NotifyEVChargingNeedsRequestOcpp2Handler');
+// EVerest 2026.10 on the Green, 26 October 2026 16:15 (+10:00): ISO 15118-20
+// Dynamic mode needs, sent before TransactionEvent Started (discharge negative).
+const everest = {requestedEnergyTransfer: 'DC_BPT', controlMode: 'DynamicControl', mobilityNeedsMode: 'EVCC',
+  dcChargingParameters: {evMaxCurrent: 66, evMaxVoltage: 400, evMaxPower: 25000},
+  v2xChargingParameters: {evTargetEnergyRequest: 18000, evMaxEnergyRequest: 30000, evMinEnergyRequest: -12000,
+    evMinV2XEnergyRequest: -12000, evMaxV2XEnergyRequest: 30000}};
+
+test('charging needs (0001 + 0007): OCPP 2.1 needs before the transaction are kept and answered NoChargingProfile', async () => {
+  const Final = await finalNeeds();
+  for (const needs of [everest, trialog, {requestedEnergyTransfer: 'DC', dcChargingParameters: {evMaxPower: 50000}}]) {
+    const h = harness(Final, {transaction: null});
+    await h.handler.handle(msg(needs, 'ocpp2.1'));
+    assert.deepEqual(h.log.results, ['NoChargingProfile'], needs.requestedEnergyTransfer);
+    assert.deepEqual(h.log.pending, [needs.requestedEnergyTransfer]);
+    assert.deepEqual(h.log.needs, []);
+    assert.equal(h.log.calls.length, 0);
+  }
+  // With a transaction, V2X needs are stored on it; still no schedule follows.
+  const h = harness(Final);
+  await h.handler.handle(msg(everest, 'ocpp2.1'));
+  assert.deepEqual(h.log.results, ['NoChargingProfile']);
+  assert.deepEqual(h.log.needs, ['DC_BPT']);
+  assert.equal(h.log.calls.length, 0);
+  // A storage failure does not end the session.
+  const fails = harness(Final, {transaction: null, storeFails: true});
+  await fails.handler.handle(msg(everest, 'ocpp2.1'));
+  assert.deepEqual(fails.log.results, ['NoChargingProfile']);
+});
+test('charging needs (0001 + 0007): Rejected only for unusable needs; OCPP 2.0.1 unchanged', async () => {
+  const Final = await finalNeeds();
+  for (const needs of [{requestedEnergyTransfer: 'DC_BPT'},
+    {requestedEnergyTransfer: 'DC_BPT', acChargingParameters: null, dcChargingParameters: null},
+    {requestedEnergyTransfer: 'DC_BPT', acChargingParameters: {evMaxCurrent: 16}}]) {
+    const h = harness(Final, {transaction: null});
+    await h.handler.handle(msg(needs, 'ocpp2.1'));
+    assert.deepEqual(h.log.results, ['Rejected'], JSON.stringify(needs));
+    assert.deepEqual(h.log.pending, []);
+  }
+  const none = harness(Final, {transaction: null});
+  await none.handler.handle(msg({requestedEnergyTransfer: 'DC', dcChargingParameters: {evMaxPower: 50000}}));
+  assert.deepEqual(none.log.results, ['Rejected']);
+  const dc = harness(Final);
+  await dc.handler.handle(msg({requestedEnergyTransfer: 'DC', dcChargingParameters: {evMaxPower: 50000}}));
+  assert.deepEqual(dc.log.results, ['Accepted']);
+  assert.equal(dc.log.calls[0].action, 'SetChargingProfile');
 });
 
 const AET = '0002-ocpp21-allowed-energy-transfer.patch';

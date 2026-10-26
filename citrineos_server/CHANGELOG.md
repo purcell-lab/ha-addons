@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.12.0
+
+- OCPP 2.1 charging needs that arrive before the transaction
+  ([ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)):
+  source patch `0007-ocpp21-charging-needs-before-transaction.patch`.
+  An ISO 15118-20 EV states its needs before TransactionEvent `Started`, and
+  upstream's Rejected made the station end the session
+  (`ReqEnergyTransferRejected`). Now, under OCPP 2.1:
+  - needs without a transaction are stored on the EVSE, answered
+    `NoChargingProfile`, and linked to the transaction when it starts;
+  - V2X needs and the 2.1 modes are answered `NoChargingProfile` (no
+    schedule follows), not Accepted;
+  - Rejected is kept for unusable needs; AC parameters no longer match the
+    2.1 DC modes.
+
+  OCPP 2.0.1 is unchanged.
+- `ChargingNeeds` stores `v2xChargingParameters`, `controlMode` and
+  `mobilityNeedsMode` (new migration). Role `ha_reader` can read the three
+  columns.
+- CI: the native EVerest V2G trial runs with `ev_charging_needs` on. It
+  checks that the needs are answered `NoChargingProfile` and stored on the
+  transaction. It then runs the test profile at a -5 kW setpoint:
+  allow_discharge, charge_by (0 W), allow_discharge.
+
 ## 0.11.1
 
 - Memory diagnostics for the upstream server's out-of-memory crashes

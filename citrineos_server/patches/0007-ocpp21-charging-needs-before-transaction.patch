@@ -1,0 +1,672 @@
+ha-citrine source patch 0007 against CitrineOS v2.1.0
+(4fd7599b91c2fb6e6065e7c9b94be69880cced27), applied after 0001 to 0006:
+OCPP 2.1 charging needs that arrive before the transaction
+(ha-addons#106).
+
+With TxStartPoints PowerPathClosed, an ISO 15118-20 EV states its needs in
+ScheduleExchangeReq and the station sends NotifyEVChargingNeeds before
+TransactionEvent Started. Upstream answered Rejected when no transaction
+existed. Under OCPP 2.1 a station treats Rejected as a refusal of the energy
+transfer and ends the session (K19.FR.16; libocpp calls
+stop_transaction_callback with ReqEnergyTransferRejected).
+
+NotifyEVChargingNeeds (OCPP 2.1):
+- needs with no transaction are stored on the EVSE without a transaction and
+  answered NoChargingProfile (no schedule follows; the station starts at once);
+- needs for an OCPP 2.1 mode or with v2xChargingParameters are stored and
+  answered NoChargingProfile, with or without a transaction (patch 0001
+  answered Accepted and sent no profile);
+- Rejected stays for needs without usable parameters, and AC parameters no
+  longer match the OCPP 2.1 DC modes (DC_BPT, DC_ACDP, DC_ACDP_BPT);
+- OCPP 2.0.1 is unchanged: Rejected without a transaction, and the upstream
+  profile calculation for the 2.0.1 modes with one.
+
+TransactionEvent Started links the EVSE's pending needs from the last 10
+minutes to the new transaction (a new row: transactionCreatedAt is part of
+the primary key) and removes the EVSE's unlinked rows.
+
+ChargingNeeds gains v2xChargingParameters (JSONB), controlMode and
+mobilityNeedsMode (migration 20261026150000-add-charging-needs-v2x), in the
+Sequelize model, the Drizzle schema and the DTO. transactionDatabaseId may be
+null. Hasura selects every column already.
+
+Tests: needs before and after the transaction, V2X and DC under OCPP 2.1, a
+storage failure, mismatched parameters, OCPP 2.0.1 unchanged, and the link on
+Started (not on Updated, failure tolerated).
+
+diff --git a/apps/ocpp-server/db/migrations/20261026150000-add-charging-needs-v2x.ts b/apps/ocpp-server/db/migrations/20261026150000-add-charging-needs-v2x.ts
+new file mode 100644
+index 000000000..f2f361a7a
+--- /dev/null
++++ b/apps/ocpp-server/db/migrations/20261026150000-add-charging-needs-v2x.ts
+@@ -0,0 +1,32 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++'use strict';
++
++import { DataTypes, QueryInterface } from 'sequelize';
++
++// ha-citrine patch (0007-ocpp21-charging-needs-before-transaction): OCPP 2.1
++// charging needs fields.
++/** @type {import('sequelize-cli').Migration} */
++export default {
++  up: async (queryInterface: QueryInterface) => {
++    await queryInterface.addColumn('ChargingNeeds', 'v2xChargingParameters', {
++      type: DataTypes.JSONB,
++      allowNull: true,
++    });
++    await queryInterface.addColumn('ChargingNeeds', 'controlMode', {
++      type: DataTypes.STRING,
++      allowNull: true,
++    });
++    await queryInterface.addColumn('ChargingNeeds', 'mobilityNeedsMode', {
++      type: DataTypes.STRING,
++      allowNull: true,
++    });
++  },
++
++  down: async (queryInterface: QueryInterface) => {
++    await queryInterface.removeColumn('ChargingNeeds', 'mobilityNeedsMode');
++    await queryInterface.removeColumn('ChargingNeeds', 'controlMode');
++    await queryInterface.removeColumn('ChargingNeeds', 'v2xChargingParameters');
++  },
++};
+diff --git a/packages/dal/src/db/drizzle/schema/charging-needs.ts b/packages/dal/src/db/drizzle/schema/charging-needs.ts
+index 394fcb28b..ab9804c56 100644
+--- a/packages/dal/src/db/drizzle/schema/charging-needs.ts
++++ b/packages/dal/src/db/drizzle/schema/charging-needs.ts
+@@ -29,6 +29,9 @@ function chargingNeedsColumns() {
+     departureTime: timestamp('departureTime', { withTimezone: true, mode: 'date' }),
+     requestedEnergyTransfer: varchar('requestedEnergyTransfer', { length: 255 }),
+     maxScheduleTuples: integer('maxScheduleTuples'),
++    v2xChargingParameters: jsonb('v2xChargingParameters').$type<Record<string, unknown>>(),
++    controlMode: varchar('controlMode', { length: 255 }),
++    mobilityNeedsMode: varchar('mobilityNeedsMode', { length: 255 }),
+     evseId: integer('evseId'),
+     transactionDatabaseId: integer('transactionDatabaseId'),
+     transactionCreatedAt: timestamp('transactionCreatedAt', { withTimezone: true, mode: 'date' })
+diff --git a/packages/dal/src/models/charging-profile/charging-needs.ts b/packages/dal/src/models/charging-profile/charging-needs.ts
+index 0b0e43b37..321c6466f 100644
+--- a/packages/dal/src/models/charging-profile/charging-needs.ts
++++ b/packages/dal/src/models/charging-profile/charging-needs.ts
+@@ -53,6 +53,15 @@ export class ChargingNeeds extends Model implements ChargingNeedsDto {
+   @Column(DataType.INTEGER)
+   declare maxScheduleTuples?: number | null;
+ 
++  @Column(DataType.JSONB)
++  declare v2xChargingParameters?: Record<string, unknown> | null;
++
++  @Column(DataType.STRING)
++  declare controlMode?: string | null;
++
++  @Column(DataType.STRING)
++  declare mobilityNeedsMode?: string | null;
++
+   /**
+    * Relations
+    */
+@@ -64,7 +73,7 @@ export class ChargingNeeds extends Model implements ChargingNeedsDto {
+   declare evse: EvseDto;
+ 
+   @Column(DataType.INTEGER)
+-  declare transactionDatabaseId: number;
++  declare transactionDatabaseId: number | null;
+ 
+   @Column({
+     type: DataType.DATE,
+diff --git a/packages/dal/src/repositories/drizzle/charging-needs.ts b/packages/dal/src/repositories/drizzle/charging-needs.ts
+index 724132c1d..3414e0a9b 100644
+--- a/packages/dal/src/repositories/drizzle/charging-needs.ts
++++ b/packages/dal/src/repositories/drizzle/charging-needs.ts
+@@ -22,8 +22,11 @@ export function toChargingNeedsDto(entity: ChargingNeedsEntity): ChargingNeedsDt
+     departureTime: entity.departureTime ? entity.departureTime.toISOString() : null,
+     requestedEnergyTransfer: entity.requestedEnergyTransfer as EnergyTransferModeEnumType,
+     maxScheduleTuples: entity.maxScheduleTuples,
++    v2xChargingParameters: entity.v2xChargingParameters,
++    controlMode: entity.controlMode,
++    mobilityNeedsMode: entity.mobilityNeedsMode,
+     evseId: entity.evseId!,
+-    transactionDatabaseId: entity.transactionDatabaseId!,
++    transactionDatabaseId: entity.transactionDatabaseId,
+     transactionCreatedAt: entity.transactionCreatedAt,
+     tenantId: entity.tenantId,
+     tenant: undefined,
+diff --git a/packages/dal/src/repositories/repositories.ts b/packages/dal/src/repositories/repositories.ts
+index 0dde755dd..c9582bd0f 100644
+--- a/packages/dal/src/repositories/repositories.ts
++++ b/packages/dal/src/repositories/repositories.ts
+@@ -719,6 +719,17 @@ export interface IChargingProfileRepository extends CrudRepository<ChargingProfi
+     evseDBId: number,
+     transactionDataBaseId: number,
+   ): Promise<ChargingNeeds | undefined>;
++  createPendingChargingNeeds(
++    tenantId: number,
++    chargingNeeds: OCPP2_request_types.NotifyEVChargingNeedsRequest,
++    ocppConnectionName: string,
++  ): Promise<ChargingNeeds>;
++  linkPendingChargingNeeds(
++    tenantId: number,
++    evseDBId: number,
++    transactionDatabaseId: number,
++    receivedSince: Date,
++  ): Promise<ChargingNeeds | undefined>;
+   createCompositeSchedule(
+     tenantId: number,
+     compositeSchedule: CompositeScheduleInput | CompositeScheduleInput21,
+diff --git a/packages/dal/src/repositories/sequelize/charging-profile.ts b/packages/dal/src/repositories/sequelize/charging-profile.ts
+index 0a1284b0e..3e5f57db9 100644
+--- a/packages/dal/src/repositories/sequelize/charging-profile.ts
++++ b/packages/dal/src/repositories/sequelize/charging-profile.ts
+@@ -9,6 +9,7 @@ import {
+   OCPP2_0_1,
+ } from '@citrineos/types';
+ import { CrudRepository } from '@citrineos/base';
++import { Op } from 'sequelize';
+ import { SequelizeRepository, type SequelizeRepositoryDependencies } from './base.js';
+ import { stationIdFilter } from './resolve-station-id.js';
+ import type { IChargingProfileRepository } from '../repositories.js';
+@@ -209,6 +210,78 @@ export class SequelizeChargingProfileRepository
+     );
+   }
+ 
++  // ha-citrine patch (0007-ocpp21-charging-needs-before-transaction): ISO 15118-20
++  // needs can arrive before TransactionEvent Started. Store them on the EVSE without
++  // a transaction; linkPendingChargingNeeds attaches them when the transaction starts.
++  async createPendingChargingNeeds(
++    tenantId: number,
++    chargingNeedsReq: OCPP2_0_1.NotifyEVChargingNeedsRequest,
++    ocppConnectionName: string,
++  ): Promise<ChargingNeeds> {
++    const evse = await Evse.findOne({
++      where: {
++        tenantId,
++        stationId: await stationIdFilter(tenantId, ocppConnectionName),
++        evseTypeId: chargingNeedsReq.evseId,
++      },
++    });
++    if (!evse) {
++      throw new Error(`No evse ${chargingNeedsReq.evseId} found on station ${ocppConnectionName}`);
++    }
++
++    return await this.chargingNeeds.create(
++      tenantId,
++      ChargingNeeds.build({
++        tenantId,
++        ...chargingNeedsReq.chargingNeeds,
++        evseId: evse.id,
++        transactionDatabaseId: null,
++        maxScheduleTuples: chargingNeedsReq.maxScheduleTuples,
++      }),
++    );
++  }
++
++  async linkPendingChargingNeeds(
++    tenantId: number,
++    evseDBId: number,
++    transactionDatabaseId: number,
++    receivedSince: Date,
++  ): Promise<ChargingNeeds | undefined> {
++    const pending = await this.chargingNeeds.readAllByQuery(tenantId, {
++      where: {
++        evseId: evseDBId,
++        transactionDatabaseId: null,
++        createdAt: { [Op.gte]: receivedSince },
++      },
++      order: [['createdAt', 'DESC']],
++    });
++    if (pending.length === 0) {
++      return undefined;
++    }
++    const latest = pending[0];
++    // transactionCreatedAt is part of the primary key, so the linked needs are a new row.
++    const linked = await this.chargingNeeds.create(
++      tenantId,
++      ChargingNeeds.build({
++        tenantId,
++        acChargingParameters: latest.acChargingParameters,
++        dcChargingParameters: latest.dcChargingParameters,
++        v2xChargingParameters: latest.v2xChargingParameters,
++        departureTime: latest.departureTime,
++        requestedEnergyTransfer: latest.requestedEnergyTransfer,
++        controlMode: latest.controlMode,
++        mobilityNeedsMode: latest.mobilityNeedsMode,
++        maxScheduleTuples: latest.maxScheduleTuples,
++        evseId: evseDBId,
++        transactionDatabaseId,
++      }),
++    );
++    await ChargingNeeds.destroy({
++      where: { tenantId, evseId: evseDBId, transactionDatabaseId: null },
++    });
++    return linked;
++  }
++
+   async findChargingNeedsByEvseDBIdAndTransactionDBId(
+     tenantId: number,
+     evseDBId: number,
+diff --git a/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts b/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts
+index f8aecf813..ce50db155 100644
+--- a/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts
++++ b/packages/ocpp/src/handlers/requests/2/notify-ev-charging-needs-request-ocpp-2-handler.ts
+@@ -9,12 +9,12 @@ import {
+   type IOcppSender,
+ } from '@citrineos/base';
+ import {
+-  EnergyTransferModeEnum,
+   EventGroup,
+   type HandlerProperties,
+   NotifyEVChargingNeedsStatusEnum,
+   OCPP_2_VER_LIST,
+   OCPP_CallAction,
++  OCPPVersion,
+   OCPP2_common_types,
+   OCPP2_request_types,
+   OCPP2_response_types,
+@@ -98,12 +98,21 @@ export class NotifyEVChargingNeedsRequestOcpp2Handler extends AbstractHandler {
+       ((givenNeeds.dcChargingParameters ?? false) &&
+         HA_DC_ENERGY_TRANSFER_MODES.includes(givenNeeds.requestedEnergyTransfer)) ||
+       ((givenNeeds.acChargingParameters ?? false) &&
+-        givenNeeds.requestedEnergyTransfer !== EnergyTransferModeEnum.DC);
++        // ha-citrine patch (0007-ocpp21-charging-needs-before-transaction): AC
++        // parameters match no DC mode, the OCPP 2.1 ones included.
++        !HA_DC_ENERGY_TRANSFER_MODES.includes(givenNeeds.requestedEnergyTransfer));
+     this._logger.info(
+       `Matched chargingParameters and requestedEnergyTransfer type: ${matchedChargingType}`,
+     );
+ 
+-    if (!activeTransaction || !hasAcOrDcChargingParameters || !matchedChargingType) {
++    // ha-citrine patch (0007-ocpp21-charging-needs-before-transaction): with
++    // TxStartPoints PowerPathClosed, ISO 15118-20 needs arrive before TransactionEvent
++    // Started. Under OCPP 2.1, Rejected refuses the energy transfer and the station
++    // ends the session (K19.FR.16), so needs without a transaction are stored on the
++    // EVSE and answered NoChargingProfile. Rejected stays for unusable needs, and for
++    // OCPP 2.0.1 without a transaction as upstream.
++    const isOcpp21 = message.protocol === OCPPVersion.OCPP2_1;
++    if (!hasAcOrDcChargingParameters || !matchedChargingType || (!activeTransaction && !isOcpp21)) {
+       await this._ocppSender.sendCallResultWithMessage(message, {
+         status: NotifyEVChargingNeedsStatusEnum.Rejected,
+       } as OCPP2_response_types.NotifyEVChargingNeedsResponse);
+@@ -112,26 +121,35 @@ export class NotifyEVChargingNeedsRequestOcpp2Handler extends AbstractHandler {
+ 
+     // ha-citrine patch (0001-ocpp21-charging-needs): upstream calculates profiles
+     // for the 2.0.1 modes only. For an OCPP 2.1 mode, or any needs with
+-    // v2xChargingParameters, store the needs and accept; no automatic profile,
+-    // the lab's TxProfile sets the V2X operation mode.
++    // v2xChargingParameters, store the needs; no automatic profile, the lab's
++    // TxProfile sets the V2X operation mode, so OCPP 2.1 is answered NoChargingProfile.
+     if (
++      !activeTransaction ||
+       hasV2xChargingParameters ||
+       !HA_OCPP201_ENERGY_TRANSFER_MODES.includes(givenNeeds.requestedEnergyTransfer)
+     ) {
+       try {
+-        const chargingNeeds = await this._chargingProfileRepository.createChargingNeeds(
+-          tenantId,
+-          request,
+-          ocppConnectionName,
+-        );
++        const chargingNeeds = activeTransaction
++          ? await this._chargingProfileRepository.createChargingNeeds(
++              tenantId,
++              request,
++              ocppConnectionName,
++            )
++          : await this._chargingProfileRepository.createPendingChargingNeeds(
++              tenantId,
++              request,
++              ocppConnectionName,
++            );
+         this._logger.info(
+-          `Charging needs created (${givenNeeds.requestedEnergyTransfer}, no automatic profile): ${JSON.stringify(chargingNeeds)}`,
++          `Charging needs created (${givenNeeds.requestedEnergyTransfer}, ${activeTransaction ? 'transaction' : 'pending transaction'}, no automatic profile): ${JSON.stringify(chargingNeeds)}`,
+         );
+       } catch (error) {
+         this._logger.error(`Failed to store charging needs: ${error}`);
+       }
+       await this._ocppSender.sendCallResultWithMessage(message, {
+-        status: NotifyEVChargingNeedsStatusEnum.Accepted,
++        status: isOcpp21
++          ? NotifyEVChargingNeedsStatusEnum.NoChargingProfile
++          : NotifyEVChargingNeedsStatusEnum.Accepted,
+       } as OCPP2_response_types.NotifyEVChargingNeedsResponse);
+       return;
+     }
+diff --git a/packages/ocpp/src/handlers/requests/2/transaction-event-request-ocpp-2-handler.ts b/packages/ocpp/src/handlers/requests/2/transaction-event-request-ocpp-2-handler.ts
+index 43bdf4927..f7389897b 100644
+--- a/packages/ocpp/src/handlers/requests/2/transaction-event-request-ocpp-2-handler.ts
++++ b/packages/ocpp/src/handlers/requests/2/transaction-event-request-ocpp-2-handler.ts
+@@ -45,6 +45,8 @@ import type { TransactionService } from '@modules/transactions/transaction-servi
+ import { isForeignKeyConstraintError } from '@util/errors.js';
+ import { requireTransactionDatabaseId } from '@util/transaction.js';
+ 
++const PENDING_CHARGING_NEEDS_MAX_AGE_MS = 10 * 60 * 1000;
++
+ @AsRequestHandler(OCPP_2_VER_LIST, OCPP_CallAction.TransactionEvent)
+ export class TransactionEventRequestOcpp2Handler extends AbstractHandler {
+   protected _ocppSender: IOcppSender;
+@@ -184,6 +186,30 @@ export class TransactionEventRequestOcpp2Handler extends AbstractHandler {
+       throw error;
+     }
+ 
++    // ha-citrine patch (0007-ocpp21-charging-needs-before-transaction): attach the
++    // ISO 15118-20 needs the EVSE reported before this transaction started.
++    if (
++      transactionEvent.eventType === TransactionEventEnum.Started &&
++      transaction.id != null &&
++      transaction.evseId != null
++    ) {
++      try {
++        const linked = await this._chargingProfileRepository.linkPendingChargingNeeds(
++          tenantId,
++          transaction.evseId,
++          transaction.id,
++          new Date(Date.now() - PENDING_CHARGING_NEEDS_MAX_AGE_MS),
++        );
++        if (linked) {
++          this._logger.info(
++            `Linked pending charging needs ${linked.id} to transaction ${transactionId} on ${ocppConnectionName}`,
++          );
++        }
++      } catch (error) {
++        this._logger.error(`Failed to link pending charging needs: ${error}`);
++      }
++    }
++
+     const timeSpentCharging = await this.resolveTimeSpentCharging(
+       tenantId,
+       ocppConnectionName,
+diff --git a/packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts b/packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts
+index f59557c75..559f777df 100644
+--- a/packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts
++++ b/packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts
+@@ -14,6 +14,7 @@ import {
+   NotifyEVChargingNeedsStatusEnum,
+   OCPP2_0_1,
+   OCPP_CallAction,
++  type OCPPVersionType,
+   SetVariableStatusEnum,
+ } from '@citrineos/types';
+ import { DEFAULT_TENANT_ID, Message, OcppError } from '@citrineos/base';
+@@ -35,6 +36,7 @@ function aMessage<T extends OcppRequest>(
+   action: OCPP_CallAction,
+   eventGroup: EventGroup,
+   payload: T,
++  protocol: OCPPVersionType = 'ocpp2.0.1',
+ ): Message<T> {
+   return new Message(
+     MessageOrigin.ChargingStation,
+@@ -48,7 +50,7 @@ function aMessage<T extends OcppRequest>(
+       timestamp: new Date().toISOString(),
+     },
+     payload,
+-    'ocpp2.0.1',
++    protocol,
+   );
+ }
+ 
+@@ -245,6 +247,7 @@ describe('NotifyEVChargingNeedsRequestOcpp2Handler', () => {
+   };
+   let chargingProfileRepository: {
+     createChargingNeeds: ReturnType<typeof vi.fn>;
++    createPendingChargingNeeds: ReturnType<typeof vi.fn>;
+     createOrUpdateChargingProfile: ReturnType<typeof vi.fn>;
+   };
+   let smartChargingService: { calculateChargingProfile: ReturnType<typeof vi.fn> };
+@@ -280,6 +283,33 @@ describe('NotifyEVChargingNeedsRequestOcpp2Handler', () => {
+     } as OCPP2_common_types.ChargingNeedsType;
+   }
+ 
++  function aChargingNeedsMessage21(chargingNeeds: unknown) {
++    return aMessage(
++      OCPP_CallAction.NotifyEVChargingNeeds,
++      EventGroup.SmartCharging,
++      { evseId: EVSE_ID, chargingNeeds } as OCPP2_request_types.NotifyEVChargingNeedsRequest,
++      'ocpp2.1',
++    );
++  }
++
++  // As EVerest 2026.10 sends ISO 15118-20 Dynamic mode needs (discharge values negative).
++  function v2xNeeds() {
++    return {
++      requestedEnergyTransfer: 'DC_BPT',
++      controlMode: 'DynamicControl',
++      mobilityNeedsMode: 'EVCC',
++      dcChargingParameters: { evMaxCurrent: 66, evMaxVoltage: 400, evMaxPower: 25000 },
++      v2xChargingParameters: {
++        evTargetEnergyRequest: 18000,
++        evMaxEnergyRequest: 30000,
++        evMinEnergyRequest: -12000,
++        evMinV2XEnergyRequest: -12000,
++        evMaxV2XEnergyRequest: 30000,
++        maxDischargePower: 9500,
++      },
++    };
++  }
++
+   function acNeeds(): OCPP2_common_types.ChargingNeedsType {
+     return {
+       requestedEnergyTransfer: EnergyTransferModeEnum.AC_three_phase,
+@@ -300,6 +330,7 @@ describe('NotifyEVChargingNeedsRequestOcpp2Handler', () => {
+     };
+     chargingProfileRepository = {
+       createChargingNeeds: vi.fn().mockResolvedValue({ id: 3 }),
++      createPendingChargingNeeds: vi.fn().mockResolvedValue({ id: 4 }),
+       createOrUpdateChargingProfile: vi.fn().mockResolvedValue({ databaseId: 9 }),
+     };
+     smartChargingService = { calculateChargingProfile: vi.fn().mockResolvedValue(chargingProfile) };
+@@ -333,6 +364,7 @@ describe('NotifyEVChargingNeedsRequestOcpp2Handler', () => {
+     });
+     expect(smartChargingService.calculateChargingProfile).not.toHaveBeenCalled();
+     expect(chargingProfileRepository.createChargingNeeds).not.toHaveBeenCalled();
++    expect(chargingProfileRepository.createPendingChargingNeeds).not.toHaveBeenCalled();
+     expect(ocppSender.sendCall).not.toHaveBeenCalled();
+   });
+ 
+@@ -445,4 +477,92 @@ describe('NotifyEVChargingNeedsRequestOcpp2Handler', () => {
+     });
+     expect(ocppSender.sendCall).toHaveBeenCalledOnce();
+   });
++
++  it('stores OCPP 2.1 V2X needs before the transaction and answers NoChargingProfile', async () => {
++    transactionRepository.getActiveTransactionByStationIdAndEvseId.mockResolvedValue(undefined);
++    const message = aChargingNeedsMessage21(v2xNeeds());
++
++    await handler.handle(message);
++
++    expect(chargingProfileRepository.createPendingChargingNeeds).toHaveBeenCalledOnce();
++    expect(chargingProfileRepository.createPendingChargingNeeds).toHaveBeenCalledWith(
++      DEFAULT_TENANT_ID,
++      message.payload,
++      STATION_ID,
++    );
++    expect(chargingProfileRepository.createChargingNeeds).not.toHaveBeenCalled();
++    expect(ocppSender.sendCallResultWithMessage).toHaveBeenCalledOnce();
++    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][1]).toEqual({
++      status: NotifyEVChargingNeedsStatusEnum.NoChargingProfile,
++    });
++    expect(smartChargingService.calculateChargingProfile).not.toHaveBeenCalled();
++    expect(ocppSender.sendCall).not.toHaveBeenCalled();
++  });
++
++  it('stores OCPP 2.1 V2X needs on the active transaction and answers NoChargingProfile', async () => {
++    const message = aChargingNeedsMessage21(v2xNeeds());
++
++    await handler.handle(message);
++
++    expect(chargingProfileRepository.createChargingNeeds).toHaveBeenCalledOnce();
++    expect(chargingProfileRepository.createChargingNeeds).toHaveBeenCalledWith(
++      DEFAULT_TENANT_ID,
++      message.payload,
++      STATION_ID,
++    );
++    expect(chargingProfileRepository.createPendingChargingNeeds).not.toHaveBeenCalled();
++    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][1]).toEqual({
++      status: NotifyEVChargingNeedsStatusEnum.NoChargingProfile,
++    });
++    expect(ocppSender.sendCall).not.toHaveBeenCalled();
++  });
++
++  it('stores OCPP 2.1 DC needs before the transaction without calculating a profile', async () => {
++    transactionRepository.getActiveTransactionByStationIdAndEvseId.mockResolvedValue(undefined);
++
++    await handler.handle(aChargingNeedsMessage21(dcNeeds()));
++
++    expect(chargingProfileRepository.createPendingChargingNeeds).toHaveBeenCalledOnce();
++    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][1]).toEqual({
++      status: NotifyEVChargingNeedsStatusEnum.NoChargingProfile,
++    });
++    expect(smartChargingService.calculateChargingProfile).not.toHaveBeenCalled();
++    expect(ocppSender.sendCall).not.toHaveBeenCalled();
++  });
++
++  it('still answers NoChargingProfile when storing OCPP 2.1 needs fails', async () => {
++    transactionRepository.getActiveTransactionByStationIdAndEvseId.mockResolvedValue(undefined);
++    chargingProfileRepository.createPendingChargingNeeds.mockRejectedValue(
++      new Error('No evse 1 found on station'),
++    );
++
++    await handler.handle(aChargingNeedsMessage21(v2xNeeds()));
++
++    expect(ocppSender.sendCallResultWithMessage).toHaveBeenCalledOnce();
++    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][1]).toEqual({
++      status: NotifyEVChargingNeedsStatusEnum.NoChargingProfile,
++    });
++  });
++
++  it('rejects OCPP 2.1 needs whose parameters contradict requestedEnergyTransfer', async () => {
++    transactionRepository.getActiveTransactionByStationIdAndEvseId.mockResolvedValue(undefined);
++
++    await handler.handle(
++      aChargingNeedsMessage21({
++        requestedEnergyTransfer: 'DC_BPT',
++        acChargingParameters: {
++          energyAmount: 20000,
++          evMinCurrent: 6,
++          evMaxCurrent: 32,
++          evMaxVoltage: 400,
++        },
++      }),
++    );
++
++    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][1]).toEqual({
++      status: NotifyEVChargingNeedsStatusEnum.Rejected,
++    });
++    expect(chargingProfileRepository.createPendingChargingNeeds).not.toHaveBeenCalled();
++    expect(chargingProfileRepository.createChargingNeeds).not.toHaveBeenCalled();
++  });
+ });
+diff --git a/packages/ocpp/test/handlers/requests/2/transaction-event-request-ocpp-2-handler.test.ts b/packages/ocpp/test/handlers/requests/2/transaction-event-request-ocpp-2-handler.test.ts
+index 179776ba8..722dd402b 100644
+--- a/packages/ocpp/test/handlers/requests/2/transaction-event-request-ocpp-2-handler.test.ts
++++ b/packages/ocpp/test/handlers/requests/2/transaction-event-request-ocpp-2-handler.test.ts
+@@ -90,7 +90,10 @@ function makeHandler(
+     ...overrides.transactionService,
+   };
+ 
+-  const chargingProfileRepository = { readAllByQuery: vi.fn().mockResolvedValue([]) };
++  const chargingProfileRepository = {
++    readAllByQuery: vi.fn().mockResolvedValue([]),
++    linkPendingChargingNeeds: vi.fn().mockResolvedValue(undefined),
++  };
+   const deviceModelVariables = overrides.deviceModelVariables ?? {};
+   const variableAttributeRepository = {
+     readAllByQuerystring: vi.fn().mockImplementation(async (_tenantId, query) => {
+@@ -132,6 +135,7 @@ function makeHandler(
+     costCalculator,
+     signedMeterValuesUtil,
+     variableAttributeRepository,
++    chargingProfileRepository,
+   };
+ }
+ 
+@@ -1061,6 +1065,72 @@ describe('TransactionEventRequestOcpp2Handler', () => {
+     });
+   });
+ 
++  // ha-citrine patch (0007-ocpp21-charging-needs-before-transaction)
++  describe('charging needs reported before the transaction started', () => {
++    function anEvent(eventType: OCPP2_1.TransactionEventEnumType): OCPP2_1.TransactionEventRequest {
++      return {
++        eventType,
++        triggerReason: OCPP2_1.TriggerReasonEnumType.ChargingStateChanged,
++        timestamp: new Date().toISOString(),
++        seqNo: 0,
++        evse: { id: 1 },
++        transactionInfo: { transactionId: 'txn-001' },
++      } as OCPP2_1.TransactionEventRequest;
++    }
++
++    function makeLinkHandler() {
++      return makeHandler({
++        transactionEventRepository: {
++          createOrUpdateTransactionByTransactionEventAndStationId: vi.fn().mockResolvedValue({
++            id: 41,
++            evseId: 12,
++            transactionId: 'txn-001',
++            isActive: true,
++            totalKwh: null,
++          }),
++        },
++      });
++    }
++
++    it('links the pending needs of the evse on Started', async () => {
++      const { handler, chargingProfileRepository, ocppSender } = makeLinkHandler();
++      chargingProfileRepository.linkPendingChargingNeeds.mockResolvedValue({ id: 5 });
++      const before = Date.now();
++
++      await handler.handle(
++        makeMessage(anEvent(OCPP2_1.TransactionEventEnumType.Started), OCPPVersion.OCPP2_1),
++      );
++
++      expect(chargingProfileRepository.linkPendingChargingNeeds).toHaveBeenCalledOnce();
++      const [tenantId, evseDBId, transactionDatabaseId, since] =
++        chargingProfileRepository.linkPendingChargingNeeds.mock.calls[0];
++      expect([tenantId, evseDBId, transactionDatabaseId]).toEqual([DEFAULT_TENANT_ID, 12, 41]);
++      expect((since as Date).getTime()).toBeLessThanOrEqual(before - 10 * 60 * 1000 + 1000);
++      expect(ocppSender.sendCallResultWithMessage).toHaveBeenCalledOnce();
++    });
++
++    it('answers the TransactionEvent when linking fails', async () => {
++      const { handler, chargingProfileRepository, ocppSender } = makeLinkHandler();
++      chargingProfileRepository.linkPendingChargingNeeds.mockRejectedValue(new Error('db down'));
++
++      await handler.handle(
++        makeMessage(anEvent(OCPP2_1.TransactionEventEnumType.Started), OCPPVersion.OCPP2_1),
++      );
++
++      expect(ocppSender.sendCallResultWithMessage).toHaveBeenCalledOnce();
++    });
++
++    it('does not link on Updated', async () => {
++      const { handler, chargingProfileRepository } = makeLinkHandler();
++
++      await handler.handle(
++        makeMessage(anEvent(OCPP2_1.TransactionEventEnumType.Updated), OCPPVersion.OCPP2_1),
++      );
++
++      expect(chargingProfileRepository.linkPendingChargingNeeds).not.toHaveBeenCalled();
++    });
++  });
++
+   describe('ended transaction guard', () => {
+     function makeGuardHandler(readTransactionResult: { isActive: boolean } | null) {
+       const createOrUpdateSpy = vi.fn().mockResolvedValue({
+diff --git a/packages/types/src/interfaces/dto/charging-needs-dto.ts b/packages/types/src/interfaces/dto/charging-needs-dto.ts
+index 92f891469..0ab9cb157 100644
+--- a/packages/types/src/interfaces/dto/charging-needs-dto.ts
++++ b/packages/types/src/interfaces/dto/charging-needs-dto.ts
+@@ -17,8 +17,11 @@ export const ChargingNeedsSchema = BaseSchema.extend({
+   departureTime: z.iso.datetime().nullable().optional(),
+   requestedEnergyTransfer: EnergyTransferModeEnumSchema,
+   maxScheduleTuples: z.number().int().nullable().optional(),
++  v2xChargingParameters: z.record(z.string(), z.unknown()).nullable().optional(),
++  controlMode: z.string().nullable().optional(),
++  mobilityNeedsMode: z.string().nullable().optional(),
+   evseId: z.number().int(),
+-  transactionDatabaseId: z.number().int(),
++  transactionDatabaseId: z.number().int().nullable(),
+   transactionCreatedAt: z.date().optional(),
+ });
+ 

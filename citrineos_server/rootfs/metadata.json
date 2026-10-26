@@ -122,7 +122,7 @@
           {"name": "Transaction", "using": {"manual_configuration": {"remote_table": {"name": "Transactions", "schema": "public"}, "column_mapping": {"transactionDatabaseId": "id", "transactionCreatedAt": "createdAt"}}}}
         ],
         "select_permissions": [{"role": "ha_reader", "permission": {
-          "columns": ["id","evseId","transactionDatabaseId","acChargingParameters","dcChargingParameters","requestedEnergyTransfer","departureTime","createdAt","updatedAt"],
+          "columns": ["id","evseId","transactionDatabaseId","acChargingParameters","dcChargingParameters","v2xChargingParameters","controlMode","mobilityNeedsMode","requestedEnergyTransfer","departureTime","createdAt","updatedAt"],
           "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
           "limit": 501,
           "allow_aggregations": false

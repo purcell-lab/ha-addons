@@ -181,6 +181,7 @@ class PackagingSafety(unittest.TestCase):
         self.assertEqual(perm("VariableCharacteristics")["columns"], ["id", "variableId", "maxLimit", "minLimit", "unit"])
         self.assertEqual(perm("ChargingNeeds")["columns"],
                          ["id", "evseId", "transactionDatabaseId", "acChargingParameters", "dcChargingParameters",
+                          "v2xChargingParameters", "controlMode", "mobilityNeedsMode",
                           "requestedEnergyTransfer", "departureTime", "createdAt", "updatedAt"])
         self.assertEqual(rels("VariableAttributes"), ["ChargingStation", "Component", "Variable"])
         self.assertEqual(rels("Variables"), ["VariableCharacteristic"])
