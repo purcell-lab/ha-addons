@@ -46,7 +46,7 @@ ARG BUILD_ARCH
 LABEL io.hass.name="CitrineOS Isolated Lab" \
       io.hass.description="Private laboratory server with opt-in scoped simulator controls" \
       io.hass.type="addon" \
-      io.hass.version="0.10.0" \
+      io.hass.version="0.11.0" \
       io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons" \
       org.opencontainers.image.licenses="Apache-2.0"

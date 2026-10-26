@@ -140,7 +140,7 @@ class PackagingSafety(unittest.TestCase):
     def test_metadata_has_no_write_permissions_or_sensitive_columns(self):
         metadata = json.loads((ROOT / "rootfs/metadata.json").read_text())
         tables = metadata["sources"][0]["tables"]
-        self.assertEqual(len(tables), 13)
+        self.assertEqual(len(tables), 14)
         tenant = {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}}
         for table in tables:
             self.assertFalse(set(table) & {"insert_permissions", "update_permissions", "delete_permissions"})

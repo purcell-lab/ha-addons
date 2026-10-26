@@ -86,6 +86,7 @@ jobs:
           TEST_NATIVE_SIMULATOR: "1"
           TEST_PLUGFEST: "1"
           TEST_OPERATOR: "1"
+          TEST_EMS: "1"
         run: python3 citrineos_server/tests/stack_smoke.py
   published-image:
     # Merge gate: config.yaml points HA at a prebuilt server image, so the
