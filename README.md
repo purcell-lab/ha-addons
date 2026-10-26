@@ -12,22 +12,19 @@ In the HA UI:
 2. Paste: `https://github.com/purcell-lab/ha-addons`
 3. Add → close → the new section "purcell-lab Home Assistant Add-ons" appears in the store.
 
-### amd64 hosts: the `local-build` store entry
+### Prebuilt images: the Green store entry
 
-The CitrineOS server, CitrineOS Operator UI, EVerest simulator and EVerest
-V2G simulator Apps publish prebuilt images for **aarch64 only** (low powered
-hosts such as a Home Assistant Green). An App that names an image is always
-pulled, so on an amd64 host add this store entry instead:
+On `main`, the CitrineOS server, CitrineOS Operator UI, EVerest simulator and
+EVerest V2G simulator Apps have no `image:`, so any host (aarch64 or amd64)
+builds them from their Dockerfiles.
 
-`https://github.com/purcell-lab/ha-addons#local-build`
-
-It appears as "purcell-lab Home Assistant Add-ons (local build)". The
-`local-build` branch is generated from `main` on every push
-(`.github/workflows/local-build-mirror.yml`): the same files, with `image:`
-removed from those four Apps and amd64 listed, so Supervisor builds them from
-their Dockerfiles on the host. Never commit to it directly. An App already
-installed from the main entry stays tied to it; moving it means a reinstall
-from the new entry, which loses the App's data.
+The Home Assistant Green lab (aarch64, a low powered host) uses the store
+entry `https://github.com/purcell-lab/ha-addons#claude/green-e2e` instead.
+`.github/workflows/green-mirror.yml` regenerates that branch from `main` on
+every push: the same files plus one commit that gives those four Apps their
+prebuilt aarch64 image from `.github/green-e2e-images.yaml` and limits them to
+aarch64, so the Green pulls instead of building. Images are published for
+aarch64 only. Never commit to `claude/green-e2e` directly.
 
 ## OCPP Plugfest and CSIP-AUS testing
 

@@ -1,6 +1,7 @@
 name: Publish CitrineOS Operator UI App image
-# Builds the CitrineOS Operator UI App in GitHub Actions so Home Assistant pulls
-# a prebuilt image instead of compiling on the host. Publication is an
+# Builds the CitrineOS Operator UI App in GitHub Actions so the Green
+# (aarch64, store entry claude/green-e2e) pulls a prebuilt image instead of
+# compiling on the host. Publication is an
 # explicit operator action, started one of two ways:
 # - a maintainer pushes a tag citrineos_operator_ui-v<version> matching
 #   citrineos_operator_ui/config.yaml, or
@@ -35,8 +36,8 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # aarch64 only: amd64 hosts build these Apps themselves from the
-          # local-build store entry (local-build-mirror.yml).
+          # aarch64 only, for the Green store entry (claude/green-e2e). On
+          # main the App has no image: and hosts build it themselves.
           - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
@@ -60,7 +61,7 @@ jobs:
           REQUESTED: ${{ inputs.version }}
         run: |
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' citrineos_operator_ui/config.yaml)
-          image=$(sed -n 's/^image: //p' citrineos_operator_ui/config.yaml)
+          image=$(sed -n 's/^citrineos_operator_ui: //p' .github/green-e2e-images.yaml)
           tag="citrineos_operator_ui-v$version"
           if [ "$EVENT" = workflow_dispatch ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {

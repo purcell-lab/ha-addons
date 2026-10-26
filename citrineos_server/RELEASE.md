@@ -2,7 +2,8 @@
 
 Images are built and published only by
 `.github/workflows/citrineos-server-publish.yml` (GitHub Actions,
-aarch64 only, CitrineOS built from source by `Dockerfile`). It never overwrites an
+aarch64 only, for the Green store entry; CitrineOS built from source by
+`Dockerfile`). It never overwrites an
 image or moves a tag. Each step is a separate approval:
 
 1. Bump `version` in `config.yaml`, the `io.hass.version` label in

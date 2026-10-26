@@ -1,0 +1,10 @@
+# Prebuilt aarch64 images for the Green lab store entry (branch
+# claude/green-e2e, generated from main by green-mirror.yml). On main these
+# Apps have no image: line and every host builds them from their Dockerfile.
+# On claude/green-e2e green-mirror.yml adds the image below and limits arch to
+# aarch64, so the Green (a low powered host) pulls instead of building.
+# The publish workflows and the published-image merge gates read this file.
+citrineos_server: ghcr.io/purcell-lab/{arch}-citrineos-server
+citrineos_operator_ui: ghcr.io/purcell-lab/{arch}-citrineos-operator-ui
+everest_simulator: ghcr.io/purcell-lab/{arch}-everest-simulator
+everest_v2g_simulator: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator

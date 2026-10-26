@@ -1,7 +1,7 @@
 # Release
 
 Images are built and published only by `.github/workflows/operator-ui-publish.yml`
-(GitHub Actions, aarch64 only). It never overwrites an image or moves a
+(GitHub Actions, aarch64 only, for the Green store entry). It never overwrites an image or moves a
 tag. Each step is a separate approval:
 
 1. Bump `version` in `config.yaml` and `CHANGELOG.md`; PR CI must pass

@@ -9,15 +9,18 @@ ROOT = Path(__file__).resolve().parents[1]
 class PackagingSafety(unittest.TestCase):
     def test_supervisor_privileges_and_ports_are_absent(self):
         config = yaml.safe_load((ROOT / "config.yaml").read_text())
-        self.assertEqual(config["arch"], ["aarch64"])
+        self.assertEqual(config["arch"], ["aarch64", "amd64"])
         self.assertEqual(config["boot"], "manual")
         for field in ("host_network", "hassio_api", "homeassistant_api",
                       "docker_api", "ingress"):
             self.assertIs(config[field], False)
         for field in ("map", "devices", "privileged", "services"):
             self.assertNotIn(field, config)
-        # Home Assistant pulls the prebuilt image (citrineos-server-publish.yml).
-        self.assertEqual(config["image"], "ghcr.io/purcell-lab/{arch}-citrineos-server")
+        # main builds on the host; only the Green branch (green-mirror.yml)
+        # pulls the prebuilt aarch64 image (citrineos-server-publish.yml).
+        self.assertNotIn("image", config)
+        green = yaml.safe_load((ROOT.parent / ".github/green-e2e-images.yaml").read_text())
+        self.assertEqual(green["citrineos_server"], "ghcr.io/purcell-lab/{arch}-citrineos-server")
         # Only the opt-in Plugfest listeners may be published, and only by an
         # operator-set host port (null by default).
         self.assertEqual(config["ports"],

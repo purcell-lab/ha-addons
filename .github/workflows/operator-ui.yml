@@ -2,6 +2,8 @@ name: CitrineOS Operator UI App
 on:
   pull_request:
     paths:
+      - ".github/green-e2e-images.yaml"
+      - ".github/workflows/green-mirror.yml"
       - "citrineos_operator_ui/**"
       - ".github/workflows/operator-ui.yml"
       - ".github/workflows/operator-ui-publish.yml"
@@ -46,8 +48,10 @@ jobs:
       - name: Image checks (same as the publish gate)
         run: sh citrineos_operator_ui/tests/ci_image_checks.sh operator-ui:built
   published-image:
-    # Merge gate: config.yaml points HA at a prebuilt image, so the exact
-    # version must already be publicly pullable (anonymous, aarch64; amd64 hosts build locally).
+    # Merge gate: the Green follows main (green-mirror.yml) and pulls this
+    # App's aarch64 image from .github/green-e2e-images.yaml, so the exact
+    # version must already be publicly pullable (anonymous). On main the App
+    # has no image: and other hosts build it from the Dockerfile.
     # Publish it first with the approval-gated operator-ui-publish.yml.
     runs-on: ubuntu-24.04
     steps:
@@ -55,7 +59,7 @@ jobs:
       - name: Prebuilt image for this version is public on GHCR
         run: |
           version=$(sed -n 's/^version: "\(.*\)"$/\1/p' citrineos_operator_ui/config.yaml)
-          image=$(sed -n 's/^image: //p' citrineos_operator_ui/config.yaml)
+          image=$(sed -n 's/^citrineos_operator_ui: //p' .github/green-e2e-images.yaml)
           test -n "$version" && test -n "$image"
           for arch in aarch64; do
             ref="$(echo "$image" | sed "s/{arch}/$arch/"):$version"

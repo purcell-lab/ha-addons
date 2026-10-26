@@ -1,14 +1,13 @@
 # Publishing the prebuilt image
 
-`config.yaml` sets `image: ghcr.io/purcell-lab/{arch}-everest-simulator`, so
-Home Assistant on aarch64 pulls `<image>:<version>` (about 310 to
+On the Green store entry `config.yaml` sets
+`image: ghcr.io/purcell-lab/{arch}-everest-simulator`, so the Green (`claude/green-e2e`) pulls `<image>:<version>` (about 310 to
 340 MB) instead of building locally from the 4.3 GB EVerest build image.
 The App build itself copies EVerest from the small pinned runtime image
 (`everest_runtime/README.md`), not the 4.3 GB upstream image.
-Only aarch64 is published. amd64 hosts add the store entry
-`https://github.com/purcell-lab/ha-addons#local-build` (generated from `main` by
-`local-build-mirror.yml`, without `image:`), so Supervisor builds the same
-Dockerfile on the host.
+Only aarch64 is published. On `main` the App has no `image:` and every host
+builds the same Dockerfile; `green-mirror.yml` adds the image from
+`.github/green-e2e-images.yaml` on the generated `claude/green-e2e` branch.
 Each step below is a separate operator decision; none happens automatically.
 
 ## Steps

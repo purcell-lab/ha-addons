@@ -16,8 +16,11 @@ class Packaging(unittest.TestCase):
 
     def test_least_privilege_ingress_only(self):
         c = self.config
-        self.assertEqual(c["arch"], ["aarch64"])
-        self.assertEqual(c["image"], "ghcr.io/purcell-lab/{arch}-citrineos-operator-ui")
+        self.assertEqual(c["arch"], ["aarch64", "amd64"])
+        # main builds on the host; the Green branch pulls the aarch64 image.
+        self.assertNotIn("image", c)
+        green = yaml.safe_load((ROOT.parent / ".github/green-e2e-images.yaml").read_text())
+        self.assertEqual(green["citrineos_operator_ui"], "ghcr.io/purcell-lab/{arch}-citrineos-operator-ui")
         self.assertEqual(c["boot"], "manual")
         self.assertIs(c["ingress"], True)
         self.assertEqual(c["ingress_port"], 8099)
