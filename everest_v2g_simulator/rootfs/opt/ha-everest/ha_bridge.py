@@ -9,7 +9,9 @@ outbound from this App to Home Assistant Core through the Supervisor proxy:
   60 s. It is not a registry entity and disappears when HA restarts until the
   next refresh.
 - Commands: HA event `everest_v2g_command` with data
-  `{"charge_point_id": "<this App's ID>", "command": "<name>"}`. Only
+  `{"charge_point_id": "<this App's ID>", "command": "<name>"}`. An event
+  for another ID is ignored; one without an ID is refused with an error
+  result (not run), so the caller can see why. Only
   `plugin`, `stop`, `unplug`, `selftest` and `diagnostics` are accepted, at
   most one every 2 s. Firing events on the HA bus needs an HA admin
   (REST /api/events or WebSocket fire_event) or an automation.
@@ -198,11 +200,18 @@ class Bridge:
     # -- commands -------------------------------------------------------
     def handle(self, data):
         """Validate and run one command event; returns the result payload."""
-        if not isinstance(data, dict) or data.get("charge_point_id") != self.cpid:
+        if not isinstance(data, dict):
+            return None
+        target = data.get("charge_point_id")
+        if target is not None and target != self.cpid:
             return None  # addressed to another App: ignore silently
         name = data.get("command")
         result = {"charge_point_id": self.cpid, "command": name, "at": time.time()}
-        if name not in COMMANDS:
+        if target is None:
+            # Not run, but answered: dropping it silently left the caller with
+            # no sign of why nothing happened.
+            result.update(ok=False, error=f"charge_point_id required; this App is {self.cpid}")
+        elif name not in COMMANDS:
             result.update(ok=False, error=f"unknown command; use one of {', '.join(COMMANDS)}")
         elif self.now() - self.last_accepted < MIN_INTERVAL_S:
             result.update(ok=False, error="rate limited; retry in 2 s")

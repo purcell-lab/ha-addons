@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- HA control: an `everest_v2g_command` event without `charge_point_id` is
+  refused with an error result (`charge_point_id required`) and shown in
+  `last_command`. It was dropped silently, so on the Green a plug-in sent
+  without the ID did nothing and left no trace. Events for another App's ID
+  are still ignored.
+
 ## 0.3.0
 
 - Status page redesign. The simulated EV comes first: state of charge
