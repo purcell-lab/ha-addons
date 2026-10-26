@@ -3,7 +3,6 @@ version: "0.2.1"
 slug: everest_v2g_simulator
 description: Isolated EVerest bidirectional DC charger and EV (ISO 15118-20 DC_BPT); OCPP 2.1 with DER control and 2.0.1 fallback.
 url: https://github.com/purcell-lab/ha-addons
-image: ghcr.io/purcell-lab/{arch}-everest-v2g-simulator
 arch:
   - aarch64
   - amd64

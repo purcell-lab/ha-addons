@@ -16,8 +16,11 @@ class PackagingSafety(unittest.TestCase):
             self.assertIs(config[field], False)
         for field in ("map", "devices", "privileged", "services"):
             self.assertNotIn(field, config)
-        # Home Assistant pulls the prebuilt image (citrineos-server-publish.yml).
-        self.assertEqual(config["image"], "ghcr.io/purcell-lab/{arch}-citrineos-server")
+        # main builds on the host; only the Green branch (green-mirror.yml)
+        # pulls the prebuilt aarch64 image (citrineos-server-publish.yml).
+        self.assertNotIn("image", config)
+        green = yaml.safe_load((ROOT.parent / ".github/green-e2e-images.yaml").read_text())
+        self.assertEqual(green["citrineos_server"], "ghcr.io/purcell-lab/{arch}-citrineos-server")
         # Only the opt-in Plugfest listeners may be published, and only by an
         # operator-set host port (null by default).
         self.assertEqual(config["ports"],

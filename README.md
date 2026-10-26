@@ -12,6 +12,20 @@ In the HA UI:
 2. Paste: `https://github.com/purcell-lab/ha-addons`
 3. Add → close → the new section "purcell-lab Home Assistant Add-ons" appears in the store.
 
+### Prebuilt images: the Green store entry
+
+On `main`, the CitrineOS server, CitrineOS Operator UI, EVerest simulator and
+EVerest V2G simulator Apps have no `image:`, so any host (aarch64 or amd64)
+builds them from their Dockerfiles.
+
+The Home Assistant Green lab (aarch64, a low powered host) uses the store
+entry `https://github.com/purcell-lab/ha-addons#claude/green-e2e` instead.
+`.github/workflows/green-mirror.yml` regenerates that branch from `main` on
+every push: the same files plus one commit that gives those four Apps their
+prebuilt aarch64 image from `.github/green-e2e-images.yaml` and limits them to
+aarch64, so the Green pulls instead of building. Images are published for
+aarch64 only. Never commit to `claude/green-e2e` directly.
+
 ## OCPP Plugfest and CSIP-AUS testing
 
 The OCA Plugfest material (demonstration, runbook, acceptance plan, lab test

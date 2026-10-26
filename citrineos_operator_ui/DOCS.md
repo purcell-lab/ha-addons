@@ -95,6 +95,7 @@ requests. Each command is logged by the server.
 
 ## Resources
 
-About 150 to 200 MB of memory. Prebuilt for amd64 and aarch64
-(`ghcr.io/purcell-lab/{arch}-citrineos-operator-ui`); Home Assistant pulls
-the image.
+About 150 to 200 MB of memory. From the main store entry
+Home Assistant builds the image on the host (aarch64 or amd64).
+The Green store entry (`claude/green-e2e`, generated from `main` by `green-mirror.yml`) pulls the prebuilt aarch64 image
+(`ghcr.io/purcell-lab/{arch}-citrineos-operator-ui`) instead.

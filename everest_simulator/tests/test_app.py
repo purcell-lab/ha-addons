@@ -638,7 +638,11 @@ class PublishWorkflowTest(unittest.TestCase):
         self.ci = (workflows / "everest.yml").read_text()
 
     def test_image_name_matches_workflow(self):
-        self.assertIn("image: ghcr.io/purcell-lab/{arch}-everest-simulator", CONFIG_TEXT)
+        # main builds on the host; the Green branch (green-mirror.yml) adds
+        # the aarch64 image named in .github/green-e2e-images.yaml.
+        self.assertNotIn("\nimage:", CONFIG_TEXT)
+        green = (ROOT.parent / ".github/green-e2e-images.yaml").read_text()
+        self.assertIn("everest_simulator: ghcr.io/purcell-lab/{arch}-everest-simulator\n", green)
         self.assertIn('IMAGE=ghcr.io/purcell-lab/${{ matrix.arch }}-everest-simulator', self.publish)
 
     def test_only_tags_or_manual_dispatch_trigger_publication(self):
