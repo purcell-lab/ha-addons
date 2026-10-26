@@ -59,6 +59,9 @@ jobs:
             packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts \
             packages/ocpp/test/handlers/requests/2/authorize-request-ocpp-21-handler.test.ts \
             packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts \
+            packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts \
+            packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts \
+            packages/base/test/util/endpoints/route-schemas.test.ts \
             packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
   private-stack:
     strategy:
@@ -86,6 +89,7 @@ jobs:
           TEST_NATIVE_SIMULATOR: "1"
           TEST_PLUGFEST: "1"
           TEST_OPERATOR: "1"
+          TEST_EMS: "1"
         run: python3 citrineos_server/tests/stack_smoke.py
   published-image:
     # Merge gate: config.yaml points HA at a prebuilt server image, so the

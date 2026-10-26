@@ -1,0 +1,115 @@
+ha-citrine source patch 0005 against CitrineOS v2.1.0
+(4fd7599b91c2fb6e6065e7c9b94be69880cced27), applied after 0001 to 0004:
+OCPP 2.1 message routes validate against their own schema definitions.
+
+With swagger exposeMessage (the App's setting), each message route's body
+schema is registered as a shared Fastify schema with a version prefix
+("ocpp2.1-SetChargingProfileRequest"), but its definitions are registered under
+their bare names ("ChargingProfileType", "ChargingProfilePurposeEnumType").
+OCPP 2.0.1 and 2.1 use the same definition names and 2.0.1 is registered
+first, so an already-present name is kept and every OCPP 2.1 route validated
+its nested objects against the 2.0.1 definitions. A 2.1 SetChargingProfile
+with chargingProfilePurpose LocalGeneration or PriorityCharging was refused
+with 400 FST_ERR_VALIDATION ("must be equal to one of the allowed values"),
+as Trialog's TRIALOG-201 was at the Plugfest (ha-addons#95). 2.1-only fields
+were not checked at all.
+
+The patch registers definitions with the same version prefix as the body
+schema and points the body's $refs at the prefixed names, so each version's
+route resolves its own definitions. Routes registered without a prefix
+(querystring and response schemas) are unchanged. A test registers the 2.0.1
+and 2.1 SetChargingProfileRequest in that order and checks that LocalGeneration
+is accepted on 2.1 only; it fails without the patch.
+
+diff --git a/packages/base/src/util/endpoints/route-schemas.ts b/packages/base/src/util/endpoints/route-schemas.ts
+index 1ebdbdf4e..de0873314 100644
+--- a/packages/base/src/util/endpoints/route-schemas.ts
++++ b/packages/base/src/util/endpoints/route-schemas.ts
+@@ -73,17 +73,22 @@ export function registerRouteSchema(
+         if (!definition['$id']) {
+           definition['$id'] = key;
+         }
+-        registerRouteSchema(targets, definition);
++        // ha-citrine patch (0005-ocpp2-route-schema-definitions): definitions get the
++        // version prefix too. OCPP 2.0.1 and 2.1 share definition names
++        // (ChargingProfileType, ChargingProfilePurposeEnumType, ...), so unprefixed the
++        // first version registered served every version's route.
++        registerRouteSchema(targets, definition, schemaIdPrefix);
+       });
+     }
+     if (schemaCopy.properties) {
++      const refPrefix = schemaIdPrefix ?? '';
+       Object.keys(schemaCopy.properties).forEach((key) => {
+         const property = schemaCopy.properties[key];
+         if (property.$ref) {
+-          property.$ref = property.$ref.replace('#/definitions/', '');
++          property.$ref = refPrefix + property.$ref.replace('#/definitions/', '');
+         }
+         if (property.items && property.items.$ref) {
+-          property.items.$ref = property.items.$ref.replace('#/definitions/', '');
++          property.items.$ref = refPrefix + property.items.$ref.replace('#/definitions/', '');
+         }
+       });
+     }
+diff --git a/packages/base/test/util/endpoints/route-schemas.test.ts b/packages/base/test/util/endpoints/route-schemas.test.ts
+new file mode 100644
+index 000000000..bd16a5b37
+--- /dev/null
++++ b/packages/base/test/util/endpoints/route-schemas.test.ts
+@@ -0,0 +1,56 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++// ha-citrine patch (0005-ocpp2-route-schema-definitions)
++import { OCPP2_0_1, OCPP2_1 } from '@citrineos/types';
++import Fastify, { type FastifyInstance } from 'fastify';
++import { Logger, type ILogObj } from 'tslog';
++import { describe, expect, it } from 'vitest';
++import { registerRouteSchema } from '@base-util/endpoints/route-schemas.js';
++
++const logger = new Logger<ILogObj>({ type: 'hidden' });
++
++function profile(purpose: string) {
++  return {
++    evseId: 0,
++    chargingProfile: {
++      id: 9100,
++      stackLevel: 1,
++      chargingProfilePurpose: purpose,
++      chargingProfileKind: 'Relative',
++      chargingSchedule: [
++        { id: 1, chargingRateUnit: 'W', chargingSchedulePeriod: [{ startPeriod: 0, limit: 3000 }] },
++      ],
++    },
++  };
++}
++
++async function server(): Promise<FastifyInstance> {
++  const app = Fastify();
++  const targets = { scoped: app, root: app, logger };
++  // Registered in the order the message API registers them: 2.0.1, then 2.1.
++  for (const [version, schema] of [
++    ['ocpp2.0.1', OCPP2_0_1.SetChargingProfileRequestSchema],
++    ['ocpp2.1', OCPP2_1.SetChargingProfileRequestSchema],
++  ] as const) {
++    const body = registerRouteSchema(targets, schema, `${version}-`);
++    app.post(`/${version}`, { schema: { body: body ?? undefined } }, async () => ({ ok: true }));
++  }
++  await app.ready();
++  return app;
++}
++
++describe('registerRouteSchema with version prefixes', () => {
++  it('validates each version against its own definitions', async () => {
++    const app = await server();
++    const post = (url: string, purpose: string) =>
++      app.inject({ method: 'POST', url, payload: profile(purpose) });
++
++    // LocalGeneration is an OCPP 2.1 purpose only.
++    expect((await post('/ocpp2.1', 'LocalGeneration')).statusCode).toBe(200);
++    expect((await post('/ocpp2.0.1', 'LocalGeneration')).statusCode).toBe(400);
++    expect((await post('/ocpp2.0.1', 'TxDefaultProfile')).statusCode).toBe(200);
++    expect((await post('/ocpp2.1', 'TxDefaultProfile')).statusCode).toBe(200);
++    await app.close();
++  });
++});

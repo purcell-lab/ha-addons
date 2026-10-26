@@ -13,7 +13,8 @@ import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_I
   startRoute,RECONCILE_ROUTE,RECONCILE_EVERY_MS,reconcileTarget,reconcileDue,
   REPORT_ROLE,REPORT_STATIONS_QUERY,deviceModelReports,reportState,reportsDue,reportDone,
   DER_ROUTES,DER_EVENTS_ROUTE,DER_EVENT_ACTIONS,DER_EVENT_LIMIT,DER_REPORT_WAIT_MS,DER_EVENTS_QUERY,
-  derEnabled,derRoute,derPolicy,validateDer,derTargetAllows,derStationId,derEvents,derReports} from './control-policy.mjs';
+  derEnabled,derRoute,derPolicy,validateDer,derTargetAllows,derStationId,derEvents,derReports,
+  CHARGING_LIMITS_ROUTE,CHARGING_LIMITS_LIMIT,CHARGING_LIMITS_QUERY,chargingLimits,localEnergyPolicy} from './control-policy.mjs';
 
 export const APP = '/usr/local/apps/citrineos/apps/ocpp-server';
 const DATA = '/data';
@@ -560,6 +561,26 @@ export async function main() {
     if(read.error){console.log(`${read.error}.`);res.writeHead(502);res.end(JSON.stringify({error:read.error}));return;}
     res.end(JSON.stringify({station_id:station,events:read.events}));
   }
+  // The command station's EMS limits (NotifyChargingLimit), newest first.
+  async function chargingLimitsRequest(req,res) {
+    if(req.method!=='GET'){res.writeHead(405);res.end('{"error":"GET required"}');return;}
+    const s=(await observe(station))?.data?.ChargingStations;
+    if(!Array.isArray(s)||s.length!==1||s[0].ocppConnectionName!==station||s[0].tenantId!==1){
+      res.writeHead(409);res.end('{"error":"The command station is not known"}');return;
+    }
+    const r=await fetch(`http://${o.hasura_host}:8080/v1/graphql`,{method:'POST',redirect:'error',
+      signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json',
+        'x-hasura-admin-secret':o.hasura_secret,'x-hasura-role':'ha_reader','x-hasura-tenant-id':'1'},
+      body:JSON.stringify({query:CHARGING_LIMITS_QUERY,variables:{stationId:s[0].id,limit:CHARGING_LIMITS_LIMIT}})});
+    const data=await r.json().catch(()=>null);
+    const refused=data?.errors?.[0]?.message;
+    const limits=!r.ok||refused?null:chargingLimits(data);
+    if(!limits){
+      const error=`Charging limits read refused (${r.status}): ${String(refused??'unexpected rows').slice(0,300)}`;
+      console.log(`${error}.`);res.writeHead(502);res.end(JSON.stringify({error}));return;
+    }
+    res.end(JSON.stringify({station_id:station,...limits}));
+  }
   const gateway=http.createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
     try {
@@ -577,6 +598,7 @@ export async function main() {
       if(req.method==='POST'&&PRICE_ROUTES.includes(url.pathname)) {await priceCommand(req,res,url,controller);return;}
       if(req.method==='POST'&&derRoute(url.pathname)) {await derCommand(req,res,url,controller);return;}
       if(url.pathname===DER_EVENTS_ROUTE) {await derEventsRequest(req,res);return;}
+      if(url.pathname===CHARGING_LIMITS_ROUTE) {await chargingLimitsRequest(req,res);return;}
       const command=req.method==='POST'&&ALL_ROUTES.includes(url.pathname);
       if(command&&!controller) {res.writeHead(403);res.end('{"error":"Command credential required"}');return;}
       if(!command&&!permitted(req.method,url.pathname)) {res.writeHead(403);res.end('{"error":"Laboratory route denied"}');return;}
@@ -589,7 +611,8 @@ export async function main() {
           transaction_reconcile:{route:RECONCILE_ROUTE,protocols:['ocpp2.1','ocpp2.0.1'],
             automatic:o.command_control_enabled===true,every_s:RECONCILE_EVERY_MS/1000},
           clear_requires_closed_transaction:true,real_devices_enabled:o.command_real_stations_enabled===true,
-          open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o),der_commands:derPolicy(o)}));return;
+          open_admission:o.open_admission_enabled===true,price_commands:pricePolicy(o),der_commands:derPolicy(o),
+          local_energy:localEnergyPolicy()}));return;
       }
       if(url.pathname==='/lab/status') {
         res.end(JSON.stringify({release:RELEASE,mode:'isolated',tenant:1,charger_listeners:listeners.length,

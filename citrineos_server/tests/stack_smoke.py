@@ -164,6 +164,9 @@ try:
     if os.environ.get("TEST_PLUGFEST")=="1":
         from plugfest_probe import plugfest_trial
         plugfest_trial(docker, request, options[-1], values, TMP)
+    if os.environ.get("TEST_EMS")=="1":
+        from ems_probe import ems_trial
+        ems_trial(docker, request, options[-1], values, TMP)
     if os.environ.get("TEST_OPERATOR")=="1":
         from operator_probe import operator_trial
         operator_trial(docker, request, options[-1], values, TMP)
@@ -175,6 +178,7 @@ try:
                       "mutation_denied":True,"restart_persistence":True,"logical_restore":True,
                       "native_simulator_test":os.environ.get("TEST_NATIVE_SIMULATOR")=="1",
                       "plugfest_test":os.environ.get("TEST_PLUGFEST")=="1",
+                      "ems_test":os.environ.get("TEST_EMS")=="1",
                       "operator_test":os.environ.get("TEST_OPERATOR")=="1"}))
 finally:
     for name in names:

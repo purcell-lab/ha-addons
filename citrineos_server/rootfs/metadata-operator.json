@@ -291,6 +291,64 @@
     },
     {
      "table": {
+      "name": "ChargingLimits",
+      "schema": "public"
+     },
+     "object_relationships": [
+      {
+       "name": "ChargingStation",
+       "using": {
+        "foreign_key_constraint_on": "stationId"
+       }
+      },
+      {
+       "name": "Tenant",
+       "using": {
+        "foreign_key_constraint_on": "tenantId"
+       }
+      }
+     ],
+     "select_permissions": [
+      {
+       "role": "operator_ro",
+       "permission": {
+        "columns": "*",
+        "filter": {
+         "tenantId": {
+          "_eq": "x-hasura-tenant-id"
+         }
+        },
+        "allow_aggregations": true
+       }
+      },
+      {
+       "role": "ha_reader",
+       "permission": {
+        "columns": [
+         "id",
+         "stationId",
+         "evseId",
+         "chargingLimitSource",
+         "isGridCritical",
+         "isLocalGeneration",
+         "chargingSchedule",
+         "isActive",
+         "clearedAt",
+         "createdAt"
+        ],
+        "filter": {
+         "tenantId": {
+          "_eq": "X-Hasura-Tenant-Id"
+         }
+        },
+        "limit": 20,
+        "allow_aggregations": false
+       }
+      }
+     ]
+    },
+    {
+     "table": {
       "name": "ChargingNeeds",
       "schema": "public"
      },
@@ -605,6 +663,18 @@
       }
      ],
      "array_relationships": [
+      {
+       "name": "ChargingLimits",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "stationId",
+         "table": {
+          "name": "ChargingLimits",
+          "schema": "public"
+         }
+        }
+       }
+      },
       {
        "name": "ChargingStationNetworkProfiles",
        "using": {
@@ -2592,6 +2662,18 @@
          "column": "tenantId",
          "table": {
           "name": "ChangeConfigurations",
+          "schema": "public"
+         }
+        }
+       }
+      },
+      {
+       "name": "ChargingLimits",
+       "using": {
+        "foreign_key_constraint_on": {
+         "column": "tenantId",
+         "table": {
+          "name": "ChargingLimits",
           "schema": "public"
          }
         }

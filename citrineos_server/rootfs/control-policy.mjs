@@ -17,6 +17,10 @@ export const PROTOCOLS=['ocpp2.1','ocpp2.0.1','ocpp1.6'];
 // above a 3-phase 32 A AC simulator (3 x 32 A x 240 V = 23 kW).
 export const MAX_IMPORT_W=25000;
 export const MAX_EXPORT_W=25000;
+// OCPP 2.1 operation modes a TxProfile period may carry. In the last three the
+// station (or a local EMS) chooses the power within limit and dischargeLimit.
+export const LOCAL_MODES=['ExternalLimits','ExternalSetpoint','LocalLoadBalancing'];
+export const OPERATION_MODES=['ChargingOnly','CentralSetpoint',...LOCAL_MODES];
 // Same order for every version: start, stop, profile, clear.
 const ACTIONS=['evdriver/requestStartTransaction','evdriver/requestStopTransaction',
   'smartcharging/setChargingProfile','smartcharging/clearChargingProfile'];
@@ -118,6 +122,8 @@ export function validateCommand(url,p,station=STATION,real=false,price=null) {
   // No clear-all command. The caller must select its exact test profile.
   if(a===3) return keys(p,['chargingProfileId'])
     &&int(p.chargingProfileId,1,2147483647);
+  if(p?.chargingProfile?.chargingProfilePurpose===LOCAL_GENERATION.purpose)
+    return protocol==='ocpp2.1'&&validLocalGeneration(p);
   if(!keys(p,['evseId','chargingProfile'])||p.evseId!==1)return false;
   const c=p.chargingProfile;
   if(!keys(c,['id','stackLevel','chargingProfilePurpose','chargingProfileKind','transactionId','chargingSchedule'])
@@ -138,6 +144,39 @@ export function validateCommand(url,p,station=STATION,real=false,price=null) {
   let last=-1;
   return s.chargingSchedulePeriod.every((x,i)=>{
     const ok=validPeriod(x,s.duration,i,last,protocol);
+    last=x.startPeriod;return ok;
+  });
+}
+// OCPP 2.1 LocalGeneration (smart charging with local generation): extra
+// charging capacity from on-site generation, on top of the grid limits. Not
+// tied to a transaction: EVSE 0 (the station) or 1, an id in its own range so
+// it can be cleared at any time without touching the TxProfile, charging
+// limits only (no setpoint, discharge or operation mode), up to a day ahead.
+// The station takes it only if SmartChargingCtrlr.SupportedAdditionalPurposes
+// lists LocalGeneration; otherwise it answers Rejected.
+export const LOCAL_GENERATION={purpose:'LocalGeneration',ids:[9100,9199],evse_ids:[0,1],
+  max_duration_s:86400,max_periods:48};
+export const localGenerationProfile=id=>int(id,LOCAL_GENERATION.ids[0],LOCAL_GENERATION.ids[1]);
+function validLocalGeneration(p) {
+  const c=p.chargingProfile;
+  if(!keys(p,['evseId','chargingProfile'])||!LOCAL_GENERATION.evse_ids.includes(p.evseId)
+    ||!keys(c,['id','stackLevel','chargingProfilePurpose','chargingProfileKind','chargingSchedule'])
+    ||!localGenerationProfile(c.id)||!int(c.stackLevel,0,10)
+    ||!['Absolute','Relative'].includes(c.chargingProfileKind)
+    ||!Array.isArray(c.chargingSchedule)||c.chargingSchedule.length!==1)return false;
+  const s=c.chargingSchedule[0];
+  if(!keys(s,['id','startSchedule','duration','chargingRateUnit','chargingSchedulePeriod'])
+    ||!int(s.id,0,2147483647)||!int(s.duration,1,LOCAL_GENERATION.max_duration_s)||s.chargingRateUnit!=='W'
+    ||!Array.isArray(s.chargingSchedulePeriod)||s.chargingSchedulePeriod.length<1
+    ||s.chargingSchedulePeriod.length>LOCAL_GENERATION.max_periods)return false;
+  if(c.chargingProfileKind==='Absolute'&&!timestamp(s.startSchedule))return false;
+  if(c.chargingProfileKind==='Relative'&&s.startSchedule!==undefined)return false;
+  let last=-1;
+  return s.chargingSchedulePeriod.every((x,i)=>{
+    const ok=keys(x,['startPeriod','limit','numberPhases'])
+      &&int(x.startPeriod,0,s.duration-1)&&(i!==0||x.startPeriod===0)&&x.startPeriod>last
+      &&Number.isFinite(x.limit)&&x.limit>=0&&x.limit<=MAX_IMPORT_W
+      &&(x.numberPhases===undefined||x.numberPhases===1||x.numberPhases===3);
     last=x.startPeriod;return ok;
   });
 }
@@ -172,8 +211,11 @@ function validate16(a,p) {
 }
 
 // A period is either a V2G CentralSetpoint period (setpoint and discharge
-// limit required, OCPP 2.1 only), or an AC charging-only period (operationMode
-// absent or ChargingOnly, no setpoint or discharge). OCPP 2.0.1 has no
+// limit required, OCPP 2.1 only), an OCPP 2.1 period in which the station or a
+// local EMS sets the power within the bounds (ExternalLimits, ExternalSetpoint,
+// LocalLoadBalancing: discharge limit required, no setpoint), or an AC
+// charging-only period (operationMode absent or ChargingOnly, no setpoint or
+// discharge). OCPP 2.0.1 has no
 // operationMode, setpoint or dischargeLimit at all. libocpp assumes 3 phases when
 // numberPhases is absent, so a single-phase AC station would get a third of a
 // watt limit (#39): numberPhases may be 1 or 3, and phaseToUse (1-3) only
@@ -186,9 +228,10 @@ function validPeriod(x,duration,i,last,protocol=PROTOCOL) {
   if(x.phaseToUse!==undefined&&(x.numberPhases!==1||!int(x.phaseToUse,1,3)))return false;
   if(protocol==='ocpp2.0.1')
     return x.operationMode===undefined&&x.setpoint===undefined&&x.dischargeLimit===undefined;
+  const discharge=Number.isFinite(x.dischargeLimit)&&x.dischargeLimit>=-MAX_EXPORT_W&&x.dischargeLimit<=0;
   if(x.operationMode==='CentralSetpoint')
-    return Number.isFinite(x.dischargeLimit)&&x.dischargeLimit>=-MAX_EXPORT_W&&x.dischargeLimit<=0
-      &&Number.isFinite(x.setpoint)&&x.setpoint>=x.dischargeLimit&&x.setpoint<=x.limit;
+    return discharge&&Number.isFinite(x.setpoint)&&x.setpoint>=x.dischargeLimit&&x.setpoint<=x.limit;
+  if(LOCAL_MODES.includes(x.operationMode))return discharge&&x.setpoint===undefined;
   return (x.operationMode===undefined||x.operationMode==='ChargingOnly')
     &&x.setpoint===undefined&&x.dischargeLimit===undefined;
 }
@@ -222,6 +265,10 @@ export function targetAllows(url,p,result,station=STATION) {
   if(!active)return false;
   const a=action(url.pathname);
   if(a===0)return active.length===0;
+  // A LocalGeneration profile is the station's, not the session's: set and
+  // cleared whatever the transactions.
+  if(a===2&&p.chargingProfile?.chargingProfilePurpose===LOCAL_GENERATION.purpose)return true;
+  if(a===3&&localGenerationProfile(p.chargingProfileId))return true;
   // Clearing a profile during discharge can restore the default import limit.
   // Only allow cleanup once the transaction is evidenced closed.
   if(a===3)return active.length===0;
@@ -652,3 +699,35 @@ export function derReports(events,requestId) {
     .reverse().map(e=>e.payload);
   return {reports,complete:reports.length>0&&reports[reports.length-1].tbc!==true};
 }
+
+// EMS limits (source patch 0004): the station's NotifyChargingLimit and
+// ClearedChargingLimit, stored by CitrineOS in ChargingLimits (one row per
+// notification; a clear or a newer notification for the same EVSE and source
+// makes it inactive). Read for the command station as ha_reader.
+export const CHARGING_LIMITS_ROUTE='/lab/charging-limits';
+export const CHARGING_LIMITS_LIMIT=20;
+export const CHARGING_LIMITS_QUERY=`query ChargingLimits($stationId: Int!, $limit: Int!) {
+  ChargingLimits(where: {stationId: {_eq: $stationId}}, order_by: [{createdAt: desc}, {id: desc}], limit: $limit) {
+    id evseId chargingLimitSource isGridCritical isLocalGeneration chargingSchedule isActive clearedAt createdAt
+  }
+}`;
+const bool=n=>n===null||typeof n==='boolean';
+const iso=n=>n===null||(typeof n==='string'&&Number.isFinite(Date.parse(n)));
+// {active, recent} newest first; null when the rows are not as expected.
+export function chargingLimits(result) {
+  const rows=result?.data?.ChargingLimits;
+  if(!Array.isArray(rows)||rows.length>CHARGING_LIMITS_LIMIT||rows.some(r=>!r||!int(r.id,1,Number.MAX_SAFE_INTEGER)
+    ||!(r.evseId===null||int(r.evseId,0,1000))||typeof r.chargingLimitSource!=='string'
+    ||!bool(r.isGridCritical)||!bool(r.isLocalGeneration)||typeof r.isActive!=='boolean'
+    ||!(r.chargingSchedule===null||Array.isArray(r.chargingSchedule))||!iso(r.clearedAt)||!iso(r.createdAt)))return null;
+  const recent=rows.map(r=>({evse_id:r.evseId,source:r.chargingLimitSource,grid_critical:r.isGridCritical,
+    local_generation:r.isLocalGeneration,active:r.isActive,schedule:r.chargingSchedule,
+    reported_at:r.createdAt,cleared_at:r.clearedAt}));
+  return {active:recent.filter(r=>r.active),recent};
+}
+// The /lab/control-policy "local_energy" value: what the gateway lets the
+// command credential send for local generation and EMS operation, and where
+// the station's EMS limits are read.
+export const localEnergyPolicy=()=>({local_generation:{...LOCAL_GENERATION,ids:[...LOCAL_GENERATION.ids],
+  evse_ids:[...LOCAL_GENERATION.evse_ids],protocol:'ocpp2.1'},operation_modes:[...OPERATION_MODES],
+  charging_limits:CHARGING_LIMITS_ROUTE});

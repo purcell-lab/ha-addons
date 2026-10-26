@@ -152,6 +152,24 @@ discharge) session could not be negotiated. With the patch every Accepted OCPP
 `AC_three_phase` and `AC_BPT`, unless the response already has a list. Other
 statuses and OCPP 2.0.1 are unchanged.
 
+**Charging limits patch (OCPP 2.0.1 and 2.1)** (`patches/0004-ocpp2-charging-limits.patch`).
+Upstream acknowledges `NotifyChargingLimit` and `ClearedChargingLimit` but
+stores nothing, so a limit an EMS or the system operator sets at the station is
+invisible to the CSMS. The patch adds a `ChargingLimits` table (migration,
+Sequelize and Drizzle models and repositories, Hasura tracking) and stores each
+notification there; a clear, or a newer notification for the same EVSE and
+source, makes the earlier one inactive. It also adds the OCPP 2.1 purposes
+`PriorityCharging` and `LocalGeneration` to CitrineOS's own profile-purpose
+list (the OCPP schemas already had them).
+
+**OCPP 2.1 route schemas patch** (`patches/0005-ocpp2-route-schema-definitions.patch`).
+Upstream registers each message route's body schema with a version prefix but
+its nested definitions under their bare names. OCPP 2.0.1 and 2.1 share those
+names and 2.0.1 is registered first, so every OCPP 2.1 route checked nested
+objects against the 2.0.1 definitions: a 2.1 `SetChargingProfile` with purpose
+`LocalGeneration` or `PriorityCharging` was refused with 400
+`FST_ERR_VALIDATION`. The patch gives definitions the same version prefix.
+
 **DER control patch (OCPP 2.1)** (`patches/0003-ocpp21-der-control.patch`).
 Upstream v2.1.0 knows the OCPP 2.1 DER actions by name only: it has no schemas,
 routes or handlers for them, so a station's `ReportDERControl`,
@@ -387,7 +405,7 @@ reports the original 2.1 `protocol` and `commands` for older clients.
 
 `command_real_stations_enabled: true` (default `false`) lets
 `command_station_id` be any OCPP identity (up to 48 of
-`A-Z a-z 0-9 . _ ~ * + -`), so the HA bridge can limit a physical charger.
+`A-Z a-z 0-9 . _ ~ * + -`), so the HA bridge's TxProfile can limit a physical charger.
 It is still exactly one station, chosen in the options, and every other
 bound is unchanged: TxProfile only, an active transaction on that station
 is required, at most 600 s and 10 periods, 25 kW import and export, and
@@ -495,6 +513,35 @@ put a zero `totalCost` into every TransactionEventResponse instead. CitrineOS
 still fills `totalCost` in the TransactionEventResponse that ends a
 transaction (zero with the lab tariff), and 0 for a 2.1 transaction cancelled
 before any energy was delivered.
+
+## Local generation and EMS (lab)
+
+OCPP 2.1 smart charging with a local energy management system (EMS) and local
+generation, on the command station. It uses the command token and the scoped
+command routes, so it needs `command_control_enabled`, and OCPP 2.1.
+
+- **Operation modes.** A TxProfile period may carry `ExternalLimits`,
+  `ExternalSetpoint` or `LocalLoadBalancing`, besides `CentralSetpoint` and
+  `ChargingOnly`. In those three the station, or a local EMS, chooses the
+  power: the period gives `limit` (0 to 25 kW) and `dischargeLimit` (-25 kW to
+  0), and no `setpoint`. The frequency modes (`CentralFrequency`,
+  `LocalFrequency`) are refused: they need curves the gateway does not bound.
+- **LocalGeneration profiles.** `setChargingProfile` with purpose
+  `LocalGeneration`: extra charging capacity from on-site generation, on top of
+  the grid limits. EVSE 0 (the station) or 1, profile id 9100 to 9199, kind
+  `Absolute` or `Relative`, up to 86400 s and 48 periods, charging limits only
+  (`limit` 0 to 25 kW, optional `numberPhases`), no transaction. It may be set,
+  and its id cleared with `clearChargingProfile`, whatever the station's
+  transactions. The station takes it only if
+  `SmartChargingCtrlr.SupportedAdditionalPurposes` lists `LocalGeneration`.
+- **EMS limits** (source patch 0004, [ha-addons#87](https://github.com/purcell-lab/ha-addons/issues/87)).
+  The station's `NotifyChargingLimit` (source `EMS`, `SO`, `CSO` or `Other`,
+  `isGridCritical`, `isLocalGeneration`, the optional schedule) is stored in
+  `ChargingLimits`; a newer notification for the same EVSE and source, or
+  `ClearedChargingLimit`, makes it inactive. `GET /lab/charging-limits` (api or
+  command token) lists the command station's limits, newest first (20), as
+  `active` and `recent`. Home Assistant's `ha_reader` may read the table.
+- `/lab/control-policy` lists all three as `local_energy`.
 
 ## DER control (lab)
 
