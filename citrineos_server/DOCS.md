@@ -114,6 +114,27 @@ CI checks a logical `pg_dump`/`pg_restore` into a disposable second database and
 server restart persistence. This does not claim that a full Supervisor disaster
 restore has been tested. Take a protected HA backup before deployment.
 
+## Memory diagnostics
+
+The upstream server runs with a 768 MB JavaScript heap. Since 0.11.1 the App
+also keeps evidence for an out-of-memory crash
+([ha-addons#80](https://github.com/purcell-lab/ha-addons/issues/80)):
+
+- Once a minute the log shows `Memory <UTC time>: CitrineOS <n> MB RSS (heap
+  limit 768 MB), gateway <n> MB RSS.` A value that can't be read shows as
+  `unavailable`. A steady climb towards the limit is the leak; the times line
+  up with Home Assistant history and the `OCPPMessages` table.
+- Near the heap limit, Node writes one heap snapshot to `/data/heap`
+  (`--heapsnapshot-near-heap-limit=1`). It is about the size of the heap or
+  larger, so expect up to about 1 to 2 GB there. At each start the App keeps
+  only the newest snapshot and logs the names it removes. Writing the snapshot
+  needs extra memory for a moment, which the container has.
+- The line `<UTC time>: Upstream process exited (<code>); gateway closing.`
+  marks the crash, and the App watchdog restarts the App.
+
+To read a snapshot, copy it out of the App's data folder (for example with a
+backup) and open it in Chrome DevTools (Memory, Load profile).
+
 ## Upstream changes in this App
 
 **Source build and patches.** The image build fetches CitrineOS at the pinned
@@ -161,6 +182,13 @@ notification there; a clear, or a newer notification for the same EVSE and
 source, makes the earlier one inactive. It also adds the OCPP 2.1 purposes
 `PriorityCharging` and `LocalGeneration` to CitrineOS's own profile-purpose
 list (the OCPP schemas already had them).
+
+**Empty station identity patch** (`patches/0006-ocpp-empty-station-identity.patch`).
+The station identity is the last segment of the websocket URL path. Upstream
+accepted a URL ending in `/` with an empty identity, and with unknown stations
+allowed this created a station with an empty `ocppConnectionName` (seen on the
+Green after the Plugfest). The patch refuses such an upgrade with 404, as for
+an unknown station.
 
 **OCPP 2.1 route schemas patch** (`patches/0005-ocpp2-route-schema-definitions.patch`).
 Upstream registers each message route's body schema with a version prefix but

@@ -1,0 +1,69 @@
+ha-citrine source patch 0006 against CitrineOS v2.1.0
+(4fd7599b91c2fb6e6065e7c9b94be69880cced27), applied after 0001 to 0005:
+refuse a websocket upgrade with no charging station identity.
+
+The station identity is the last segment of the upgrade URL path. A URL that
+ends in "/" (the server root, or a trailing slash after the identity) gives
+an empty identity, and nothing refused it: with unknown stations allowed, the
+upgrade was accepted and created a ChargingStations row with an empty
+ocppConnectionName. On the Green such a row, created during the Plugfest on
+23 October, coincided with the 25 October heap exhaustions (ha-addons#80) and
+broke Home Assistant discovery ("Missing or ambiguous station identity").
+OCPP-J identifies the station by a non-empty identity in the URL path.
+
+getClientIdFromUrl now throws UpgradeUnknownError for an empty identity, so
+the upgrade is answered 404 like an unknown station, by every listener and
+admission mode. Tests cover "/", "", a trailing slash and a root with a query.
+
+diff --git a/packages/ocpp/src/transport/network-connection/util.ts b/packages/ocpp/src/transport/network-connection/util.ts
+index b8f160dba..5ab5d23fd 100644
+--- a/packages/ocpp/src/transport/network-connection/util.ts
++++ b/packages/ocpp/src/transport/network-connection/util.ts
+@@ -11,11 +11,19 @@ import { UpgradeUnknownError } from './authenticator/errors/unknown-error.js';
+  */
+ export function getClientIdFromUrl(url: string): string {
+   const pathSegment = url.split('?')[0].split('/').pop() as string;
++  let identifier: string;
+   try {
+-    return decodeURIComponent(pathSegment);
++    identifier = decodeURIComponent(pathSegment);
+   } catch {
+     throw new UpgradeUnknownError(`Unknown identifier ${pathSegment}`);
+   }
++  // ha-citrine patch (0006-ocpp-empty-station-identity): a URL ending in "/" (the server root,
++  // or a trailing slash) has no station identity; OCPP-J requires one. Accepting it created a
++  // station with an empty ocppConnectionName.
++  if (identifier === '') {
++    throw new UpgradeUnknownError('Missing charging station identity in the URL path');
++  }
++  return identifier;
+ }
+ 
+ /**
+diff --git a/packages/ocpp/test/transport/network-connection/tls-and-ws-gaps.test.ts b/packages/ocpp/test/transport/network-connection/tls-and-ws-gaps.test.ts
+index 76f0d0cf3..b36ea8af1 100644
+--- a/packages/ocpp/test/transport/network-connection/tls-and-ws-gaps.test.ts
++++ b/packages/ocpp/test/transport/network-connection/tls-and-ws-gaps.test.ts
+@@ -34,6 +34,7 @@ import {
+ } from '@services/index.js';
+ import { TlsCredentialManager } from '@/transport/network-connection/tls-certificate-manager.js';
+ import { getClientIdFromUrl } from '@/transport/network-connection/util.js';
++import { UpgradeUnknownError } from '@/transport/network-connection/authenticator/errors/unknown-error.js';
+ import { WebsocketNetworkConnection } from '@/transport/network-connection/websocket-network-connection.js';
+ import { readFile } from '../../helpers/file-util.js';
+ import { parseOcspRequestHex } from '../../helpers/ocsp-request-parser.js';
+@@ -510,6 +511,14 @@ describe('getClientIdFromUrl', () => {
+   it('returns a bare id unchanged', () => {
+     expect(getClientIdFromUrl('cp1')).toBe('cp1');
+   });
++
++  // ha-citrine patch (0006-ocpp-empty-station-identity)
++  it.each(['/', '', '/ocpp/cp001/', '/?x=1'])(
++    'refuses a URL with no station identity (%s)',
++    (url) => {
++      expect(() => getClientIdFromUrl(url)).toThrow(UpgradeUnknownError);
++    },
++  );
+ });
+ 
+ describe('WebsocketNetworkConnection', () => {

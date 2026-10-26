@@ -114,6 +114,14 @@ const PATCHES = {
       {file: 'packages/base/test/util/endpoints/route-schemas.test.ts', markers: 1},
     ],
   },
+  '0006-ocpp-empty-station-identity.patch': {
+    files: [
+      {file: 'packages/ocpp/src/transport/network-connection/util.ts',
+        blob: 'b8f160dbafb38735d50c63150a1c3cab0491b12a', fixture: 'network-connection-util.v2.1.0.ts', markers: 1},
+      {file: 'packages/ocpp/test/transport/network-connection/tls-and-ws-gaps.test.ts',
+        blob: '76f0d0cf3ea9daa2597b635fa215db2d7722f888', fixture: 'tls-and-ws-gaps.test.v2.1.0.ts', markers: 1},
+    ],
+  },
 };
 // The upstream files a patch changes, and every file it touches.
 const changes = entry => entry.files ?? [entry];

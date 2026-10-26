@@ -12,7 +12,8 @@
       "0002-ocpp21-allowed-energy-transfer.patch",
       "0003-ocpp21-der-control.patch",
       "0004-ocpp2-charging-limits.patch",
-      "0005-ocpp2-route-schema-definitions.patch"
+      "0005-ocpp2-route-schema-definitions.patch",
+      "0006-ocpp-empty-station-identity.patch"
     ]
   },
   "client": {

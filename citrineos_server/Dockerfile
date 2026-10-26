@@ -47,14 +47,16 @@ RUN cd /deploy && for f in dist/index.js dist/scripts/provision-partitions.js di
     && grep -q "ha-citrine patch (0004-ocpp2-charging-limits)" \
       dist/migrations/20261026120000-create-charging-limits.js \
     && grep -q "ha-citrine patch (0005-ocpp2-route-schema-definitions)" \
-      node_modules/@citrineos/base/dist/src/util/endpoints/route-schemas.js
+      node_modules/@citrineos/base/dist/src/util/endpoints/route-schemas.js \
+    && grep -q "ha-citrine patch (0006-ocpp-empty-station-identity)" \
+      node_modules/@citrineos/ocpp/dist/src/transport/network-connection/util.js
 
 FROM node:24.16.0-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
 ARG BUILD_ARCH
 LABEL io.hass.name="CitrineOS Isolated Lab" \
       io.hass.description="Private laboratory server with opt-in scoped simulator controls" \
       io.hass.type="addon" \
-      io.hass.version="0.11.0" \
+      io.hass.version="0.11.1" \
       io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons" \
       org.opencontainers.image.licenses="Apache-2.0"
