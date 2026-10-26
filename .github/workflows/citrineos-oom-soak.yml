@@ -1,0 +1,108 @@
+name: CitrineOS OOM soak (experiment)
+# One-off experiment on branch claude/citrineos-oom-soak: does an
+# empty-identity ChargingStations row and/or the HA integration's setup-retry
+# load make the upstream server's heap grow to OOM? Disposable containers only.
+on:
+  push:
+    branches: [claude/citrineos-oom-soak]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: citrineos-oom-soak-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  soak:
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - control
+          - polling
+          - empty-row
+          - empty-row-live
+          - empty-row-polling
+          - empty-row-online-polling
+          - empty-ws-polling
+        loglevel: ["3"]
+        include:
+          # The App's own level (warn), as on the Green.
+          - scenario: empty-row-polling
+            loglevel: "4"
+    name: ${{ matrix.scenario }} (log ${{ matrix.loglevel }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Images (published server 0.11.0, others built from pinned sources)
+        run: |
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' citrineos_server/config.yaml)
+          if docker pull "ghcr.io/purcell-lab/amd64-citrineos-server:$version"; then
+            docker tag "ghcr.io/purcell-lab/amd64-citrineos-server:$version" citrine-server:test
+          else
+            docker build --build-arg BUILD_ARCH=amd64 -t citrine-server:test citrineos_server
+          fi
+          for app in database broker hasura simulator; do
+            docker build --build-arg BUILD_ARCH=amd64 -t "citrine-${app}:test" "citrineos_${app}"
+          done
+      - name: Soak
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          LOGLEVEL: ${{ matrix.loglevel }}
+          SOAK_MINUTES: "22"
+          OUT_DIR: oom-soak
+        run: python3 citrineos_server/tests/oom_soak.py
+      - name: Job summary
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib
+          f = pathlib.Path("oom-soak") / (os.environ["S"] + ".json")
+          r = json.loads(f.read_text()) if f.exists() else {"scenario": os.environ["S"], "result": "no report"}
+          fmt = lambda v: "none" if v is None else (f"{v:.1f}" if isinstance(v, float) else str(v))
+          c = r.get("log_counts", {})
+          line = (f"| {r['scenario']} | {os.environ['L']} | {r.get('result')} | {fmt(r.get('start_mb'))} | {fmt(r.get('end_mb'))} | "
+                  f"{fmt(r.get('max_mb'))} | {fmt(r.get('slope_mb_per_min'))} | {'yes' if r.get('oom') else 'no'} | "
+                  f"{fmt(r.get('time_to_oom_s'))} | {c.get('reemitting','none')}/{c.get('waits_behind','none')}/{c.get('dead_lettering','none')} | "
+                  f"{fmt((r.get('queues_end') or {}).get('messages'))} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("| scenario | log | result | start MB | end MB | max MB | MB/min | OOM | time to OOM s | re-emit/waits/dead-letter | queued msgs |\n")
+              out.write("|---|---|---|---|---|---|---|---|---|---|---|\n" + line + "\n")
+          print(line)
+          EOF
+        env:
+          S: ${{ matrix.scenario }}
+          L: ${{ matrix.loglevel }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oom-soak-${{ matrix.scenario }}-log${{ matrix.loglevel }}
+          path: oom-soak/
+          retention-days: 14
+  summary:
+    needs: soak
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+      - name: Combined table
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib
+          fmt = lambda v: "none" if v is None else (f"{v:.1f}" if isinstance(v, float) else str(v))
+          rows = ["| scenario | log | result | start MB | end MB | max MB | MB/min | OOM | time to OOM s | re-emit/waits/dead-letter | queued msgs | poll cycles |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          for f in sorted(pathlib.Path("results").glob("*/*.json")):
+              r = json.loads(f.read_text())
+              c = r.get("log_counts", {})
+              rows.append(f"| {r['scenario']} | {r.get('loglevel')} | {r.get('result')} | {fmt(r.get('start_mb'))} | {fmt(r.get('end_mb'))} | "
+                          f"{fmt(r.get('max_mb'))} | {fmt(r.get('slope_mb_per_min'))} | {'yes' if r.get('oom') else 'no'} | "
+                          f"{fmt(r.get('time_to_oom_s'))} | {c.get('reemitting','none')}/{c.get('waits_behind','none')}/{c.get('dead_lettering','none')} | "
+                          f"{fmt((r.get('queues_end') or {}).get('messages'))} | {fmt((r.get('poller_end') or {}).get('cycles'))} |")
+          text = "\n".join(rows)
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("## CitrineOS OOM soak\n\nChild = upstream `node dist/index.js` VmRSS; slope after 2 min warm-up.\n\n" + text + "\n")
+          EOF
