@@ -24,6 +24,8 @@ jobs:
           - empty-row-polling
           - empty-row-online-polling
           - empty-ws-polling
+          - empty-ws-held-polling
+          - empty-ws-reconnect-polling
         loglevel: ["3"]
         include:
           # The App's own level (warn), as on the Green.

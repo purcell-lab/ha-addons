@@ -46,9 +46,14 @@ TMP.mkdir(exist_ok=True, mode=0o700)
 
 POLLING = SCENARIO.endswith("polling")
 EMPTY = {"empty-row": "before", "empty-row-polling": "before", "empty-row-online-polling": "before-online",
-         "empty-row-live": "after", "empty-ws-polling": "websocket"}.get(SCENARIO)
+         "empty-row-live": "after", "empty-ws-polling": "websocket",
+         "empty-ws-held-polling": "websocket", "empty-ws-reconnect-polling": "websocket"}.get(SCENARIO)
+# A client at path '/' during the soak: held open (silent), or reconnecting
+# every 20 s (a charger in a reconnect loop).
+EMPTY_CLIENT = {"empty-ws-held-polling": "held", "empty-ws-reconnect-polling": "reconnect"}.get(SCENARIO)
 assert SCENARIO in ("control", "polling", "empty-row", "empty-row-live", "empty-row-polling",
-                    "empty-row-online-polling", "empty-ws-polling"), SCENARIO
+                    "empty-row-online-polling", "empty-ws-polling", "empty-ws-held-polling",
+                    "empty-ws-reconnect-polling"), SCENARIO
 
 db, broker, hasura, token, command, operator = (secrets.token_hex(32) for _ in range(6))
 simulator_password = secrets.token_hex(20)
@@ -121,8 +126,10 @@ def wait_ready(label, seconds=300):
 
 def child_pid():
     out = docker("exec", "lab-server", "sh", "-c",
-                 "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline 2>/dev/null | "
-                 "grep -q 'dist/index.js' && echo ${p#/proc/}; done", check=False).split()
+                 # The node process whose argv is exactly node .../dist/index.js
+                 # (not this shell, whose own command line names the file).
+                 "for p in /proc/[0-9]*; do case \"$(tr '\\0' ' ' < $p/cmdline 2>/dev/null)\" in "
+                 "'node '*/dist/index.js' ') echo ${p#/proc/};; esac; done", check=False).split()
     return out[0] if out else None
 
 
@@ -227,6 +234,34 @@ await new Promise(r=>setTimeout(r,3000));
 console.log(JSON.stringify(out));process.exit(0);
 """
 
+EMPTY_CLIENT_JS = r"""
+import {createRequire} from 'node:module';
+const r=createRequire('/usr/local/apps/citrineos/apps/ocpp-server/package.json');
+const WebSocket=r(r.resolve('ws'));
+const mode=process.argv[1];
+const c={opened:0,refused:0,errors:0,closes:0,messages:0};
+const report=()=>console.log(JSON.stringify(c));
+setInterval(report,30000);
+function connect(){
+  const ws=new WebSocket('ws://127.0.0.1:8083/',['ocpp2.0.1'],{handshakeTimeout:8000});
+  let t;
+  ws.on('unexpected-response',()=>{c.refused++;});
+  ws.on('open',()=>{c.opened++;if(mode==='reconnect')t=setTimeout(()=>ws.close(),15000);});
+  ws.on('message',()=>{c.messages++;});
+  ws.on('error',()=>{c.errors++;});
+  ws.on('close',()=>{c.closes++;clearTimeout(t);setTimeout(connect,5000);});
+}
+connect();
+"""
+
+
+def start_empty_client():
+    p = subprocess.Popen(["docker", "exec", "lab-server", "node", "--input-type=module", "-e", EMPTY_CLIENT_JS,
+                          EMPTY_CLIENT], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    os.set_blocking(p.stdout.fileno(), False)
+    return p
+
+
 EMPTY_ROWS_SQL = ('SELECT s.id, s."tenantId", s."isOnline", s.protocol, '
                   '(SELECT count(*) FROM "Evses" e WHERE e."stationId"=s.id) '
                   'FROM "ChargingStations" s WHERE s."ocppConnectionName"=\'\'')
@@ -257,6 +292,7 @@ report = {"scenario": SCENARIO, "loglevel": LOGLEVEL, "soak_minutes": SOAK_MINUT
           "sample_s": SAMPLE_S, "polling": POLLING, "empty_row": EMPTY, "result": "running"}
 samples = []
 poller = None
+client = None
 try:
     docker("network", "create", "--internal", "citrine-ci")
     for name, app, config in zip(names, ["database", "broker", "hasura", "server"], options):
@@ -304,6 +340,9 @@ try:
     report["stations"] = psql('SELECT id, "ocppConnectionName", "isOnline", protocol FROM "ChargingStations" ORDER BY id')
     if POLLING:
         poller = start_poller()
+    if EMPTY_CLIENT:
+        client = start_empty_client()
+    client_counts = {}
     polled = {}
     oom_at = None
     restarts0 = int(docker("inspect", "-f", "{{.RestartCount}}", "lab-server").strip() or 0)
@@ -322,6 +361,11 @@ try:
                "restarts": (int(state[1]) - restarts0) if len(state) > 1 else None}
         if pid and pid not in pids:
             pids.append(pid)
+        if client:
+            client_counts = poller_counts(client, client_counts)
+            row["empty_client_opened"] = client_counts.get("opened")
+            if client.poll() is not None and row["state"] == "running":
+                client = start_empty_client()
         if poller:
             polled = poller_counts(poller, polled)
             row["poll_cycles"] = polled.get("cycles")
@@ -352,15 +396,16 @@ try:
         "max_mb": max(rss_values) if rss_values else None,
         "slope_mb_per_min": slope(warm), "oom": bool(counts["oom"]) or len(pids) > 1,
         "time_to_oom_s": oom_at, "log_counts": counts, "queues_end": queues(),
-        "poller_end": polled, "restarts": samples[-1]["restarts"] if samples else None,
+        "poller_end": polled, "empty_client_end": client_counts, "restarts": samples[-1]["restarts"] if samples else None,
         "empty_rows_end": psql(EMPTY_ROWS_SQL),
     })
 except Exception as error:
     report.update(result="failed", error_type=type(error).__name__, error=redact(str(error))[:2000])
     raise
 finally:
-    if poller:
-        poller.kill()
+    for proc in (poller, client):
+        if proc:
+            proc.kill()
     try:
         logs = server_logs()
         (OUT / f"{SCENARIO}-server.log").write_text(logs)
