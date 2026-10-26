@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -494,6 +495,20 @@ class GeneratedConfigTest(unittest.TestCase):
         security = configure.everest_config(configure.validate(dict(options, csms_ca_certificate="")),
                                             Path("/data"), "b" * 24)["active_modules"]["evse_security"]
         self.assertEqual(security["config_module"], {"private_key_password": "b" * 24})
+
+    def test_ev_charging_needs_is_opt_in(self):
+        # NotifyEVChargingNeeds: a Rejected reply stops the OCPP 2.1
+        # transaction, so the ISO 15118 extensions are wired only on request.
+        modules = configure.everest_config(configure.validate(GOOD), Path("/data"), "b" * 24)["active_modules"]
+        self.assertNotIn("extensions_15118", modules["ocpp"]["connections"])
+        self.assertNotIn("mapping", modules["iso15118_charger"])
+        settings = configure.validate(dict(GOOD, ev_charging_needs=True))
+        modules = configure.everest_config(settings, Path("/data"), "b" * 24)["active_modules"]
+        self.assertEqual(modules["ocpp"]["connections"]["extensions_15118"],
+                         [{"module_id": "iso15118_charger", "implementation_id": "extensions"}])
+        self.assertEqual(modules["iso15118_charger"]["mapping"], {"module": {"evse": 1}})
+        with self.assertRaises(ValueError):
+            configure.validate(dict(GOOD, ev_charging_needs="yes"))
 
     def test_everest_config_scope(self):
         settings = configure.validate(dict(GOOD, max_power_kw=7))
@@ -1038,6 +1053,127 @@ class UiServerTest(unittest.TestCase):
         self.assertEqual(commands["plugin"], ("execute_charging_session", configure.ev_session()))
         self.assertTrue(commands["stop"][1].startswith("iso_stop_charging"))
         self.assertEqual(commands["unplug"], ("modify_charging_session", "unplug"))
+
+
+class EvModelTest(unittest.TestCase):
+    """The simulated EV's needs (ISO 15118-20 Dynamic mode) and battery."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "rootfs/opt/ha-everest"))
+        import ev_model
+        self.m = ev_model
+
+    def test_validation(self):
+        now = 1_800_000_000
+        ok = self.m.validate_needs({"mode": "charge_by", "target_soc": 90, "ready_by": now + 3600}, now)
+        self.assertEqual((ok["mode"], ok["target_soc"], ok["ready_by"]), ("charge_by", 90, now + 3600))
+        for bad in ({"mode": "discharge"}, {"mode": "charge_by"},  # charge_by needs a time
+                    {"mode": "charge_by", "ready_by": now - 1}, {"mode": "charge_by", "ready_by": now + 8 * 86400},
+                    {"target_soc": 101}, {"target_soc": True}, {"min_soc": 80, "target_soc": 80},
+                    {"start_soc": -1}, {"power_kw": 5}, ["mode"]):
+            with self.assertRaises(ValueError, msg=bad):
+                self.m.validate_needs(bad, now)
+
+    def test_iso20_needs(self):
+        now = 1_800_000_000
+        allow = self.m.validate_needs({"mode": "allow_discharge", "min_soc": 20, "target_soc": 80}, now)
+        iso = self.m.iso20_needs(allow, 50.0, 25000, now)
+        self.assertEqual(iso["departure_time"], self.m.DEFAULT_DEPARTURE_S)
+        self.assertEqual((iso["min_soc"], iso["target_soc"], iso["present_soc"]), (20, 80, 50))
+        self.assertEqual((iso["target_wh"], iso["max_wh"], iso["min_wh"]), (18000, 30000, -18000))
+        self.assertEqual((iso["v2x_min_wh"], iso["v2x_max_wh"]), (-18000, 30000))
+        self.assertEqual((iso["max_discharge_w"], iso["min_discharge_w"], iso["max_discharge_a"]), (25000, 300, 66))
+        # At the floor the EV stops offering discharge.
+        self.assertEqual(self.m.iso20_needs(allow, 20.0, 25000, now)["max_discharge_w"], 0)
+        charge = self.m.validate_needs({"mode": "charge_by", "target_soc": 80, "ready_by": now + 7200}, now)
+        iso = self.m.iso20_needs(charge, 50.0, 25000, now + 600)
+        self.assertEqual((iso["departure_time"], iso["min_soc"], iso["min_wh"]), (6600, 80, 18000))
+        self.assertEqual((iso["v2x_min_wh"], iso["v2x_max_wh"], iso["max_discharge_w"]), (None, None, 0))
+        self.assertEqual(iso["remaining_time_to_target_soc"], int(18000 / 25000 * 3600))
+        # A ready_by that has passed: depart now.
+        self.assertEqual(self.m.iso20_needs(charge, 50.0, 25000, now + 9000)["departure_time"], 0)
+
+    def test_battery_follows_the_meter(self):
+        battery = self.m.Battery(capacity_wh=60000)
+        self.assertEqual(battery.update("Unplugged", 100.0, 5.0, 50), (50.0, False))
+        self.assertEqual(battery.update("Charging", 100.0, 5.0, 50), (50.0, True))  # baseline at plug-in
+        self.assertEqual(battery.update("Charging", 700.0, 5.0, 50), (51.0, True))  # +600 Wh = +1 %
+        self.assertEqual(battery.update("Charging", 700.0, 1205.0, 50), (49.0, True))  # discharge lowers it
+        self.assertEqual(battery.update("Unplugged", 700.0, 1205.0, 50), (50.0, False))  # reset on unplug
+        self.assertEqual(battery.update("Charging", 0.0, 0.0, 99)[0], 99.0)
+        self.assertEqual(battery.update("Charging", 5000.0, 0.0, 99)[0], 100.0)  # clamped
+
+    def test_load_needs_keeps_a_passed_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / self.m.NEEDS_FILE
+            self.assertEqual(self.m.load_needs(path), self.m.DEFAULT_NEEDS)
+            path.write_text(json.dumps({"mode": "charge_by", "target_soc": 70, "min_soc": 30,
+                                        "start_soc": 40, "ready_by": 1000}))
+            self.assertEqual(self.m.load_needs(path)["ready_by"], 1000)
+            path.write_text("{")
+            self.assertEqual(self.m.load_needs(path), self.m.DEFAULT_NEEDS)
+
+
+NEEDS_LOG = """2026-10-26T06:15:45.000Z: ChargePoint>CentralSystem NotifyEVChargingNeeds
+[2, "n-1", "NotifyEVChargingNeeds", {"evseId": 1, "chargingNeeds": {"requestedEnergyTransfer": "DC_BPT",
+ "departureTime": "2026-10-27T06:15:45Z", "v2xChargingParameters": {"targetSoC": 80}}}]
+2026-10-26T06:15:45.200Z: CentralSystem>ChargePoint  NotifyEVChargingNeedsResponse
+[3, "n-1", {"status": "Rejected"}]
+2026-10-26T06:15:46.000Z: CentralSystem>ChargePoint  SetChargingProfile
+[2, "n-1", "SetChargingProfile", {"evseId": 1}]
+"""
+
+
+class ChargingNeedsLogTest(unittest.TestCase):
+    def test_station_requests_pair_with_csms_replies(self):
+        sys.path.insert(0, str(ROOT / "rootfs/opt/ha-everest"))
+        import ocpp_log
+        events = ocpp_log.charging_needs_events(NEEDS_LOG)
+        self.assertEqual([(e["action"], e["status"]) for e in events], [("NotifyEVChargingNeeds", "Rejected")])
+        self.assertEqual(events[0]["payload"]["chargingNeeds"]["requestedEnergyTransfer"], "DC_BPT")
+        # CSMS-side tracking is unchanged: a CSMS request with a reused id is its own event.
+        self.assertEqual([e["action"] for e in ocpp_log.profile_events(NEEDS_LOG)], ["SetChargingProfile"])
+
+
+class EvNeedsEndpointTest(UiServerTest):
+    def setUp(self):
+        import ui_server
+        from http.server import ThreadingHTTPServer
+        self.tmp = tempfile.TemporaryDirectory()
+        run = Path(self.tmp.name)
+        (run / "state.json").write_text(json.dumps({"max_power_kw": 7}))
+        ui_server.RUN = run
+        ui_server.LOGS = run / "logs"
+        self.bus = FakeBus()
+        self.ev = ui_server.EV(self.bus, data=run, run=run)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), ui_server.make_handler(self.bus, ev=self.ev))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.ui = ui_server
+
+    def post(self, body, headers=None):
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        return self.request("/api/ev/needs", "POST",
+                            {"X-HA-EVerest": "1", "Content-Type": "application/json", **(headers or {})}, data)
+
+    def test_needs_endpoint(self):
+        ready = int(time.time()) + 3600
+        code, body = self.post({"mode": "charge_by", "target_soc": 90, "ready_by": ready})
+        self.assertEqual(code, 200, body)
+        run = Path(self.tmp.name)
+        self.assertEqual(json.loads((run / "ev-needs.json").read_text())["target_soc"], 90)
+        iso = json.loads((run / "ev-iso20.json").read_text())  # what Josev reads
+        self.assertEqual((iso["mode"], iso["min_soc"], iso["max_discharge_w"]), ("charge_by", 90, 0))
+        status = json.loads(self.request("/api/status")[1])["ev"]
+        self.assertEqual((status["needs"]["mode"], status["iso20"]["target_soc"]), ("charge_by", 90))
+        self.assertEqual(self.post({"mode": "charge_by"})[0], 400)  # no ready_by
+        self.assertEqual(self.post(b"{")[0], 400)
+        self.assertEqual(self.post({"mode": "allow_discharge", "x": "y" * 600})[0], 400)  # too large
+        self.assertEqual(self.post({"mode": "allow_discharge"}, {"X-HA-EVerest": ""})[0], 403)
+        self.assertEqual(self.post({"mode": "allow_discharge"}, {"Content-Type": "text/plain"})[0], 415)
+        self.assertEqual(self.request("/api/ev/needs", "POST", {"X-HA-EVerest": "1"})[0], 415)
+        # A rejected request leaves the stored needs as they were.
+        self.assertEqual(json.loads((run / "ev-needs.json").read_text())["mode"], "charge_by")
+        self.assertEqual(self.bus.sent, [])  # needs never send a car-simulator command
 
 
 class WatchdogBus:

@@ -432,10 +432,32 @@ def tx_profile(profile_id, txid, start_text, periods):
                               "chargingSchedulePeriod": periods}]}}
 
 
+def charging_needs_checks(csms):
+    """NotifyEVChargingNeeds (ev_charging_needs) carries the needs the
+    patched Josev sends over ISO 15118-20 (ev_model.py defaults: plug in at
+    50 %, allow discharge down to 30 %, target 80 %, 60 kWh). EVerest
+    2026.10 maps the energy requests and the V2X window, not DepartureTime
+    or TargetSOC."""
+    needs = csms.calls("NotifyEVChargingNeeds")
+    assert needs, "no NotifyEVChargingNeeds"
+    charging = needs[-1]["chargingNeeds"]
+    assert charging.get("v2xChargingParameters"), charging  # ISO 15118-20 needs (libocpp's test)
+    v2x = charging["v2xChargingParameters"]
+    # Schedule exchange comes before any energy flows, so the SoC is still 50 %.
+    expected = {"evTargetEnergyRequest": 18000, "evMaxEnergyRequest": 30000, "evMinEnergyRequest": -12000,
+                "evMinV2XEnergyRequest": -12000, "evMaxV2XEnergyRequest": 30000}
+    assert {k: v2x.get(k) for k in expected} == expected, charging
+    ui = http("/api/status")["ev"]
+    assert ui["needs"]["mode"] == "allow_discharge" and ui["iso20"]["min_soc"] == 30, ui
+    return {"count": len(needs), "requestedEnergyTransfer": charging.get("requestedEnergyTransfer"),
+            "controlMode": charging.get("controlMode"), "chargingNeeds": charging}
+
+
 async def v2g_scenario():
     csms = await MockCsms(accept=("ocpp2.1", "ocpp2.0.1"), port=9220).start()
     app = App({"csms_url": "ws://127.0.0.1:9220", "charge_point_id": CPID, "ocpp_version": "2.1",
-               "max_power_kw": RATING_KW, "acknowledge_test_isolation": True})
+               "max_power_kw": RATING_KW, "acknowledge_test_isolation": True,
+               "ev_charging_needs": True})
     app.start()
     report = {"scenario": "v2g21"}
     try:
@@ -447,6 +469,8 @@ async def v2g_scenario():
         report["der"] = await der_checks(csms)
         report["v2x_operation_modes"] = await operation_mode_checks(csms)
         txid = await start_session(csms)
+        await wait_for(lambda: csms.calls("NotifyEVChargingNeeds"), 30, what="NotifyEVChargingNeeds")
+        report["charging_needs"] = charging_needs_checks(csms)
         start, start_text = iso_start()
         periods = []
         for i, watts in enumerate(SETPOINTS_W):

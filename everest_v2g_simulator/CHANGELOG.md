@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0
+
+- Status page redesign. The simulated EV comes first: state of charge
+  with the minimum and target, cable controls, charging needs, the
+  ISO 15118-20 session (protocol, DC_BPT, Dynamic control mode, mutual TLS
+  1.3, EVCCID, the charger's view) and a table of what the EV sends with
+  the NotifyEVChargingNeeds field for each value. Cards sit in a responsive
+  grid; the header stays in view.
+- The Security Profile chip is colour coded: red for 0 and 1, amber for 2,
+  green for 3 and above.
+- OCPP 2.1 tags on the live readings (measurands such as
+  `Power.Active.Import`, `Energy.Active.Import.Register`,
+  `Energy.Active.Export.Register`, `Voltage`, `Current.Import`, `SoC`) and on
+  the price, DER, charging profile and composite schedule panels (message
+  and data type names); ISO 15118-20 tags on the EV's values.
+- Charging needs: **Charge by** (target SoC by a time, no discharge) or
+  **Allow discharge** (down to a minimum SoC). The patched Josev sends them
+  in ScheduleExchangeReq, every DC_BPT CurrentDemandReq and
+  DisplayParameters instead of Josev's fixed values (`patch_needs`,
+  UPSTREAM.md). `POST /api/ev/needs`; stored in `/data/ev-needs.json`. The
+  CSMS still sets power and direction.
+- The EV's SoC comes from a 60 kWh battery model driven by the charger's
+  import and export meter; EVerest's car simulator counted discharge as
+  charging.
+- New option `ev_charging_needs` (off): NotifyEVChargingNeeds to the CSMS.
+  Off by default because a Rejected reply ends OCPP 2.1 V2G transactions and
+  the CitrineOS lab App rejects needs sent before its transaction exists
+  ([ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)). The
+  Status page lists each NotifyEVChargingNeeds with the CSMS's reply. The v2g21
+  acceptance scenario turns it on and checks the message.
+
 ## 0.2.1
 
 - OCPP Security Profile 2, ported from the unreleased 0.1.14 onto EVerest

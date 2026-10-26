@@ -4,6 +4,10 @@
 2. The simulated EV discharges up to 25 kW (66 A) instead of 11 kW (25 A).
 3. The simulated EV waits for authorisation longer than the charger does,
    so the charger always decides.
+4. The simulated EV states the operator's charging needs (ev_model.py):
+   DepartureTime, MinimumSOC, TargetSOC, the energy requests, the V2X
+   discharge window and discharge limits in ISO 15118-20, instead of
+   Josev's fixed values, with the App's SoC.
 
 Upstream PyEvJosev (EVerest 2026.10.0-rc1) runs one Josev EVCC per plug-in
 with asyncio.run() and now clears the plug-in event before each run. When
@@ -144,6 +148,105 @@ def patch_sim(text):
     return text.replace(*SIM_CURRENT).replace(*SIM_POWER)
 
 
+NEEDS_MARKER = "ha-everest: EV charging needs from the App"
+NEEDS_STATE = "EVEREST_EV_STATE = EVEREST_CONTEXT.ev_state\n"
+# Fields per message: (Josev field, ev_model.iso20_needs key, kind). Kind
+# "rational" encodes a RationalNumber, "nullable" also clears the field when
+# the needs have no value (charge_by has no V2X window).
+NEEDS_HELPERS = f"""
+# {NEEDS_MARKER} (patch_josev.py, patch_needs).
+import json as _ha_json
+import time as _ha_time
+HA_NEEDS_PATH = "/run/ha-everest/ev-iso20.json"
+HA_NEEDS_MAX_AGE_S = 30
+_HA_V2X = (("ev_max_v2x_energy_request", "v2x_max_wh", "nullable"),
+           ("ev_min_v2x_energy_request", "v2x_min_wh", "nullable"))
+_HA_ENERGY = (("ev_target_energy_request", "target_wh", "rational"),
+              ("ev_max_energy_request", "max_wh", "rational"),
+              ("ev_min_energy_request", "min_wh", "rational"))
+_HA_FIELDS = {{
+    "se": (("departure_time", "departure_time", "int"), ("min_soc", "min_soc", "int"),
+           ("target_soc", "target_soc", "int")) + _HA_ENERGY + _HA_V2X,
+    "loop": (("departure_time", "departure_time", "int"),) + _HA_ENERGY,
+    "bpt_loop": (("ev_max_discharge_power", "max_discharge_w", "rational"),
+                 ("ev_min_discharge_power", "min_discharge_w", "rational"),
+                 ("ev_max_discharge_current", "max_discharge_a", "rational")) + _HA_V2X,
+    "display": (("present_soc", "present_soc", "int"), ("min_soc", "min_soc", "int"),
+                ("target_soc", "target_soc", "int"), ("max_soc", "max_soc", "int"),
+                ("remaining_time_to_target_soc", "remaining_time_to_target_soc", "int"),
+                ("battery_energy_capacity", "battery_capacity_wh", "rational")),
+}}
+
+
+def _ha_needs():
+    \"\"\"The App's EV needs, or None (missing or stale): then Josev's values.\"\"\"
+    try:
+        with open(HA_NEEDS_PATH) as handle:
+            needs = _ha_json.load(handle)
+        if _ha_time.time() - float(needs["at"]) > HA_NEEDS_MAX_AGE_S:
+            return None
+        return needs
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _ha_rational(value):
+    \"\"\"A number as an ISO 15118-20 RationalNumber (int16 value).\"\"\"
+    value, exponent = int(round(value)), 0
+    while abs(value) > 32767:
+        value, exponent = int(round(value / 10)), exponent + 1
+    return RationalNumber(exponent=exponent, value=value)
+
+
+def _ha_apply(params, kind):
+    \"\"\"params with the App's needs for this message, validated again.\"\"\"
+    needs = _ha_needs()
+    if needs is None:
+        return params
+    update = {{}}
+    for field, key, how in _HA_FIELDS[kind]:
+        value = needs.get(key)
+        if value is None:
+            if how == "nullable":
+                update[field] = None
+            continue
+        update[field] = int(value) if how == "int" else _ha_rational(value)
+    return type(params)(**dict(params.dict(), **update))
+"""
+NEEDS_WRAPS = (
+    # ScheduleExchangeReq (Dynamic mode): departure, SoC targets, energy, V2X.
+    ("        return dynamic_params\n\n    async def process_scheduled_se_params(",
+     "        return _ha_apply(dynamic_params, \"se\")\n\n    async def process_scheduled_se_params("),
+    # DC CurrentDemandReq (Dynamic mode): departure and energy requests.
+    ("        return DynamicDCChargeLoopReqParams(\n",
+     "        return _ha_apply(DynamicDCChargeLoopReqParams(\n"),
+    ("            ev_min_voltage=RationalNumber(exponent=0, value=150),\n        )\n",
+     "            ev_min_voltage=RationalNumber(exponent=0, value=150),\n        ), \"loop\")\n"),
+    # DC_BPT CurrentDemandReq: discharge limits and V2X window.
+    ("        return BPTDynamicDCChargeLoopReqParams(\n            **dc_dynamic_dc_charge_loop_params_v20,\n",
+     "        return _ha_apply(BPTDynamicDCChargeLoopReqParams(\n            **dc_dynamic_dc_charge_loop_params_v20,\n"),
+    ("(patch_josev.py)\n        )\n\n    async def get_present_voltage(",
+     "(patch_josev.py)\n        ), \"bpt_loop\")\n\n    async def get_present_voltage("),
+    # DisplayParameters: the App's SoC and the SoC targets.
+    ("        return DisplayParameters(\n            present_soc=EVEREST_EV_STATE.actual_soc,\n"
+     "            charging_complete=await self.is_charging_complete(),\n        )\n",
+     "        return _ha_apply(DisplayParameters(\n            present_soc=EVEREST_EV_STATE.actual_soc,\n"
+     "            charging_complete=await self.is_charging_complete(),\n        ), \"display\")\n"),
+)
+
+
+def patch_needs(text):
+    """Patch 4, after patch_sim (its discharge-current comment is an anchor)."""
+    if NEEDS_MARKER in text:
+        return text
+    for anchor, _ in ((NEEDS_STATE, None),) + NEEDS_WRAPS:
+        if text.count(anchor) != 1:
+            raise ValueError("Josev simulator.py does not match the expected upstream text (charging needs)")
+    for anchor, replacement in NEEDS_WRAPS:
+        text = text.replace(anchor, replacement)
+    return text.replace(NEEDS_STATE, NEEDS_STATE + NEEDS_HELPERS)
+
+
 def check_udp(text):
     """Upstream must still send SDP on the configured interface."""
     if text.count(UDP_UPSTREAM) != 1:
@@ -175,6 +278,7 @@ def main(path=TARGET, udp_path=UDP_TARGET, sim_path=SIM_TARGET, auth_path=AUTH_T
         print(f"checked {udp_path} (upstream sets IPV6_MULTICAST_IF)")
     if sim_path:
         apply(sim_path, patch_sim)
+        apply(sim_path, patch_needs)
     if auth_path:
         apply(auth_path, patch_auth)
 

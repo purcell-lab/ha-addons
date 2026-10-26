@@ -27,36 +27,105 @@
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h2v2H3V5zm4 0h14v2H7V5zm-4 6h2v2H3v-2zm4 0h14v2H7v-2zm-4 6h2v2H3v-2zm4 0h14v2H7v-2z"/></symbol>
   <symbol id="i-price" viewBox="0 0 24 24"><path d="M21.4 11.6l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .6.2 1.1.6 1.4l9 9a2 2 0 0 0 2.8 0l7-7a2 2 0 0 0 0-2.8zM6.5 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></symbol>
   <symbol id="i-radar" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1-7.1 2.9l1.4 1.4A8 8 0 1 0 12 4v2a6 6 0 1 1-4.2 1.8l1.4 1.4A4 4 0 1 0 12 8v4H10V2h2z"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><path d="M8 2h8v2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V2zm-2 4v14h12V6H6zm2 8h8v4H8v-4z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5-3.4 9.6-8 11-4.6-1.4-8-6-8-11V5l8-3zm0 2.1L6 6.4V11c0 3.9 2.5 7.6 6 8.9 3.5-1.3 6-5 6-8.9V6.4l-6-2.3z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm1 3v5.4l3.7 2.2-1 1.7L11 13.6V7h2z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.6 13.4a1 1 0 0 0 1.4 0l4-4a3 3 0 0 0-4.2-4.2l-1.5 1.5 1.4 1.4 1.5-1.5a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 0 0 1.4zm2.8-2.8a1 1 0 0 0-1.4 0l-4 4a3 3 0 0 0 4.2 4.2l1.5-1.5-1.4-1.4-1.5 1.5a1 1 0 1 1-1.4-1.4l4-4a1 1 0 0 0 0-1.4z"/></symbol>
 </svg>
 
-<header>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
   <div class="title">
     <svg class="icon big accent"><use href="#i-charger"/></svg>
-    <h1>EVerest DC V2G test charger</h1>
-  </div>
-  <div class="badges">
-    <span id="conn" class="badge">Loading</span>
-    <span id="ident" class="badge muted"></span>
-    <span id="offer" class="badge muted"></span>
-    <span id="security" class="badge muted"></span>
-  </div>
-  <p class="note">Simulated bidirectional DC charger and EV (ISO 15118-20 DC_BPT) for isolated testing. Not a physical charger. Direction and power come only from the test central system.</p>
-</header>
-<main>
-  <section>
-    <h2><svg class="icon"><use href="#i-car"/></svg>Simulated EV</h2>
-    <div class="controls">
-      <button data-cmd="plugin"><svg class="icon"><use href="#i-plug"/></svg>Plug in</button>
-      <button data-cmd="stop"><svg class="icon"><use href="#i-stop"/></svg>EV stop session</button>
-      <button data-cmd="unplug" class="warn"><svg class="icon"><use href="#i-unplug"/></svg>Unplug now</button>
+    <div>
+      <h1>EVerest DC V2G test charger</h1>
+      <p class="sub">Simulated ISO 15118-20 DC_BPT charger and EV for isolated tests. Not a physical charger.</p>
     </div>
-    <p class="note">Plug in waits up to 3 minutes for authorisation. Start the transaction from the test central system (RequestStartTransaction). To discharge, send an OCPP 2.1 TxProfile period with operationMode CentralSetpoint and a negative setpoint in W.</p>
-    <p id="cmdmsg" class="note" role="status"></p>
-    <p id="evwatch" class="alert" role="status" hidden></p>
+  </div>
+  <ul class="status" aria-label="Connection">
+    <li id="conn" class="pill">Loading</li>
+    <li id="ident" class="pill muted"></li>
+    <li id="offer" class="pill muted"></li>
+    <li id="security" class="pill sp-none" hidden></li>
+    <li id="needspill" class="pill muted" hidden></li>
+  </ul>
+  <p class="legend">Tags name the protocol fields behind each value:
+    <code class="tag ocpp">OCPP 2.1</code> messages, data types and measurands,
+    <code class="tag iso">ISO 15118-20</code> parameters.</p>
+</header>
+
+<main id="main">
+  <section class="card wide" aria-labelledby="ev-h">
+    <h2 id="ev-h"><svg class="icon"><use href="#i-car"/></svg>Simulated EV</h2>
+    <div class="ev">
+      <div class="ev-col">
+        <div class="soc" aria-labelledby="soc-label">
+          <div class="soc-head">
+            <span id="soc-label">State of charge</span>
+            <code class="tag ocpp">SoC</code><code class="tag iso">PresentSOC</code>
+          </div>
+          <div class="soc-value"><span id="socvalue">–</span><span class="unit">%</span></div>
+          <div class="socbar" role="meter" id="socmeter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="State of charge">
+            <div class="socfill" id="socfill"></div>
+            <div class="socmark min" id="socmin" title="Minimum SoC"></div>
+            <div class="socmark target" id="soctarget" title="Target SoC"></div>
+          </div>
+          <div class="socscale"><span>0</span><span id="soclegend" class="note"></span><span>100</span></div>
+          <p id="socnote" class="note"></p>
+        </div>
+
+        <div class="controls" role="group" aria-label="Cable">
+          <button data-cmd="plugin"><svg class="icon"><use href="#i-plug"/></svg>Plug in</button>
+          <button data-cmd="stop"><svg class="icon"><use href="#i-stop"/></svg>EV stop session</button>
+          <button data-cmd="unplug" class="warn"><svg class="icon"><use href="#i-unplug"/></svg>Unplug now</button>
+        </div>
+        <p class="note">Start the transaction from the test CSMS (<code class="tag ocpp">RequestStartTransaction</code>). Plug in waits up to 3 minutes for authorisation.</p>
+        <p id="cmdmsg" class="note" role="status"></p>
+        <p id="evwatch" class="alert" role="status" hidden></p>
+      </div>
+
+      <form class="ev-col needs" id="needsform" novalidate>
+        <fieldset>
+          <legend>Charging needs</legend>
+          <p class="note">An ISO 15118-20 EV states its needs; the charger, steered by the CSMS, sets power and direction (<code class="tag ocpp">TxProfile</code> <code class="tag ocpp">operationMode</code> CentralSetpoint).</p>
+          <div class="segmented" role="radiogroup" aria-label="Need">
+            <label><input type="radio" name="mode" value="charge_by"><span><svg class="icon"><use href="#i-clock"/></svg>Charge by</span></label>
+            <label><input type="radio" name="mode" value="allow_discharge"><span><svg class="icon"><use href="#i-swap"/></svg>Allow discharge</span></label>
+          </div>
+          <div class="fields">
+            <label>Target SoC (%) <code class="tag iso">TargetSOC</code>
+              <input type="number" name="target_soc" min="1" max="100" step="1" required></label>
+            <label data-mode="allow_discharge">Minimum SoC (%) <code class="tag iso">MinimumSOC</code>
+              <input type="number" name="min_soc" min="0" max="99" step="1"></label>
+            <label>Ready by <code class="tag iso">DepartureTime</code>
+              <input type="datetime-local" name="ready_by"></label>
+            <label>SoC at plug-in (%)
+              <input type="number" name="start_soc" min="0" max="100" step="1" required></label>
+          </div>
+          <p id="needshelp" class="note"></p>
+          <div class="controls"><button type="submit" id="needsapply">Apply needs</button></div>
+          <p id="needsmsg" class="note" role="status"></p>
+        </fieldset>
+      </form>
+    </div>
+
+    <div class="ev-grid">
+      <div>
+        <h3>ISO 15118-20 session</h3>
+        <dl class="kv" id="isostatus"></dl>
+      </div>
+      <div>
+        <h3>What the EV sends</h3>
+        <div class="tablewrap"><table id="evsends"><thead><tr><th scope="col">ISO 15118-20</th><th scope="col">OCPP 2.1 <code class="tag ocpp">NotifyEVChargingNeeds</code></th><th scope="col" class="num">Value</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+    <h3>Charging needs at the CSMS</h3>
+    <p id="needsmeta" class="note"></p>
+    <div class="tablewrap"><table id="needsmsgs"><thead><tr><th scope="col">Sent</th><th scope="col">Reply</th><th scope="col">Energy transfer</th><th scope="col">Detail</th></tr></thead><tbody></tbody></table></div>
   </section>
 
-  <section>
-    <h2><svg class="icon"><use href="#i-bolt"/></svg>Live readings</h2>
+  <section class="card wide" aria-labelledby="live-h">
+    <h2 id="live-h"><svg class="icon"><use href="#i-bolt"/></svg>Live readings <code class="tag ocpp">MeterValues</code><code class="tag ocpp">TransactionEvent</code></h2>
     <!-- Bidirectional power bar: discharge grows left (blue), charge grows right (green). -->
     <div class="flow" aria-hidden="true">
       <span class="flow-end export"><svg class="icon"><use href="#i-out"/></svg>Export</span>
@@ -81,49 +150,52 @@
     </div>
   </section>
 
-  <section>
-    <h2><svg class="icon"><use href="#i-gauge"/></svg>Effective limit (composite schedule)</h2>
+  <section class="card" aria-labelledby="comp-h">
+    <h2 id="comp-h"><svg class="icon"><use href="#i-gauge"/></svg>Effective limit</h2>
+    <p class="tags"><code class="tag ocpp">CompositeScheduleType</code><code class="tag ocpp">ChargingSchedulePeriodType</code></p>
     <p class="note">EVerest's combined result of all active profiles for EVSE 1, refreshed every 10 seconds. Green is charging (import), blue is discharging (export).</p>
-    <div class="tablewrap"><table id="composite"><thead><tr><th>Offset (s)</th><th>Limit</th><th>Discharge limit</th><th>Setpoint</th></tr></thead><tbody></tbody></table></div>
+    <div class="tablewrap"><table id="composite"><thead><tr><th scope="col">Offset (s) <code class="tag ocpp">startPeriod</code></th><th scope="col">Limit <code class="tag ocpp">limit</code></th><th scope="col">Discharge <code class="tag ocpp">dischargeLimit</code></th><th scope="col">Setpoint <code class="tag ocpp">setpoint</code></th></tr></thead><tbody></tbody></table></div>
   </section>
 
-  <section>
-    <h2><svg class="icon"><use href="#i-price"/></svg>Price</h2>
+  <section class="card" aria-labelledby="tx-h">
+    <h2 id="tx-h"><svg class="icon"><use href="#i-doc"/></svg>Last charging profile</h2>
+    <p class="tags"><code class="tag ocpp">SetChargingProfile</code><code class="tag ocpp">ChargingProfileType</code><code class="tag ocpp" id="txpurpose">TxProfile</code></p>
+    <p id="txmeta" class="note">No charging profile received yet.</p>
+    <dl class="kv" id="txsummary"></dl>
+    <div class="controls"><button id="copy" disabled>Copy JSON</button></div>
+    <details><summary>Profile JSON</summary><pre id="txjson" tabindex="0"></pre></details>
+    <h3>Recent profile requests <code class="tag ocpp">SetChargingProfile</code><code class="tag ocpp">ClearChargingProfile</code></h3>
+    <div class="tablewrap"><table id="recent"><thead><tr><th scope="col">Received</th><th scope="col">Reply</th><th scope="col">Action</th><th scope="col">Purpose <code class="tag ocpp">chargingProfilePurpose</code></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card" aria-labelledby="price-h">
+    <h2 id="price-h"><svg class="icon"><use href="#i-price"/></svg>Price</h2>
+    <p class="tags"><code class="tag ocpp">CostUpdated</code><code class="tag ocpp">TransactionEventResponse.totalCost</code><code class="tag ocpp">customData</code> (California Pricing)</p>
     <p id="pricemeta" class="note">No session cost received yet. The CSMS sends it with CostUpdated (California Pricing customData) or TransactionEventResponse totalCost.</p>
     <dl class="grid" id="price"></dl>
     <p id="pricetext" class="note" hidden></p>
-    <h3>Price schedule in the last charging profile</h3>
+    <h3>Price schedule in the last charging profile <code class="tag ocpp">absolutePriceSchedule</code><code class="tag ocpp">priceLevelSchedule</code></h3>
     <p id="schedmeta" class="note">No price schedule in the last charging profile.</p>
-    <div class="tablewrap"><table id="pricesched"><thead><tr><th>Start</th><th>Duration</th><th>Price</th></tr></thead><tbody></tbody></table></div>
-    <h3>Recent pricing messages</h3>
-    <div class="tablewrap"><table id="pricing"><thead><tr><th>Received</th><th>Reply</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
+    <div class="tablewrap"><table id="pricesched"><thead><tr><th scope="col">Start</th><th scope="col">Duration</th><th scope="col">Price</th></tr></thead><tbody></tbody></table></div>
+    <h3>Recent pricing messages <code class="tag ocpp">SetDefaultTariff</code><code class="tag ocpp">TariffType</code></h3>
+    <div class="tablewrap"><table id="pricing"><thead><tr><th scope="col">Received</th><th scope="col">Reply</th><th scope="col">Action</th><th scope="col">Detail</th></tr></thead><tbody></tbody></table></div>
   </section>
 
-  <section>
-    <h2><svg class="icon"><use href="#i-swap"/></svg>DER control (OCPP 2.1)</h2>
+  <section class="card" aria-labelledby="der-h">
+    <h2 id="der-h"><svg class="icon"><use href="#i-swap"/></svg>DER control</h2>
+    <p class="tags"><code class="tag ocpp">SetDERControl</code><code class="tag ocpp">DERControlEnumType</code><code class="tag ocpp">GetDERControl</code><code class="tag ocpp">ClearDERControl</code></p>
     <p id="dermeta" class="note">No DER capability declared yet.</p>
     <h3>Active DER controls</h3>
-    <div class="tablewrap"><table id="deractive"><thead><tr><th>Type</th><th>Control</th><th>Priority</th><th>When</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
+    <div class="tablewrap"><table id="deractive"><thead><tr><th scope="col">Type <code class="tag ocpp">controlType</code></th><th scope="col">Control <code class="tag ocpp">controlId</code></th><th scope="col">Priority <code class="tag ocpp">priority</code></th><th scope="col">When</th><th scope="col">Detail</th></tr></thead><tbody></tbody></table></div>
     <h3>Recent DER messages</h3>
-    <div class="tablewrap"><table id="dermsgs"><thead><tr><th>Received</th><th>Reply</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
+    <div class="tablewrap"><table id="dermsgs"><thead><tr><th scope="col">Received</th><th scope="col">Reply</th><th scope="col">Action</th><th scope="col">Detail</th></tr></thead><tbody></tbody></table></div>
   </section>
 
-  <section>
-    <h2><svg class="icon"><use href="#i-doc"/></svg>Last received charging profile</h2>
-    <p id="txmeta" class="note">No charging profile received yet.</p>
-    <div class="controls"><button id="copy" disabled>Copy JSON</button></div>
-    <pre id="txjson" tabindex="0"></pre>
-  </section>
-
-  <section>
-    <h2><svg class="icon"><use href="#i-list"/></svg>Recent profile requests</h2>
-    <div class="tablewrap"><table id="recent"><thead><tr><th>Received</th><th>Reply</th><th>Action</th><th>Purpose</th></tr></thead><tbody></tbody></table></div>
-  </section>
-
-  <section>
-    <h2><svg class="icon"><use href="#i-radar"/></svg>Discovery self-test</h2>
-    <p class="note">ISO 15118 discovery (SDP) from the EV end of the private link (v2g1) to the charger (v2g0): unicast, as CI's probe sends it, and multicast to ff02::1, as the simulated EV sends it. Runs once at start; a packet capture on both link ends shows where a request stops.</p>
-    <p id="selftest" class="badge muted">Not run yet</p>
+  <section class="card" aria-labelledby="diag-h">
+    <h2 id="diag-h"><svg class="icon"><use href="#i-radar"/></svg>Discovery self-test</h2>
+    <p class="tags"><code class="tag iso">SDP</code> (ISO 15118 discovery)</p>
+    <p class="note">From the EV end of the private link (v2g1) to the charger (v2g0): unicast, as CI's probe sends it, and multicast to ff02::1, as the simulated EV sends it. Runs once at start; a packet capture on both link ends shows where a request stops.</p>
+    <p id="selftest" class="pill muted">Not run yet</p>
     <div class="controls"><button id="runtest">Run self-test</button></div>
     <dl class="grid" id="diagsum"></dl>
     <details>

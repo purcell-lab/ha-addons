@@ -89,6 +89,7 @@ def validate(options):
     power = options.get("max_power_kw", MAX_POWER_KW)
     acknowledged = options.get("acknowledge_test_isolation", False)
     ha_control = options.get("ha_control", False)
+    charging_needs = options.get("ev_charging_needs", False)
     provisioned = options.get("csms_basic_auth_password", "")
     interval = options.get("tx_sample_interval_s", 5)
     ca = options.get("csms_ca_certificate", "")
@@ -98,6 +99,8 @@ def validate(options):
         raise ValueError("CSMS credential must be empty or a provisioned 32-character lowercase hex value")
     if not isinstance(ha_control, bool):
         raise ValueError("ha_control must be true or false")
+    if not isinstance(charging_needs, bool):
+        raise ValueError("ev_charging_needs must be true or false")
     if not isinstance(cpid, str) or not re.fullmatch(r"SIM-EV-[A-Za-z0-9_-]{1,36}", cpid):
         raise ValueError("charge_point_id must be a SIM-EV- test identity")
     if version not in VERSIONS:
@@ -149,6 +152,7 @@ def validate(options):
         "ocpp_version": version,
         "max_power_kw": power,
         "ha_control": ha_control,
+        "ev_charging_needs": charging_needs,
         "tx_sample_interval_s": interval,
     }
 
@@ -495,6 +499,8 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
                 "module": "Evse15118D20",
                 "config_module": {"device": SECC_LINK, "logging_path": ISO_LOG_DIR},
                 "connections": {"security": [{"module_id": "evse_security", "implementation_id": "main"}]},
+                # OCPPmulti sends the EV's needs for this EVSE (ev_charging_needs).
+                **({"mapping": {"module": {"evse": 1}}} if settings.get("ev_charging_needs") else {}),
             },
             "iso15118_car": {
                 "module": "PyEvJosev",
@@ -554,10 +560,14 @@ def everest_config(settings, data, pki_password, run=Path("/run/ha-everest")):
                         {"module_id": "evse_manager_1_ocpp_sink", "implementation_id": "external_limits"},
                     ],
                     "reservation": [{"module_id": "auth", "implementation_id": "reservation"}],
-                    # No extensions_15118 (Evse15118D20 "extensions"), so no
-                    # NotifyEVChargingNeeds (DOCS.md, EV charging needs): CitrineOS
-                    # v2.0.1 rejects ISO 15118-20 DC_BPT needs, and libocpp then
-                    # stops every OCPP 2.1 transaction (ReqEnergyTransferRejected).
+                    # extensions_15118 (Evse15118D20 "extensions") only with
+                    # ev_charging_needs: NotifyEVChargingNeeds. On OCPP 2.1 a
+                    # Rejected reply makes libocpp stop the transaction
+                    # (ReqEnergyTransferRejected, K19.FR.16), and CitrineOS
+                    # rejects needs that arrive before its transaction exists
+                    # (DOCS.md, EV charging needs).
+                    **({"extensions_15118": [{"module_id": "iso15118_charger", "implementation_id": "extensions"}]}
+                       if settings.get("ev_charging_needs") else {}),
                 },
             },
             "grid_support": {

@@ -250,6 +250,85 @@ SIM_UPSTREAM = '''def f(RationalNumber, a, d):
     )
     return ac, dc, dynamic
 '''
+# Verbatim excerpts of the same file: the four methods patch_needs wraps
+# (the methods after each are stubs), after the BPT discharge limits above
+# with the dynamic-loop dict replaced by the real method.
+NEEDS_EXCERPT = '''    async def get_dynamic_se_params(
+        self, selected_energy_service: SelectedEnergyService
+    ) -> DynamicScheduleExchangeReqParams:
+        """Overrides EVControllerInterface.get_dynamic_se_params()."""
+        dynamic_params = DynamicScheduleExchangeReqParams(
+            departure_time=7200,
+            min_soc=30,
+            target_soc=80,
+            ev_target_energy_request=RationalNumber(exponent=3, value=40),
+            ev_max_energy_request=RationalNumber(exponent=3, value=60),
+            ev_min_energy_request=RationalNumber(exponent=3, value=-20),
+            ev_max_v2x_energy_request=RationalNumber(exponent=3, value=5),
+            ev_min_v2x_energy_request=RationalNumber(exponent=0, value=0),
+        )
+
+        return dynamic_params
+
+    async def process_scheduled_se_params(self):
+        pass
+
+    async def get_dynamic_dc_charge_loop_params(self) -> DynamicDCChargeLoopReqParams:
+        """Overrides EVControllerInterface.get_dynamic_dc_charge_loop_params()."""
+        max_current_limit_value, max_current_limit_multiplier = float2Value_Multiplier(
+            EVEREST_EV_STATE.dc_max_current_limit)
+        max_power_limit_value, max_power_limit_multiplier = float2Value_Multiplier(
+            EVEREST_EV_STATE.dc_max_power_limit)
+        max_voltage_limit_value, max_voltage_limit_multiplier = float2Value_Multiplier(
+            EVEREST_EV_STATE.dc_max_voltage_limit)
+        energy_capacity_value, energy_capacity_multiplier = float2Value_Multiplier(
+            EVEREST_EV_STATE.dc_energy_capacity)
+
+        return DynamicDCChargeLoopReqParams(
+            ev_target_energy_request=RationalNumber(
+                exponent=energy_capacity_multiplier, value=energy_capacity_value),
+            ev_max_energy_request=RationalNumber(exponent=3, value=60),
+            ev_min_energy_request=RationalNumber(exponent=0, value=1),
+            ev_max_charge_power=RationalNumber(
+                exponent=max_power_limit_multiplier, value=max_power_limit_value),
+            ev_min_charge_power=RationalNumber(exponent=0, value=0),
+            ev_max_charge_current=RationalNumber(
+                exponent=max_current_limit_multiplier, value=max_current_limit_value),
+            ev_max_voltage=RationalNumber(
+                exponent=max_voltage_limit_multiplier, value=max_voltage_limit_value),
+            ev_min_voltage=RationalNumber(exponent=0, value=150),
+        )
+
+    async def get_bpt_scheduled_dc_charge_loop_params(self):
+        pass
+
+    async def get_bpt_dynamic_dc_charge_loop_params(
+        self,
+    ) -> BPTDynamicDCChargeLoopReqParams:
+        """Overrides EVControllerInterface.get_bpt_dynamic_dc_charge_loop_params()."""
+        dc_dynamic_dc_charge_loop_params_v20 = (
+            await self.get_dynamic_dc_charge_loop_params()
+        ).dict()
+        return BPTDynamicDCChargeLoopReqParams(
+            **dc_dynamic_dc_charge_loop_params_v20,
+            ev_max_discharge_power=RationalNumber(exponent=3, value=11),
+            ev_min_discharge_power=RationalNumber(exponent=0, value=300),
+            ev_max_discharge_current=RationalNumber(exponent=0, value=25),
+        )
+
+    async def get_present_voltage(self):
+        pass
+
+    async def get_display_params(self) -> DisplayParameters:
+        """Overrides EVControllerInterface.get_display_params()."""
+        return DisplayParameters(
+            present_soc=EVEREST_EV_STATE.actual_soc,
+            charging_complete=await self.is_charging_complete(),
+        )
+'''
+SIM_FULL = ("EVEREST_EV_STATE = EVEREST_CONTEXT.ev_state\n\n"
+            + SIM_UPSTREAM.split("    dynamic = dict(")[0] + "    return ac, dc\n\n\nclass SimEVController:\n"
+            + NEEDS_EXCERPT)
 AUTH_FILE = Path("/tmp/deb12/opt/everest/libexec/everest/3rd_party/josev/iso15118/evcc/states/iso15118_20_states.py")
 # Verbatim excerpts of Josev iso15118/evcc/states/iso15118_20_states.py
 # (2025.9.0, unchanged at 1b3ea741):
@@ -443,6 +522,49 @@ class PatchJosevTest(unittest.TestCase):
         namespace["ongoing"](session, sent.append, stopped.append)
         self.assertEqual(len(stopped), 1)
 
+    def test_ev_states_the_operators_charging_needs(self):
+        upstream = SIM_FULL if not SIM_FILE.exists() else SIM_FILE.read_text()
+        patched = patch_josev.patch_needs(patch_josev.patch_sim(upstream))
+        compile(patched, "simulator.py", "exec")
+        self.assertEqual(patch_josev.patch_needs(patched), patched)
+        for kind in ("se", "loop", "bpt_loop", "display"):
+            self.assertEqual(patched.count(f'"{kind}")'), 1, kind)
+        self.assertIn(patch_josev.NEEDS_HELPERS, patched)
+        with self.assertRaises(ValueError):  # before patch_sim: no discharge-current comment
+            patch_josev.patch_needs(upstream)
+        with self.assertRaises(ValueError):
+            patch_josev.patch_needs(patch_josev.patch_sim(upstream).replace("        return dynamic_params\n", ""))
+
+    def test_needs_helpers(self):
+        rational = type("RationalNumber", (), {"__init__": lambda self, exponent, value: self.__dict__.update(
+            exponent=exponent, value=value)})
+
+        class Params:
+            def __init__(self, **fields):
+                self.fields = fields
+
+            def dict(self):
+                return dict(self.fields)
+
+        namespace = {"RationalNumber": rational}
+        exec(patch_josev.NEEDS_HELPERS, namespace)
+        with tempfile.TemporaryDirectory() as tmp:
+            namespace["HA_NEEDS_PATH"] = str(Path(tmp) / "ev-iso20.json")
+            params = Params(departure_time=7200, ev_min_v2x_energy_request="upstream")
+            self.assertIs(namespace["_ha_apply"](params, "se"), params)  # no file: Josev's values
+            needs = {"departure_time": 3600, "min_soc": 80, "target_soc": 80, "target_wh": 18000,
+                     "max_wh": 30000, "min_wh": 18000, "v2x_min_wh": None, "v2x_max_wh": None,
+                     "at": time.time()}
+            Path(namespace["HA_NEEDS_PATH"]).write_text(json.dumps(needs))
+            out = namespace["_ha_apply"](params, "se").fields
+            self.assertEqual((out["departure_time"], out["min_soc"]), (3600, 80))
+            self.assertIsNone(out["ev_min_v2x_energy_request"])  # charge_by: no discharge window
+            self.assertEqual((out["ev_max_energy_request"].exponent, out["ev_max_energy_request"].value), (0, 30000))
+            big = namespace["_ha_rational"](60000)
+            self.assertEqual((big.exponent, big.value), (1, 6000))  # int16 value
+            Path(namespace["HA_NEEDS_PATH"]).write_text(json.dumps(dict(needs, at=time.time() - 60)))
+            self.assertIs(namespace["_ha_apply"](params, "se"), params)  # stale: Josev's values
+
     def test_refuses_unexpected_upstream(self):
         with self.assertRaises(ValueError):
             patch_josev.patch(UPSTREAM.replace("break", "return"))
@@ -452,13 +574,14 @@ class PatchJosevTest(unittest.TestCase):
             udp = Path(tmp) / "udp_client.py"
             udp.write_text(UDP_UPSTREAM)
             sim = Path(tmp) / "simulator.py"
-            sim.write_text(SIM_UPSTREAM)
+            sim.write_text(SIM_FULL)
             auth = Path(tmp) / "iso15118_20_states.py"
             auth.write_text(AUTH_UPSTREAM)
             patch_josev.main(path, udp, sim, auth)
             self.assertIn(patch_josev.MARKER, path.read_text())
             self.assertEqual(udp.read_text(), UDP_UPSTREAM)  # checked, not changed
             self.assertIn(patch_josev.SIM_MARKER, sim.read_text())
+            self.assertIn(patch_josev.NEEDS_MARKER, sim.read_text())
             self.assertIn(patch_josev.AUTH_MARKER, auth.read_text())
 
     @unittest.skipUnless(UPSTREAM_FILE.exists(), "everest-core checkout not present")

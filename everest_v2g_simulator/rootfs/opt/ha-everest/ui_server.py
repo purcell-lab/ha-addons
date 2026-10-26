@@ -2,10 +2,11 @@
 
 Reads EVerest's API module and the OCPP module's session cost over the
 private MQTT bus, and the libocpp message log. The only writes are three
-fixed car-simulator commands and the discovery self-test (two SDP requests
-on the private link); no OCPP message, configuration or charging profile
-can be sent from this UI. The EV watchdog
-uses the same unplug and plug-in commands.
+fixed car-simulator commands, the simulated EV's charging needs (what the EV
+asks for over ISO 15118-20, ev_model.py) and the discovery self-test (two
+SDP requests on the private link); no OCPP message, configuration or
+charging profile can be sent from this UI, and the CSMS still sets power
+and direction. The EV watchdog uses the same unplug and plug-in commands.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -18,6 +19,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import configure  # noqa: E402
 import diag  # noqa: E402
+import ev_model  # noqa: E402
 import ocpp_log  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
@@ -36,6 +38,10 @@ TOPICS = {
     f"everest_api/{EVSE}/var/powermeter": "powermeter",
     f"everest_api/{EVSE}/var/limits": "limits",
     f"everest_api/{EVSE}/var/hardware_capabilities": "hardware_capabilities",
+    # What the charger received from the EV over ISO 15118 (EvseManager EVInfo)
+    # and the negotiated protocol (for example ISO15118-20).
+    f"everest_api/{EVSE}/var/ev_info": "ev_info",
+    f"everest_api/{EVSE}/var/selected_protocol": "selected_protocol",
     "everest_api/ocpp/var/connection_status": "ocpp_connection",
     "everest_api/ocpp/var/charging_schedules": "charging_schedules",
     SESSION_COST_TOPIC: "session_cost",
@@ -238,7 +244,57 @@ def der_status(path=None):
     }
 
 
-def status(bus, watchdog=None):
+class EV:
+    """The simulated EV's needs and battery model (ev_model.py). Refreshes
+    the file the patched Josev reads (ev-iso20.json) every second."""
+
+    def __init__(self, bus, data=DATA, run=RUN, clock=time.time):
+        self.bus, self.data, self.run, self.clock = bus, data, run, clock
+        self.needs = ev_model.load_needs(data / ev_model.NEEDS_FILE)
+        self.battery = ev_model.Battery()
+        self.soc, self.in_session, self.iso20 = float(self.needs["start_soc"]), False, None
+        self.lock = threading.Lock()
+
+    def set_needs(self, body):
+        needs = ev_model.validate_needs(body, self.clock())
+        configure.atomic_write(self.data / ev_model.NEEDS_FILE, json.dumps(needs), mode=0o644)
+        with self.lock:
+            self.needs = needs
+        self.tick()
+        return needs
+
+    def tick(self):
+        data = self.bus.snapshot()
+        state = ((data.get("session_info") or {}).get("value") or {}).get("state")
+        meter = (data.get("powermeter") or {}).get("value") or {}
+        imported = (meter.get("energy_Wh_import") or {}).get("total")
+        exported = (meter.get("energy_Wh_export") or {}).get("total")
+        rated_w = (read_state().get("max_power_kw") or 0) * 1000
+        with self.lock:
+            needs = dict(self.needs)
+            soc, in_session = self.battery.update(state, imported, exported, needs["start_soc"])
+            iso20 = ev_model.iso20_needs(needs, soc, rated_w, self.clock(), self.battery.capacity_wh)
+            self.soc, self.in_session, self.iso20 = soc, in_session, iso20
+        self.run.mkdir(parents=True, exist_ok=True)
+        configure.atomic_write(self.run / ev_model.ISO20_FILE, json.dumps(iso20), mode=0o644)
+
+    def snapshot(self):
+        data = self.bus.snapshot()
+        with self.lock:
+            return {"needs": dict(self.needs), "soc": round(self.soc, 1), "in_session": self.in_session,
+                    "capacity_wh": self.battery.capacity_wh, "iso20": self.iso20,
+                    "ev_info": data.get("ev_info"), "selected_protocol": data.get("selected_protocol")}
+
+    def run_forever(self, interval=1.0):
+        while True:
+            try:
+                self.tick()
+            except Exception as error:  # report, never stop the UI service
+                print(f"EV model error ({type(error).__name__}: {error}).", flush=True)
+            time.sleep(interval)
+
+
+def status(bus, watchdog=None, ev=None):
     data = bus.snapshot()
     schedules = (data.get("charging_schedules", {}).get("value") or {})
     if isinstance(schedules, dict):
@@ -254,11 +310,13 @@ def status(bus, watchdog=None):
         "der": der_status(),
         "last_command": bus.last_command,
         "ev_watchdog": watchdog.snapshot() if watchdog else None,
+        "ev": ev.snapshot() if ev else None,
         "server_time": time.time(),
     }
 
 
 SELFTEST_WAIT_S = 20
+NEEDS_MAX_BYTES = 512
 
 
 class SelftestLock:
@@ -333,7 +391,9 @@ def profiles():
             # CostUpdated and OCPP 2.1 tariff requests with the station's replies.
             "pricing": ocpp_log.pricing_events(text),
             # OCPP 2.1 DER control requests with the station's replies.
-            "der": ocpp_log.der_events(text)}
+            "der": ocpp_log.der_events(text),
+            # The station's NotifyEVChargingNeeds with the CSMS's replies.
+            "charging_needs": ocpp_log.charging_needs_events(text)}
 
 
 # Issue #33: when the simulated EV's ISO 15118 session ends before charging
@@ -453,7 +513,7 @@ class Watchdog:
             self.sleep(interval)
 
 
-def make_handler(bus, watchdog=None):
+def make_handler(bus, watchdog=None, ev=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ha-everest"
 
@@ -469,7 +529,7 @@ def make_handler(bus, watchdog=None):
         def do_GET(self):
             path = self.path.split("?", 1)[0]
             if path == "/api/status":
-                return self.send_body(200, status(bus, watchdog))
+                return self.send_body(200, status(bus, watchdog, ev))
             if path == "/api/diagnostics":
                 return self.send_body(200, diagnostics(brief="brief=1" in self.path))
             if path == "/api/profiles":
@@ -487,6 +547,8 @@ def make_handler(bus, watchdog=None):
             path = self.path.split("?", 1)[0]
             name = path.rsplit("/", 1)[-1]
             selftest = path == "/api/diag/selftest"
+            if path == "/api/ev/needs" and ev is not None:
+                return self.post_needs()
             if not selftest and (not path.startswith("/api/ev/") or name not in ev_commands({})):
                 return self.send_body(404, {"error": "not found"})
             # Custom header forces a CORS preflight for any cross-site request.
@@ -513,6 +575,21 @@ def make_handler(bus, watchdog=None):
                 ok = bus.send(name, read_state())
             return self.send_body(200 if ok else 503, {"sent": ok, "command": name})
 
+        def post_needs(self):
+            """The EV's charging needs: a small JSON object, nothing else."""
+            if self.headers.get("X-HA-EVerest") != "1":
+                return self.send_body(403, {"error": "missing request header"})
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
+                return self.send_body(415, {"error": "JSON body required"})
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= NEEDS_MAX_BYTES:
+                return self.send_body(400, {"error": "body must be 1 to 512 bytes"})
+            try:
+                needs = ev.set_needs(json.loads(self.rfile.read(length)))
+            except ValueError as error:
+                return self.send_body(400, {"error": str(error)})
+            return self.send_body(200, {"needs": needs})
+
         def log_message(self, *args):
             pass
 
@@ -524,7 +601,9 @@ def main():
     bus.start()
     watchdog = Watchdog(bus)
     threading.Thread(target=watchdog.run, daemon=True).start()
-    server = ThreadingHTTPServer(("127.0.0.1", 8000), make_handler(bus, watchdog))
+    ev = EV(bus)
+    threading.Thread(target=ev.run_forever, daemon=True).start()
+    server = ThreadingHTTPServer(("127.0.0.1", 8000), make_handler(bus, watchdog, ev))
     server.daemon_threads = True
     server.serve_forever()
 
