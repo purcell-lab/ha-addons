@@ -397,7 +397,7 @@ reports the original 2.1 `protocol` and `commands` for older clients.
 
 `command_real_stations_enabled: true` (default `false`) lets
 `command_station_id` be any OCPP identity (up to 48 of
-`A-Z a-z 0-9 . _ ~ * + -`), so the HA bridge can limit a physical charger.
+`A-Z a-z 0-9 . _ ~ * + -`), so the HA bridge's TxProfile can limit a physical charger.
 It is still exactly one station, chosen in the options, and every other
 bound is unchanged: TxProfile only, an active transaction on that station
 is required, at most 600 s and 10 periods, 25 kW import and export, and
