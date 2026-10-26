@@ -166,6 +166,15 @@ class BridgeTest(unittest.TestCase):
     def test_commands_allowlist_target_and_rate_limit(self):
         self.assertIsNone(self.bridge.handle({"charge_point_id": "SIM-EV-OTHER", "command": "plugin"}))
         self.assertIsNone(self.bridge.handle("not a dict"))
+        # Without an ID the command is refused, not dropped: an error result,
+        # last_command on the status object, and nothing sent to the EV.
+        missing = self.bridge.handle({"command": "plugin"})
+        self.assertFalse(missing["ok"])
+        self.assertIn("charge_point_id required", missing["error"])
+        self.assertIn(CPID, missing["error"])
+        self.assertEqual(self.bridge.last_command["error"], missing["error"])
+        self.assertNotIn("/api/ev/plugin", self.paths("POST"))
+        self.assertIn(f"/api/events/{ha_bridge.RESULT_EVENT}", self.paths("POST"))
         self.assertIn("unknown command", self.bridge.handle({"charge_point_id": CPID, "command": "reboot"})["error"])
         self.assertTrue(self.bridge.handle({"charge_point_id": CPID, "command": "plugin"})["ok"])
         self.assertIn("rate limited", self.bridge.handle({"charge_point_id": CPID, "command": "plugin"})["error"])
@@ -180,7 +189,8 @@ class BridgeTest(unittest.TestCase):
                                       "/api/states/sensor.sim_ev_everest_v2g_01_v2g_app"})
 
     def test_websocket_auth_subscribe_and_dispatch(self):
-        fake = FakeCoreWebSocket("token-1", [{"charge_point_id": CPID, "command": "plugin"},
+        fake = FakeCoreWebSocket("token-1", [{"command": "plugin"},
+                                             {"charge_point_id": CPID, "command": "plugin"},
                                              {"charge_point_id": "SIM-EV-OTHER", "command": "unplug"}])
         self.bridge.websocket = f"ws://127.0.0.1:{fake.port}/websocket"
         with self.assertRaises(ConnectionError):  # the fake closes after its events

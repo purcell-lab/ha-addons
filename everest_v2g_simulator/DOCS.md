@@ -349,12 +349,15 @@ the Ingress UI. It opens no port and adds no inbound path.
 - **Commands** arrive as HA event `everest_v2g_command` with data
   `{"charge_point_id": "<id>", "command": "<name>"}`. `<name>` is one of
   `plugin`, `stop`, `unplug`, `selftest` or `diagnostics`. Other IDs are
-  ignored; other names are refused. At most one command each 2 s.
+  ignored. An event without `charge_point_id` is refused, not run: the App
+  fires an error result (`charge_point_id required`) and shows it in
+  `last_command`. Other names are refused. At most one command each 2 s.
 - **Results** are fired as event `everest_v2g_command_result` with the
   command, `ok` and the App's reply.
 
 From an HA MCP client: fire `everest_v2g_command` with the event tool,
-then read the status object. The bridge reuses the same three EV
+including `charge_point_id`, then read `last_command` on the status
+object. The bridge reuses the same three EV
 controls and the self-test as the Status page; it cannot send OCPP
 messages, change options, or set direction or power.
 
