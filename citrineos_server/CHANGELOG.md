@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.1
+
+- Memory diagnostics for the upstream server's out-of-memory crashes
+  ([ha-addons#80](https://github.com/purcell-lab/ha-addons/issues/80)): a
+  timestamped memory line every minute, one heap snapshot in `/data/heap` near
+  the 768 MB heap limit (only the newest is kept), and a timestamp on the exit
+  line. The heap limit is unchanged.
+- Source patch `0006-ocpp-empty-station-identity.patch`: a websocket upgrade
+  whose URL has no station identity (it ends in `/`) is refused with 404.
+  Upstream accepted it and created a station with an empty name, which broke
+  Home Assistant discovery and coincided with the 25 October crashes.
+
 ## 0.11.0
 
 - OCPP 2.1 smart charging with a local EMS and local generation on the

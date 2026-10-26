@@ -62,6 +62,7 @@ jobs:
             packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts \
             packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts \
             packages/base/test/util/endpoints/route-schemas.test.ts \
+            packages/ocpp/test/transport/network-connection/tls-and-ws-gaps.test.ts \
             packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
   private-stack:
     strategy:

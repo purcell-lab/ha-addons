@@ -4,6 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {HEAP_DIR,MEMORY_LOG_MS,memoryLine,nodeOptions,pruneSnapshots,rssMb} from './diagnostics.mjs';
 import {STATION_PATTERN,PROTOCOL,PROTOCOLS,COMMANDS_BY_PROTOCOL,ALL_ROUTES,MAX_IMPORT_W,MAX_EXPORT_W,ROUTES,rolesSeed,routeProtocol,
   validateCommand,TARGET_QUERY,targetAllows,commandStation,stationAllowed,
   OPERATOR_COMMANDS,METERING_COMMAND,meteringVariables,operatorCommand,OPERATOR_TARGET_QUERY,operatorTargetAllows,
@@ -271,11 +272,14 @@ export async function main() {
     return;
   }
   fs.mkdirSync(`${DATA}/assets`,{recursive:true});
+  fs.mkdirSync(HEAP_DIR,{recursive:true,mode:0o700});
+  // A snapshot from an earlier near-limit crash is kept for inspection; older ones are removed.
+  for(const n of pruneSnapshots(HEAP_DIR))console.log(`Removed older heap snapshot ${n}.`);
   const listeners=buildListeners(o);
   const station=commandStation(o);
   const price=priceOptions(o), real=o.command_real_stations_enabled===true;
   fs.writeFileSync(`${DATA}/assets/websocket-servers.json`,JSON.stringify(listeners),{mode:0o600});
-  const env={...process.env,APP_NAME:'all',NODE_OPTIONS:'--max-old-space-size=768'};
+  const env={...process.env,APP_NAME:'all',NODE_OPTIONS:nodeOptions()};
   // JSON encoding prevents upstream config-loader debug output exposing string secrets.
   for(const [k,v] of Object.entries(upstreamConfig(o))) env['CITRINEOS_'+k]=JSON.stringify(v);
   const secrets=[o.database_password,o.broker_password,o.hasura_secret,o.api_token,o.simulator_password,o.profile_simulator_password,o.command_token,o.operator_token,
@@ -338,9 +342,11 @@ export async function main() {
   });
   await new Promise(r=>callbacks.listen(8092,'127.0.0.1',r)); streams.push(callbacks);
   const upstream=run([`${APP}/dist/index.js`]);
-  upstream.then(()=>process.exit(upstreamExitCode(shutting))).catch(()=>{
+  const server=child;
+  setInterval(()=>console.log(memoryLine(new Date(),rssMb(server.pid),rssMb(process.pid))),MEMORY_LOG_MS).unref();
+  upstream.then(()=>process.exit(upstreamExitCode(shutting))).catch(e=>{
     if(shutting){process.exit(upstreamExitCode(shutting));return;}
-    console.error('Upstream server exited; gateway closing.');stop();process.exitCode=1;
+    console.error(`${new Date().toISOString()}: ${e.message}; gateway closing.`);stop();process.exitCode=1;
   });
   await waitFor('CitrineOS',async()=> {
     try { const r=await fetch(UPSTREAM+'/health/ready',{signal:AbortSignal.timeout(1500)});return r.ok; } catch{return false;}
