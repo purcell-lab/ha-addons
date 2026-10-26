@@ -10,7 +10,8 @@
     "patches": [
       "0001-ocpp21-charging-needs.patch",
       "0002-ocpp21-allowed-energy-transfer.patch",
-      "0003-ocpp21-der-control.patch"
+      "0003-ocpp21-der-control.patch",
+      "0004-ocpp2-charging-limits.patch"
     ]
   },
   "client": {

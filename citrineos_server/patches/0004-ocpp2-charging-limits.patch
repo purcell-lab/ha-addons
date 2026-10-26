@@ -1,0 +1,1465 @@
+ha-citrine source patch 0004 against CitrineOS v2.1.0
+(4fd7599b91c2fb6e6065e7c9b94be69880cced27), applied after 0001 to 0003:
+OCPP 2.x charging limits from an EMS or other external actor.
+
+Upstream v2.1.0 answers a station's NotifyChargingLimit and
+ClearedChargingLimit with the empty response the schema defines and keeps
+nothing: the limit, its source (EMS, SO, CSO, Other), isGridCritical,
+isLocalGeneration (OCPP 2.1) and the schedule are found only in the raw
+OCPPMessages row, so nothing can show which external limits are in force.
+
+The patch adds:
+- a ChargingLimits table (migration 20261026120000-create-charging-limits):
+  tenantId, stationId, evseId, chargingLimitSource, isGridCritical,
+  isLocalGeneration, chargingSchedule (JSONB), isActive, clearedAt, with an
+  index on (tenantId, stationId, isActive);
+- the ChargingLimit model, DTO and repository (Sequelize and Drizzle):
+  NotifyChargingLimit deactivates the active limit with the same station,
+  evseId and source and stores the new one, in one transaction;
+  ClearedChargingLimit deactivates the active limits for that source,
+  narrowed to the evseId when one is given;
+- both request handlers store through the repository. A storage error is
+  logged and the station still gets its empty response, never a CALLERROR;
+- the Hasura table, tracked with its ChargingStation and Tenant relationships
+  (role user, tenant filter);
+- the OCPP 2.1 purposes 'PriorityCharging' and 'LocalGeneration' in the DTO
+  ChargingProfilePurposeEnumSchema, so a stored 2.1 profile with either
+  purpose validates (the generated OCPP models are unchanged), and tests.
+
+The App's gateway reads the table read-only through Hasura (ha_reader,
+/lab/charging-limits); nothing sends to the station from it.
+
+diff --git a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingLimits.yaml b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingLimits.yaml
+new file mode 100644
+index 000000000..36e8d475c
+--- /dev/null
++++ b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingLimits.yaml
+@@ -0,0 +1,23 @@
++# SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++#
++# SPDX-License-Identifier: Apache-2.0
++# ha-citrine patch (0004-ocpp2-charging-limits)
++table:
++  name: ChargingLimits
++  schema: public
++object_relationships:
++  - name: ChargingStation
++    using:
++      foreign_key_constraint_on: stationId
++  - name: Tenant
++    using:
++      foreign_key_constraint_on: tenantId
++select_permissions:
++  - role: user
++    permission:
++      columns: '*'
++      filter:
++        tenantId:
++          _eq: x-hasura-tenant-id
++      allow_aggregations: true
++    comment: ''
+diff --git a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingStations.yaml b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingStations.yaml
+index f2b63170f..f14799dcb 100644
+--- a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingStations.yaml
++++ b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_ChargingStations.yaml
+@@ -15,6 +15,14 @@ object_relationships:
+     using:
+       foreign_key_constraint_on: connectedWebsocketServerConfigId
+ array_relationships:
++  # ha-citrine patch (0004-ocpp2-charging-limits)
++  - name: ChargingLimits
++    using:
++      foreign_key_constraint_on:
++        column: stationId
++        table:
++          name: ChargingLimits
++          schema: public
+   - name: ChargingStationNetworkProfiles
+     using:
+       foreign_key_constraint_on:
+diff --git a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_Tenants.yaml b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_Tenants.yaml
+index 118501855..d0a5a02b6 100644
+--- a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_Tenants.yaml
++++ b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/public_Tenants.yaml
+@@ -33,6 +33,14 @@ array_relationships:
+         table:
+           name: ChangeConfigurations
+           schema: public
++  # ha-citrine patch (0004-ocpp2-charging-limits)
++  - name: ChargingLimits
++    using:
++      foreign_key_constraint_on:
++        column: tenantId
++        table:
++          name: ChargingLimits
++          schema: public
+   - name: ChargingNeeds
+     using:
+       foreign_key_constraint_on:
+diff --git a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/tables.yaml b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/tables.yaml
+index aa087279d..d528d4cd7 100644
+--- a/apps/ocpp-server/db/hasura-metadata/databases/default/tables/tables.yaml
++++ b/apps/ocpp-server/db/hasura-metadata/databases/default/tables/tables.yaml
+@@ -6,6 +6,8 @@
+ - '!include public_Boots.yaml'
+ - '!include public_Certificates.yaml'
+ - '!include public_ChangeConfigurations.yaml'
++# ha-citrine patch (0004-ocpp2-charging-limits)
++- '!include public_ChargingLimits.yaml'
+ - '!include public_ChargingNeeds.yaml'
+ - '!include public_ChargingProfiles.yaml'
+ - '!include public_ChargingSchedules.yaml'
+diff --git a/apps/ocpp-server/db/migrations/20261026120000-create-charging-limits.ts b/apps/ocpp-server/db/migrations/20261026120000-create-charging-limits.ts
+new file mode 100644
+index 000000000..9a62d68fb
+--- /dev/null
++++ b/apps/ocpp-server/db/migrations/20261026120000-create-charging-limits.ts
+@@ -0,0 +1,90 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++'use strict';
++
++import { DataTypes, QueryInterface } from 'sequelize';
++
++// ha-citrine patch (0004-ocpp2-charging-limits): limits reported by NotifyChargingLimit.
++/** @type {import('sequelize-cli').Migration} */
++export default {
++  up: async (queryInterface: QueryInterface) => {
++    await queryInterface.sequelize.transaction(async (transaction) => {
++      await queryInterface.createTable(
++        'ChargingLimits',
++        {
++          id: {
++            type: DataTypes.INTEGER,
++            primaryKey: true,
++            autoIncrement: true,
++            allowNull: false,
++          },
++          tenantId: {
++            type: DataTypes.INTEGER,
++            allowNull: false,
++            references: {
++              model: 'Tenants',
++              key: 'id',
++            },
++            onUpdate: 'CASCADE',
++            onDelete: 'RESTRICT',
++          },
++          stationId: {
++            type: DataTypes.INTEGER,
++            allowNull: false,
++            references: {
++              model: 'ChargingStations',
++              key: 'id',
++            },
++            onUpdate: 'CASCADE',
++            onDelete: 'CASCADE',
++          },
++          evseId: {
++            type: DataTypes.INTEGER,
++          },
++          chargingLimitSource: {
++            type: DataTypes.STRING(20),
++            allowNull: false,
++          },
++          isGridCritical: {
++            type: DataTypes.BOOLEAN,
++          },
++          isLocalGeneration: {
++            type: DataTypes.BOOLEAN,
++          },
++          chargingSchedule: {
++            type: DataTypes.JSONB,
++          },
++          isActive: {
++            type: DataTypes.BOOLEAN,
++            allowNull: false,
++            defaultValue: true,
++          },
++          clearedAt: {
++            type: DataTypes.DATE,
++          },
++          createdAt: {
++            type: DataTypes.DATE,
++            allowNull: false,
++          },
++          updatedAt: {
++            type: DataTypes.DATE,
++            allowNull: false,
++          },
++        },
++        { transaction },
++      );
++
++      await queryInterface.addIndex('ChargingLimits', ['tenantId', 'stationId', 'isActive'], {
++        name: 'charging_limits_tenant_id_station_id_is_active',
++        transaction,
++      });
++    });
++  },
++
++  down: async (queryInterface: QueryInterface) => {
++    await queryInterface.sequelize.transaction(async (transaction) => {
++      await queryInterface.dropTable('ChargingLimits', { transaction });
++    });
++  },
++};
+diff --git a/packages/dal/index.ts b/packages/dal/index.ts
+index 028636c67..f83143758 100644
+--- a/packages/dal/index.ts
++++ b/packages/dal/index.ts
+@@ -36,6 +36,8 @@ export {
+   SequelizeInstallCertificateAttemptRepository,
+   SequelizeDeleteCertificateAttemptRepository,
+   SequelizeChangeConfigurationRepository,
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  SequelizeChargingLimitRepository,
+   SequelizeChargingProfileRepository,
+   SequelizeChargingStationNetworkProfileRepository,
+   SequelizeChargingStationSecurityInfoRepository,
+@@ -77,6 +79,8 @@ export {
+   DrizzleBootRepository,
+   DrizzleCertificateRepository,
+   DrizzleChangeConfigurationRepository,
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  DrizzleChargingLimitRepository,
+   DrizzleChargingStationNetworkProfileRepository,
+   DrizzleChargingStationRepository,
+   DrizzleChargingStationSecurityInfoRepository,
+diff --git a/packages/dal/src/db/drizzle/index.ts b/packages/dal/src/db/drizzle/index.ts
+index 15b74ff1d..bb138e460 100644
+--- a/packages/dal/src/db/drizzle/index.ts
++++ b/packages/dal/src/db/drizzle/index.ts
+@@ -36,6 +36,11 @@ export {
+   DrizzleChangeConfigurationRepository,
+   toChangeConfigurationDto,
+ } from '../../repositories/drizzle/change-configuration.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export {
++  DrizzleChargingLimitRepository,
++  toChargingLimitDto,
++} from '../../repositories/drizzle/charging-limit.js';
+ export {
+   DrizzleChargingStationSecurityInfoRepository,
+   toChargingStationSecurityInfoDto,
+@@ -188,6 +193,14 @@ export {
+   type ChangeConfigurationEntity,
+   type ChangeConfigurationEntityInsert,
+ } from './schema/change-configuration.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export {
++  ChargingLimitEntityInsertSchema,
++  ChargingLimitEntitySchema,
++  chargingLimitTable,
++  type ChargingLimitEntity,
++  type ChargingLimitEntityInsert,
++} from './schema/charging-limit.js';
+ export {
+   ChargingStationSecurityInfoEntityInsertSchema,
+   ChargingStationSecurityInfoEntitySchema,
+diff --git a/packages/dal/src/db/drizzle/schema/charging-limit.ts b/packages/dal/src/db/drizzle/schema/charging-limit.ts
+new file mode 100644
+index 000000000..7889315ae
+--- /dev/null
++++ b/packages/dal/src/db/drizzle/schema/charging-limit.ts
+@@ -0,0 +1,52 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++
++import { TableName } from '@dal/models/table-name.js';
++import {
++  boolean,
++  index,
++  integer,
++  jsonb,
++  pgTable,
++  serial,
++  timestamp,
++  varchar,
++} from 'drizzle-orm/pg-core';
++import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
++import { type z } from 'zod';
++
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export const chargingLimitTable = pgTable(
++  TableName.ChargingLimits,
++  {
++    id: serial('id').primaryKey(),
++    stationId: integer('stationId').notNull(),
++    evseId: integer('evseId'),
++    chargingLimitSource: varchar('chargingLimitSource', { length: 20 }).notNull(),
++    isGridCritical: boolean('isGridCritical'),
++    isLocalGeneration: boolean('isLocalGeneration'),
++    chargingSchedule: jsonb('chargingSchedule').$type<unknown[]>(),
++    isActive: boolean('isActive').default(true).notNull(),
++    // mode: 'date' returns a JS Date — mapped to ISO string in the repository layer
++    clearedAt: timestamp('clearedAt', { withTimezone: true, mode: 'date' }),
++    tenantId: integer('tenantId').notNull(),
++    createdAt: timestamp('createdAt', { withTimezone: true, mode: 'date' })
++      .notNull()
++      .$defaultFn(() => new Date()),
++    updatedAt: timestamp('updatedAt', { withTimezone: true, mode: 'date' })
++      .notNull()
++      .$defaultFn(() => new Date()),
++  },
++  (t) => [
++    index('charging_limits_tenant_id_station_id_is_active').on(t.tenantId, t.stationId, t.isActive),
++  ],
++);
++
++// ─── Zod schemas (runtime validation + type inference) ───────────────────────
++
++export const ChargingLimitEntitySchema = createSelectSchema(chargingLimitTable);
++export const ChargingLimitEntityInsertSchema = createInsertSchema(chargingLimitTable);
++
++export type ChargingLimitEntity = z.infer<typeof ChargingLimitEntitySchema>;
++export type ChargingLimitEntityInsert = z.infer<typeof ChargingLimitEntityInsertSchema>;
+diff --git a/packages/dal/src/db/drizzle/schema/index.ts b/packages/dal/src/db/drizzle/schema/index.ts
+index 98fe7d94a..cf29a9d78 100644
+--- a/packages/dal/src/db/drizzle/schema/index.ts
++++ b/packages/dal/src/db/drizzle/schema/index.ts
+@@ -9,6 +9,8 @@ export * from './authorization.js';
+ export * from './boot.js';
+ export * from './certificate.js';
+ export * from './change-configuration.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export * from './charging-limit.js';
+ export * from './charging-needs.js';
+ export * from './charging-profile.js';
+ export * from './charging-schedule.js';
+diff --git a/packages/dal/src/db/sequelize/index.ts b/packages/dal/src/db/sequelize/index.ts
+index 7db948dbd..70ba89ad7 100644
+--- a/packages/dal/src/db/sequelize/index.ts
++++ b/packages/dal/src/db/sequelize/index.ts
+@@ -70,6 +70,8 @@ export { OCPPMessage } from '../../models/ocpp-message.js';
+ export { Reservation } from '../../models/reservation.js';
+ export { ChargingStationSecurityInfo } from '../../models/charging-station-security-info.js';
+ export { ChangeConfiguration } from '../../models/change-configuration.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export { ChargingLimit } from '../../models/charging-limit.js';
+ export { Tenant } from '../../models/tenant.js';
+ export { TenantPartner } from '../../models/tenant-partner.js';
+ export type { PaginatedParams } from '../../models/async-job/index.js';
+@@ -91,6 +93,8 @@ export { SequelizeLocalAuthListRepository } from '../../repositories/sequelize/l
+ export { SequelizeLocationRepository } from '../../repositories/sequelize/location.js';
+ export { SequelizeTransactionEventRepository } from '../../repositories/sequelize/transaction-event.js';
+ export { SequelizeSecurityEventRepository } from '../../repositories/sequelize/security-event.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export { SequelizeChargingLimitRepository } from '../../repositories/sequelize/charging-limit.js';
+ export { SequelizeWebsocketEventRepository } from '../../repositories/sequelize/websocket-event.js';
+ export { SequelizeNetworkAlertRepository } from '../../repositories/sequelize/network-alert.js';
+ export { SequelizeNetworkAlertConfigRepository } from '../../repositories/sequelize/network-alert-config.js';
+diff --git a/packages/dal/src/db/sequelize/util.ts b/packages/dal/src/db/sequelize/util.ts
+index 77deb8174..4d1f2a5de 100644
+--- a/packages/dal/src/db/sequelize/util.ts
++++ b/packages/dal/src/db/sequelize/util.ts
+@@ -51,6 +51,8 @@ import {
+ import { OCPPMessage } from '../../models/ocpp-message.js';
+ import { Reservation } from '../../models/reservation.js';
+ import { SecurityEvent } from '../../models/security-event.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++import { ChargingLimit } from '../../models/charging-limit.js';
+ import { WebsocketEvent } from '../../models/websocket-event.js';
+ import { Subscription } from '../../models/subscription/subscription.js';
+ import { Tariff } from '../../models/tariff/tariffs.js';
+@@ -163,6 +165,7 @@ export class DefaultSequelizeInstance {
+         InstallCertificateAttempt,
+         DeleteCertificateAttempt,
+         ChangeConfiguration,
++        ChargingLimit,
+         ChargingNeeds,
+         ChargingProfile,
+         ChargingSchedule,
+diff --git a/packages/dal/src/models/charging-limit.ts b/packages/dal/src/models/charging-limit.ts
+new file mode 100644
+index 000000000..8cb368173
+--- /dev/null
++++ b/packages/dal/src/models/charging-limit.ts
+@@ -0,0 +1,96 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import { DEFAULT_TENANT_ID } from '@citrineos/base';
++import type { ChargingLimitDto, ChargingStationDto, TenantDto } from '@citrineos/types';
++import {
++  BeforeCreate,
++  BeforeUpdate,
++  BelongsTo,
++  Column,
++  DataType,
++  ForeignKey,
++  Model,
++  Table,
++} from 'sequelize-typescript';
++import { ChargingStation } from './location/index.js';
++import { Tenant } from './tenant.js';
++
++// ha-citrine patch (0004-ocpp2-charging-limits): limits reported by NotifyChargingLimit.
++@Table({
++  indexes: [
++    {
++      name: 'charging_limits_tenant_id_station_id_is_active',
++      fields: ['tenantId', 'stationId', 'isActive'],
++    },
++  ],
++})
++export class ChargingLimit extends Model implements ChargingLimitDto {
++  static readonly MODEL_NAME: string = 'ChargingLimit';
++
++  @ForeignKey(() => ChargingStation)
++  @Column({
++    type: DataType.INTEGER,
++    allowNull: false,
++    onUpdate: 'CASCADE',
++    onDelete: 'CASCADE',
++  })
++  declare stationId: number;
++
++  @BelongsTo(() => ChargingStation, 'stationId')
++  declare chargingStation?: ChargingStationDto;
++
++  // The station's own EVSE id from the request, not a key into Evses.
++  @Column(DataType.INTEGER)
++  declare evseId?: number | null;
++
++  @Column({ type: DataType.STRING(20), allowNull: false })
++  declare chargingLimitSource: string;
++
++  @Column(DataType.BOOLEAN)
++  declare isGridCritical?: boolean | null;
++
++  @Column(DataType.BOOLEAN)
++  declare isLocalGeneration?: boolean | null;
++
++  @Column(DataType.JSONB)
++  declare chargingSchedule?: unknown[] | null;
++
++  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
++  declare isActive: boolean;
++
++  @Column({
++    type: DataType.DATE,
++    get() {
++      return this.getDataValue('clearedAt')?.toISOString() ?? null;
++    },
++  })
++  declare clearedAt?: string | null;
++
++  @ForeignKey(() => Tenant)
++  @Column({
++    type: DataType.INTEGER,
++    allowNull: false,
++    onUpdate: 'CASCADE',
++    onDelete: 'RESTRICT',
++  })
++  declare tenantId: number;
++
++  @BelongsTo(() => Tenant, 'tenantId')
++  declare tenant?: TenantDto;
++
++  @BeforeUpdate
++  @BeforeCreate
++  static setDefaultTenant(instance: ChargingLimit) {
++    if (instance.tenantId == null) {
++      instance.tenantId = DEFAULT_TENANT_ID;
++    }
++  }
++
++  constructor(...args: any[]) {
++    super(...args);
++    if (this.tenantId == null) {
++      this.tenantId = DEFAULT_TENANT_ID;
++    }
++  }
++}
+diff --git a/packages/dal/src/models/index.ts b/packages/dal/src/models/index.ts
+index 6a82d973b..5528a3f1d 100644
+--- a/packages/dal/src/models/index.ts
++++ b/packages/dal/src/models/index.ts
+@@ -6,6 +6,8 @@
+ export { BaseModelWithTenant } from './base-model-with-tenant.js';
+ export { Boot } from './boot.js';
+ export { ChangeConfiguration } from './change-configuration.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export { ChargingLimit } from './charging-limit.js';
+ export { ChargingStationSecurityInfo } from './charging-station-security-info.js';
+ export { NetworkAlert, NetworkAlertConfig, NetworkAlertOccurrence } from './network-alert/index.js';
+ export { OCPPMessage } from './ocpp-message.js';
+diff --git a/packages/dal/src/models/table-name.ts b/packages/dal/src/models/table-name.ts
+index e2f1d641e..f2f4ab75a 100644
+--- a/packages/dal/src/models/table-name.ts
++++ b/packages/dal/src/models/table-name.ts
+@@ -32,6 +32,8 @@ export const TableName = {
+   ChangeConfigurations: 'ChangeConfigurations',
+ 
+   // Charging profile
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  ChargingLimits: 'ChargingLimits',
+   ChargingNeeds: 'ChargingNeeds',
+   ChargingProfiles: 'ChargingProfiles',
+   ChargingSchedules: 'ChargingSchedules',
+diff --git a/packages/dal/src/repositories/drizzle/charging-limit.ts b/packages/dal/src/repositories/drizzle/charging-limit.ts
+new file mode 100644
+index 000000000..808479b0f
+--- /dev/null
++++ b/packages/dal/src/repositories/drizzle/charging-limit.ts
+@@ -0,0 +1,168 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++
++import type { ChargingLimitDto, OCPP2_request_types } from '@citrineos/types';
++import { and, eq, isNull, type SQL } from 'drizzle-orm';
++import { chargingStationTable } from '../../db/drizzle/schema/charging-station.js';
++import {
++  type ChargingLimitEntity,
++  chargingLimitTable,
++} from '../../db/drizzle/schema/charging-limit.js';
++import { type Explicit } from '../../db/drizzle/types.js';
++import type { IChargingLimitRepository } from '../repositories.js';
++import { type DrizzleExecutor, DrizzleRepository, type DrizzleWriteContext } from './base.js';
++
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export function toChargingLimitDto(entity: ChargingLimitEntity): ChargingLimitDto {
++  const dto: Explicit<ChargingLimitDto> = {
++    id: entity.id,
++    stationId: entity.stationId,
++    evseId: entity.evseId ?? null,
++    chargingLimitSource: entity.chargingLimitSource,
++    isGridCritical: entity.isGridCritical ?? null,
++    isLocalGeneration: entity.isLocalGeneration ?? null,
++    chargingSchedule: entity.chargingSchedule ?? null,
++    isActive: entity.isActive,
++    clearedAt: entity.clearedAt?.toISOString() ?? null,
++    tenantId: entity.tenantId,
++    tenant: undefined,
++    createdAt: entity.createdAt,
++    updatedAt: entity.updatedAt,
++  };
++  return dto;
++}
++
++export class DrizzleChargingLimitRepository
++  extends DrizzleRepository<typeof chargingLimitTable, ChargingLimitDto>
++  implements IChargingLimitRepository
++{
++  // No schema-per-tenant variant: the charging limit table is row-level only.
++  protected getTable(_tenantId: number): typeof chargingLimitTable {
++    return chargingLimitTable;
++  }
++
++  protected toDto(row: ChargingLimitEntity): ChargingLimitDto {
++    return toChargingLimitDto(row);
++  }
++
++  async createByStationId(
++    tenantId: number,
++    value: OCPP2_request_types.NotifyChargingLimitRequest,
++    ocppConnectionName: string,
++  ): Promise<ChargingLimitDto> {
++    const { chargingLimit } = value;
++    const evseId = value.evseId ?? null;
++
++    return this.withAtomicWrite(async (ctx) => {
++      const stationId = await this.findStationIdOrThrow(
++        tenantId,
++        ocppConnectionName,
++        'store charging limit',
++        ctx.db,
++      );
++      await this.deactivate(
++        tenantId,
++        [
++          eq(chargingLimitTable.stationId, stationId),
++          evseId === null
++            ? isNull(chargingLimitTable.evseId)
++            : eq(chargingLimitTable.evseId, evseId),
++          eq(chargingLimitTable.chargingLimitSource, chargingLimit.chargingLimitSource),
++        ],
++        ctx,
++      );
++      return this.insert(
++        tenantId,
++        {
++          stationId,
++          evseId,
++          chargingLimitSource: chargingLimit.chargingLimitSource,
++          isGridCritical: chargingLimit.isGridCritical ?? null,
++          isLocalGeneration:
++            'isLocalGeneration' in chargingLimit ? (chargingLimit.isLocalGeneration ?? null) : null,
++          chargingSchedule: value.chargingSchedule ?? null,
++          isActive: true,
++          clearedAt: null,
++        } satisfies Omit<typeof chargingLimitTable.$inferInsert, 'tenantId'>,
++        ctx,
++      );
++    });
++  }
++
++  async clearByStationId(
++    tenantId: number,
++    value: OCPP2_request_types.ClearedChargingLimitRequest,
++    ocppConnectionName: string,
++  ): Promise<number> {
++    return this.withAtomicWrite(async (ctx) => {
++      const stationId = await this.findStationIdOrThrow(
++        tenantId,
++        ocppConnectionName,
++        'clear charging limit',
++        ctx.db,
++      );
++      const conditions = [
++        eq(chargingLimitTable.stationId, stationId),
++        eq(chargingLimitTable.chargingLimitSource, value.chargingLimitSource),
++      ];
++      if (value.evseId != null) {
++        conditions.push(eq(chargingLimitTable.evseId, value.evseId));
++      }
++      return this.deactivate(tenantId, conditions, ctx);
++    });
++  }
++
++  private async findStationIdOrThrow(
++    tenantId: number,
++    ocppConnectionName: string,
++    purpose: string,
++    db: DrizzleExecutor,
++  ): Promise<number> {
++    const rows = await db
++      .select({ id: chargingStationTable.id })
++      .from(chargingStationTable)
++      .where(
++        and(
++          eq(chargingStationTable.ocppConnectionName, ocppConnectionName),
++          eq(chargingStationTable.tenantId, tenantId),
++        ),
++      )
++      .limit(1);
++    const stationId = rows[0]?.id;
++    if (stationId === undefined) {
++      throw new Error(
++        `Cannot ${purpose}: no charging station named ` +
++          `'${ocppConnectionName}' exists in tenant ${tenantId}.`,
++      );
++    }
++    return stationId;
++  }
++
++  private async deactivate(
++    tenantId: number,
++    conditions: SQL[],
++    ctx: DrizzleWriteContext,
++  ): Promise<number> {
++    const now = new Date();
++    const rows = await ctx.db
++      .update(chargingLimitTable)
++      .set({ isActive: false, clearedAt: now, updatedAt: now })
++      .where(
++        and(
++          eq(chargingLimitTable.tenantId, tenantId),
++          eq(chargingLimitTable.isActive, true),
++          ...conditions,
++        ),
++      )
++      .returning();
++    if (rows.length > 0) {
++      this.raise(
++        ctx,
++        'updated',
++        rows.map((row) => this.toDto(row)),
++      );
++    }
++    return rows.length;
++  }
++}
+diff --git a/packages/dal/src/repositories/repositories.ts b/packages/dal/src/repositories/repositories.ts
+index c7da36b56..0dde755dd 100644
+--- a/packages/dal/src/repositories/repositories.ts
++++ b/packages/dal/src/repositories/repositories.ts
+@@ -17,6 +17,7 @@ import type {
+   CertificateUseEnumType,
+   ChangeConfigurationCreate,
+   ChangeConfigurationDto,
++  ChargingLimitDto,
+   ChargingLimitSourceEnumType,
+   ChargingProfilePurposeEnumType,
+   ChargingStationDto,
+@@ -415,6 +416,28 @@ export interface ISecurityEventRepository {
+   deleteByKey: (tenantId: number, key: string) => Promise<SecurityEventDto | undefined>;
+ }
+ 
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export interface IChargingLimitRepository {
++  /**
++   * Deactivates the station's active limits from the same source on the same EVSE (or the
++   * whole station when evseId is absent), then stores the new one as active, atomically.
++   */
++  createByStationId: (
++    tenantId: number,
++    value: OCPP2_request_types.NotifyChargingLimitRequest,
++    ocppConnectionName: string,
++  ) => Promise<ChargingLimitDto>;
++  /**
++   * Deactivates the station's active limits from the source, on the given EVSE only when
++   * evseId is present. Resolves to the number of limits cleared.
++   */
++  clearByStationId: (
++    tenantId: number,
++    value: OCPP2_request_types.ClearedChargingLimitRequest,
++    ocppConnectionName: string,
++  ) => Promise<number>;
++}
++
+ // ORM-agnostic contract: returns SubscriptionDto so both the Sequelize
+ // (model implements SubscriptionDto) and Drizzle implementations satisfy it.
+ export interface ISubscriptionRepository {
+diff --git a/packages/dal/src/repositories/sequelize/charging-limit.ts b/packages/dal/src/repositories/sequelize/charging-limit.ts
+new file mode 100644
+index 000000000..e58910b50
+--- /dev/null
++++ b/packages/dal/src/repositories/sequelize/charging-limit.ts
+@@ -0,0 +1,112 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++import type { OCPP2_request_types } from '@citrineos/types';
++import type { Transaction, WhereOptions } from 'sequelize';
++import { ChargingLimit } from '../../models/charging-limit.js';
++import type { IChargingLimitRepository } from '../repositories.js';
++import { SequelizeRepository, type SequelizeRepositoryDependencies } from './base.js';
++import { resolveStationIdOrThrow } from './resolve-station-id.js';
++
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export class SequelizeChargingLimitRepository
++  extends SequelizeRepository<ChargingLimit>
++  implements IChargingLimitRepository
++{
++  constructor({ config, logger, sequelizeInstance }: SequelizeRepositoryDependencies) {
++    super({ config, namespace: ChargingLimit.MODEL_NAME, logger, sequelizeInstance });
++  }
++
++  async createByStationId(
++    tenantId: number,
++    value: OCPP2_request_types.NotifyChargingLimitRequest,
++    ocppConnectionName: string,
++  ): Promise<ChargingLimit> {
++    const { chargingLimit } = value;
++    const evseId = value.evseId ?? null;
++
++    const [cleared, created] = await this.s.transaction(async (transaction) => {
++      const stationId = await resolveStationIdOrThrow(
++        tenantId,
++        ocppConnectionName,
++        'store charging limit',
++        transaction,
++      );
++      const deactivated = await this.deactivate(
++        {
++          tenantId,
++          stationId,
++          evseId,
++          chargingLimitSource: chargingLimit.chargingLimitSource,
++          isActive: true,
++        },
++        transaction,
++      );
++      const row = await ChargingLimit.create(
++        {
++          tenantId,
++          stationId,
++          evseId,
++          chargingLimitSource: chargingLimit.chargingLimitSource,
++          isGridCritical: chargingLimit.isGridCritical ?? null,
++          isLocalGeneration:
++            'isLocalGeneration' in chargingLimit ? (chargingLimit.isLocalGeneration ?? null) : null,
++          chargingSchedule: value.chargingSchedule ?? null,
++          isActive: true,
++          clearedAt: null,
++        },
++        { transaction },
++      );
++      return [deactivated, row] as const;
++    });
++
++    if (cleared.length > 0) {
++      this.emit('updated', cleared);
++    }
++    this.emit('created', [created]);
++    return created;
++  }
++
++  async clearByStationId(
++    tenantId: number,
++    value: OCPP2_request_types.ClearedChargingLimitRequest,
++    ocppConnectionName: string,
++  ): Promise<number> {
++    const cleared = await this.s.transaction(async (transaction) => {
++      const stationId = await resolveStationIdOrThrow(
++        tenantId,
++        ocppConnectionName,
++        'clear charging limit',
++        transaction,
++      );
++      return this.deactivate(
++        {
++          tenantId,
++          stationId,
++          chargingLimitSource: value.chargingLimitSource,
++          isActive: true,
++          ...(value.evseId != null ? { evseId: value.evseId } : {}),
++        },
++        transaction,
++      );
++    });
++
++    if (cleared.length > 0) {
++      this.emit('updated', cleared);
++    }
++    return cleared.length;
++  }
++
++  private async deactivate(
++    where: WhereOptions<ChargingLimit>,
++    transaction: Transaction,
++  ): Promise<ChargingLimit[]> {
++    const [, rows] = await ChargingLimit.update(
++      { isActive: false, clearedAt: new Date().toISOString() },
++      { where, transaction, returning: true },
++    );
++    return rows;
++  }
++}
++
++export default SequelizeChargingLimitRepository;
+diff --git a/packages/ocpp/src/handlers/requests/2/cleared-charging-limit-request-ocpp-2-handler.ts b/packages/ocpp/src/handlers/requests/2/cleared-charging-limit-request-ocpp-2-handler.ts
+index d09d16691..ce5d7570e 100644
+--- a/packages/ocpp/src/handlers/requests/2/cleared-charging-limit-request-ocpp-2-handler.ts
++++ b/packages/ocpp/src/handlers/requests/2/cleared-charging-limit-request-ocpp-2-handler.ts
+@@ -8,6 +8,7 @@ import {
+   type IMessage,
+   type IOcppSender,
+ } from '@citrineos/base';
++import type { IChargingLimitRepository } from '@citrineos/dal';
+ import {
+   type HandlerProperties,
+   OCPP_2_VER_LIST,
+@@ -19,10 +20,20 @@ import {
+ @AsRequestHandler(OCPP_2_VER_LIST, OCPP_CallAction.ClearedChargingLimit)
+ export class ClearedChargingLimitRequestOcpp2Handler extends AbstractHandler {
+   protected _ocppSender: IOcppSender;
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  protected _chargingLimitRepository: IChargingLimitRepository;
+ 
+-  constructor({ logger, ocppSender }: AbstractHandlerDependencies & { ocppSender: IOcppSender }) {
++  constructor({
++    logger,
++    ocppSender,
++    chargingLimitRepository,
++  }: AbstractHandlerDependencies & {
++    ocppSender: IOcppSender;
++    chargingLimitRepository: IChargingLimitRepository;
++  }) {
+     super(logger);
+     this._ocppSender = ocppSender;
++    this._chargingLimitRepository = chargingLimitRepository;
+   }
+ 
+   async handle(
+@@ -35,6 +46,18 @@ export class ClearedChargingLimitRequestOcpp2Handler extends AbstractHandler {
+       props,
+     );
+ 
++    // ha-citrine patch (0004-ocpp2-charging-limits): the station is answered even when the
++    // limit cannot be cleared; the response carries no status to report that with.
++    try {
++      await this._chargingLimitRepository.clearByStationId(
++        message.context.tenantId,
++        message.payload,
++        message.context.ocppConnectionName,
++      );
++    } catch (error) {
++      this._logger.error('Failed to clear charging limit', error);
++    }
++
+     const response: OCPP2_response_types.ClearedChargingLimitResponse = {};
+     await this._ocppSender.sendCallResultWithMessage(message, response);
+   }
+diff --git a/packages/ocpp/src/handlers/requests/2/notify-charging-limit-request-ocpp-2-handler.ts b/packages/ocpp/src/handlers/requests/2/notify-charging-limit-request-ocpp-2-handler.ts
+index 8c4efd1c3..ef2477c64 100644
+--- a/packages/ocpp/src/handlers/requests/2/notify-charging-limit-request-ocpp-2-handler.ts
++++ b/packages/ocpp/src/handlers/requests/2/notify-charging-limit-request-ocpp-2-handler.ts
+@@ -8,6 +8,7 @@ import {
+   type IMessage,
+   type IOcppSender,
+ } from '@citrineos/base';
++import type { IChargingLimitRepository } from '@citrineos/dal';
+ import {
+   type HandlerProperties,
+   OCPP_2_VER_LIST,
+@@ -19,10 +20,20 @@ import {
+ @AsRequestHandler(OCPP_2_VER_LIST, OCPP_CallAction.NotifyChargingLimit)
+ export class NotifyChargingLimitRequestOcpp2Handler extends AbstractHandler {
+   protected _ocppSender: IOcppSender;
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  protected _chargingLimitRepository: IChargingLimitRepository;
+ 
+-  constructor({ logger, ocppSender }: AbstractHandlerDependencies & { ocppSender: IOcppSender }) {
++  constructor({
++    logger,
++    ocppSender,
++    chargingLimitRepository,
++  }: AbstractHandlerDependencies & {
++    ocppSender: IOcppSender;
++    chargingLimitRepository: IChargingLimitRepository;
++  }) {
+     super(logger);
+     this._ocppSender = ocppSender;
++    this._chargingLimitRepository = chargingLimitRepository;
+   }
+ 
+   async handle(
+@@ -35,6 +46,18 @@ export class NotifyChargingLimitRequestOcpp2Handler extends AbstractHandler {
+       props,
+     );
+ 
++    // ha-citrine patch (0004-ocpp2-charging-limits): the station is answered even when the
++    // limit cannot be stored; the response carries no status to report that with.
++    try {
++      await this._chargingLimitRepository.createByStationId(
++        message.context.tenantId,
++        message.payload,
++        message.context.ocppConnectionName,
++      );
++    } catch (error) {
++      this._logger.error('Failed to store charging limit', error);
++    }
++
+     // Create response
+     const response: OCPP2_response_types.NotifyChargingLimitResponse = {};
+ 
+diff --git a/packages/ocpp/src/server/container.ts b/packages/ocpp/src/server/container.ts
+index 25059a61a..719b6c4ec 100644
+--- a/packages/ocpp/src/server/container.ts
++++ b/packages/ocpp/src/server/container.ts
+@@ -29,6 +29,8 @@ import {
+   DrizzleBootRepository,
+   DrizzleCertificateRepository,
+   DrizzleChangeConfigurationRepository,
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  DrizzleChargingLimitRepository,
+   DrizzleChargingStationNetworkProfileRepository,
+   DrizzleChargingStationRepository,
+   DrizzleChargingStationSecurityInfoRepository,
+@@ -62,6 +64,8 @@ import {
+   SequelizeBootRepository,
+   SequelizeCertificateRepository,
+   SequelizeChangeConfigurationRepository,
++  // ha-citrine patch (0004-ocpp2-charging-limits)
++  SequelizeChargingLimitRepository,
+   SequelizeChargingProfileRepository,
+   SequelizeChargingStationNetworkProfileRepository,
+   SequelizeChargingStationSecurityInfoRepository,
+@@ -337,6 +341,8 @@ function registerRepositories(container: AwilixContainer): void {
+     bootRepository: asClass(SequelizeBootRepository).singleton(),
+     certificateRepository: asClass(SequelizeCertificateRepository).singleton(),
+     changeConfigurationRepository: asClass(SequelizeChangeConfigurationRepository).singleton(),
++    // ha-citrine patch (0004-ocpp2-charging-limits)
++    chargingLimitRepository: asClass(SequelizeChargingLimitRepository).singleton(),
+     chargingProfileRepository: asClass(SequelizeChargingProfileRepository).singleton(),
+     chargingStationSecurityInfoRepository: asClass(
+       SequelizeChargingStationSecurityInfoRepository,
+@@ -408,6 +414,8 @@ function registerRepositories(container: AwilixContainer): void {
+       bootRepository: asClass(DrizzleBootRepository).singleton(),
+       certificateRepository: asClass(DrizzleCertificateRepository).singleton(),
+       changeConfigurationRepository: asClass(DrizzleChangeConfigurationRepository).singleton(),
++      // ha-citrine patch (0004-ocpp2-charging-limits)
++      chargingLimitRepository: asClass(DrizzleChargingLimitRepository).singleton(),
+       chargingStationRepository: asClass(DrizzleChargingStationRepository).singleton(),
+       chargingStationNetworkProfileRepository: asClass(
+         DrizzleChargingStationNetworkProfileRepository,
+diff --git a/packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts b/packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts
+index 5134eb9c9..13c34e92d 100644
+--- a/packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts
++++ b/packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts
+@@ -25,14 +25,12 @@ import {
+   type SystemConfig,
+ } from '@citrineos/types';
+ import {
+-  ClearedChargingLimitRequestOcpp2Handler,
+   DataTransferRequestOcpp2Handler,
+   FirmwareStatusNotificationRequestOcpp2Handler,
+   Get15118EVCertificateRequestOcpp2Handler,
+   GetCertificateStatusRequestOcpp2Handler,
+   HeartbeatRequestOcpp2Handler,
+   LogStatusNotificationRequestOcpp2Handler,
+-  NotifyChargingLimitRequestOcpp2Handler,
+   VatNumberValidationRequestOcpp21Handler,
+ } from '@handlers/index.js';
+ import { createTestContainer, makeMockOcppSender, mockDeps } from '@test/test-container.js';
+@@ -433,24 +431,6 @@ describe('DataTransferRequestOcpp2Handler', () => {
+   });
+ });
+ 
+-describe('NotifyChargingLimitRequestOcpp2Handler', () => {
+-  it('acknowledges the charging limit with an empty confirmation', async () => {
+-    const { handler, ocppSender } = makeSimpleHandler(NotifyChargingLimitRequestOcpp2Handler);
+-    const message = makeMessage(
+-      {
+-        chargingLimit: { chargingLimitSource: 'EMS' },
+-        evseId: 1,
+-      } as OCPP2_1.NotifyChargingLimitRequest,
+-      OCPP_CallAction.NotifyChargingLimit,
+-    );
+-
+-    await handler.handle(message);
+-
+-    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][0]).toBe(message);
+-    expect(sentResponse(ocppSender)).toEqual({});
+-  });
+-});
+-
+ describe('HeartbeatRequestOcpp2Handler', () => {
+   beforeEach(() => {
+     vi.useFakeTimers();
+@@ -471,21 +451,3 @@ describe('HeartbeatRequestOcpp2Handler', () => {
+     expect(sentResponse(ocppSender)).toEqual({ currentTime: '2026-01-15T10:30:00.000Z' });
+   });
+ });
+-
+-describe('ClearedChargingLimitRequestOcpp2Handler', () => {
+-  it('acknowledges the cleared limit with an empty confirmation', async () => {
+-    const { handler, ocppSender } = makeSimpleHandler(ClearedChargingLimitRequestOcpp2Handler);
+-    const message = makeMessage(
+-      {
+-        chargingLimitSource: OCPP2_1.ChargingLimitSourceEnumType.EMS,
+-        evseId: 1,
+-      } as OCPP2_1.ClearedChargingLimitRequest,
+-      OCPP_CallAction.ClearedChargingLimit,
+-    );
+-
+-    await handler.handle(message);
+-
+-    expect(ocppSender.sendCallResultWithMessage.mock.calls[0][0]).toBe(message);
+-    expect(sentResponse(ocppSender)).toEqual({});
+-  });
+-});
+diff --git a/packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts b/packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts
+new file mode 100644
+index 000000000..44eae9e1e
+--- /dev/null
++++ b/packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts
+@@ -0,0 +1,340 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++
++// ha-citrine patch (0004-ocpp2-charging-limits)
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { DEFAULT_TENANT_ID, Message } from '@citrineos/base';
++import type { IChargingLimitRepository } from '@citrineos/dal';
++import {
++  type CallAction,
++  type ChargingLimitDto,
++  EventGroup,
++  MessageOrigin,
++  MessageState,
++  OCPP2_0_1,
++  OCPP2_1,
++  OCPP2_request_types,
++  OCPP_CallAction,
++  type OcppRequest,
++  OCPPVersion,
++} from '@citrineos/types';
++import {
++  ClearedChargingLimitRequestOcpp2Handler,
++  NotifyChargingLimitRequestOcpp2Handler,
++} from '@handlers/index.js';
++import { createTestContainer, makeMockOcppSender, mockDeps } from '@test/test-container.js';
++
++const STATION = 'station-001';
++const STATION_ID = 42;
++
++function aMessage<T extends OcppRequest>(
++  payload: T,
++  action: CallAction,
++  protocol: OCPPVersion = OCPPVersion.OCPP2_1,
++): Message<T> {
++  return new Message(
++    MessageOrigin.ChargingStation,
++    EventGroup.SmartCharging,
++    action,
++    MessageState.Request,
++    {
++      correlationId: 'corr-001',
++      tenantId: DEFAULT_TENANT_ID,
++      ocppConnectionName: STATION,
++      timestamp: new Date().toISOString(),
++    },
++    payload,
++    protocol,
++  );
++}
++
++/** IChargingLimitRepository in memory, keeping the contract both ORM implementations keep. */
++class FakeChargingLimitRepository implements IChargingLimitRepository {
++  rows: ChargingLimitDto[] = [];
++  private _nextId = 1;
++
++  createByStationId = vi.fn(
++    async (
++      tenantId: number,
++      value: OCPP2_request_types.NotifyChargingLimitRequest,
++      ocppConnectionName: string,
++    ): Promise<ChargingLimitDto> => {
++      const stationId = this.resolve(ocppConnectionName);
++      const evseId = value.evseId ?? null;
++      const source = value.chargingLimit.chargingLimitSource;
++      this.deactivate(
++        (row) =>
++          row.tenantId === tenantId &&
++          row.stationId === stationId &&
++          (row.evseId ?? null) === evseId &&
++          row.chargingLimitSource === source,
++      );
++      const row: ChargingLimitDto = {
++        id: this._nextId++,
++        tenantId,
++        stationId,
++        evseId,
++        chargingLimitSource: source,
++        isGridCritical: value.chargingLimit.isGridCritical ?? null,
++        isLocalGeneration:
++          'isLocalGeneration' in value.chargingLimit
++            ? (value.chargingLimit.isLocalGeneration ?? null)
++            : null,
++        chargingSchedule: value.chargingSchedule ?? null,
++        isActive: true,
++        clearedAt: null,
++      };
++      this.rows.push(row);
++      return row;
++    },
++  );
++
++  clearByStationId = vi.fn(
++    async (
++      tenantId: number,
++      value: OCPP2_request_types.ClearedChargingLimitRequest,
++      ocppConnectionName: string,
++    ): Promise<number> => {
++      const stationId = this.resolve(ocppConnectionName);
++      return this.deactivate(
++        (row) =>
++          row.tenantId === tenantId &&
++          row.stationId === stationId &&
++          row.chargingLimitSource === value.chargingLimitSource &&
++          (value.evseId == null || row.evseId === value.evseId),
++      );
++    },
++  );
++
++  active(): ChargingLimitDto[] {
++    return this.rows.filter((row) => row.isActive);
++  }
++
++  private resolve(ocppConnectionName: string): number {
++    if (ocppConnectionName !== STATION) {
++      throw new Error(`no charging station named '${ocppConnectionName}'`);
++    }
++    return STATION_ID;
++  }
++
++  private deactivate(matches: (row: ChargingLimitDto) => boolean): number {
++    let count = 0;
++    for (const row of this.rows) {
++      if (row.isActive && matches(row)) {
++        row.isActive = false;
++        row.clearedAt = new Date().toISOString();
++        count++;
++      }
++    }
++    return count;
++  }
++}
++
++function makeDeps() {
++  const { logger } = createTestContainer();
++  const ocppSender = makeMockOcppSender();
++  const chargingLimitRepository = new FakeChargingLimitRepository();
++  return { logger, ocppSender, chargingLimitRepository };
++}
++
++function sentResponse(
++  ocppSender: ReturnType<typeof makeMockOcppSender>,
++  message: Message<OcppRequest>,
++) {
++  expect(ocppSender.sendCallResultWithMessage).toHaveBeenCalledOnce();
++  expect(ocppSender.sendCallResultWithMessage.mock.calls[0][0]).toBe(message);
++  return ocppSender.sendCallResultWithMessage.mock.calls[0][1];
++}
++
++const schedule: OCPP2_1.NotifyChargingLimitRequest['chargingSchedule'] = [
++  {
++    id: 1,
++    chargingRateUnit: OCPP2_1.ChargingRateUnitEnumType.W,
++    chargingSchedulePeriod: [{ startPeriod: 0, limit: 7400 }],
++  },
++];
++
++describe('NotifyChargingLimitRequestOcpp2Handler', () => {
++  let deps: ReturnType<typeof makeDeps>;
++  let handler: NotifyChargingLimitRequestOcpp2Handler;
++
++  beforeEach(() => {
++    deps = makeDeps();
++    handler = new NotifyChargingLimitRequestOcpp2Handler(deps);
++  });
++
++  it('stores an OCPP 2.1 limit as active and answers {}', async () => {
++    const payload: OCPP2_1.NotifyChargingLimitRequest = {
++      evseId: 1,
++      chargingLimit: { chargingLimitSource: 'EMS', isGridCritical: true, isLocalGeneration: true },
++      chargingSchedule: schedule,
++    };
++    const message = aMessage(payload, OCPP_CallAction.NotifyChargingLimit);
++
++    await handler.handle(message);
++
++    expect(deps.chargingLimitRepository.createByStationId).toHaveBeenCalledWith(
++      DEFAULT_TENANT_ID,
++      payload,
++      STATION,
++    );
++    expect(deps.chargingLimitRepository.active()).toEqual([
++      expect.objectContaining({
++        stationId: STATION_ID,
++        evseId: 1,
++        chargingLimitSource: 'EMS',
++        isGridCritical: true,
++        isLocalGeneration: true,
++        chargingSchedule: schedule,
++        isActive: true,
++        clearedAt: null,
++      }),
++    ]);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++
++  it('stores an OCPP 2.0.1 limit for the whole station without isLocalGeneration', async () => {
++    const payload: OCPP2_0_1.NotifyChargingLimitRequest = {
++      chargingLimit: { chargingLimitSource: OCPP2_0_1.ChargingLimitSourceEnumType.SO },
++    };
++    const message = aMessage(payload, OCPP_CallAction.NotifyChargingLimit, OCPPVersion.OCPP2_0_1);
++
++    await handler.handle(message);
++
++    expect(deps.chargingLimitRepository.active()).toEqual([
++      expect.objectContaining({
++        evseId: null,
++        chargingLimitSource: 'SO',
++        isLocalGeneration: null,
++        chargingSchedule: null,
++      }),
++    ]);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++
++  it('deactivates the previous limit from the same source and EVSE before inserting', async () => {
++    const repo = deps.chargingLimitRepository;
++    const notify = (evseId: number | undefined, chargingLimitSource: string) =>
++      handler.handle(
++        aMessage<OCPP2_1.NotifyChargingLimitRequest>(
++          { evseId, chargingLimit: { chargingLimitSource } },
++          OCPP_CallAction.NotifyChargingLimit,
++        ),
++      );
++
++    await notify(1, 'EMS');
++    await notify(2, 'EMS');
++    await notify(1, 'SO');
++    await notify(undefined, 'EMS');
++    await notify(1, 'EMS');
++
++    const [first, ...rest] = repo.rows;
++    expect(first).toEqual(
++      expect.objectContaining({ evseId: 1, chargingLimitSource: 'EMS', isActive: false }),
++    );
++    expect(first.clearedAt).toEqual(expect.any(String));
++    expect(rest.every((row) => row.isActive)).toBe(true);
++    expect(repo.active().map((row) => [row.evseId, row.chargingLimitSource])).toEqual([
++      [2, 'EMS'],
++      [1, 'SO'],
++      [null, 'EMS'],
++      [1, 'EMS'],
++    ]);
++  });
++
++  it('logs a storage failure and still answers {}', async () => {
++    const message = aMessage<OCPP2_1.NotifyChargingLimitRequest>(
++      { chargingLimit: { chargingLimitSource: 'EMS' } },
++      OCPP_CallAction.NotifyChargingLimit,
++    );
++    deps.chargingLimitRepository.createByStationId.mockRejectedValueOnce(new Error('db down'));
++
++    await handler.handle(message);
++
++    expect(deps.logger.error).toHaveBeenCalledWith(
++      'Failed to store charging limit',
++      expect.any(Error),
++    );
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++    expect(deps.ocppSender.sendCallErrorWithMessage).not.toHaveBeenCalled();
++  });
++});
++
++describe('ClearedChargingLimitRequestOcpp2Handler', () => {
++  let deps: ReturnType<typeof makeDeps>;
++  let handler: ClearedChargingLimitRequestOcpp2Handler;
++
++  async function seed(evseId: number | undefined, chargingLimitSource: string) {
++    await deps.chargingLimitRepository.createByStationId(
++      DEFAULT_TENANT_ID,
++      { evseId, chargingLimit: { chargingLimitSource } },
++      STATION,
++    );
++  }
++
++  beforeEach(async () => {
++    deps = makeDeps();
++    handler = new ClearedChargingLimitRequestOcpp2Handler(
++      mockDeps<typeof ClearedChargingLimitRequestOcpp2Handler>(deps),
++    );
++    await seed(1, 'EMS');
++    await seed(2, 'EMS');
++    await seed(1, 'SO');
++  });
++
++  it('clears the source on the given EVSE only and answers {}', async () => {
++    const payload: OCPP2_1.ClearedChargingLimitRequest = {
++      chargingLimitSource: OCPP2_1.ChargingLimitSourceEnumType.EMS,
++      evseId: 1,
++    };
++    const message = aMessage(payload, OCPP_CallAction.ClearedChargingLimit);
++
++    await handler.handle(message);
++
++    expect(deps.chargingLimitRepository.clearByStationId).toHaveBeenCalledWith(
++      DEFAULT_TENANT_ID,
++      payload,
++      STATION,
++    );
++    expect(
++      deps.chargingLimitRepository.active().map((row) => [row.evseId, row.chargingLimitSource]),
++    ).toEqual([
++      [2, 'EMS'],
++      [1, 'SO'],
++    ]);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++
++  it('clears the source on every EVSE when evseId is absent', async () => {
++    const message = aMessage<OCPP2_0_1.ClearedChargingLimitRequest>(
++      { chargingLimitSource: OCPP2_0_1.ChargingLimitSourceEnumType.EMS },
++      OCPP_CallAction.ClearedChargingLimit,
++      OCPPVersion.OCPP2_0_1,
++    );
++
++    await handler.handle(message);
++
++    expect(
++      deps.chargingLimitRepository.active().map((row) => [row.evseId, row.chargingLimitSource]),
++    ).toEqual([[1, 'SO']]);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++
++  it('logs a storage failure and still answers {}', async () => {
++    const message = aMessage<OCPP2_1.ClearedChargingLimitRequest>(
++      { chargingLimitSource: OCPP2_1.ChargingLimitSourceEnumType.SO },
++      OCPP_CallAction.ClearedChargingLimit,
++    );
++    deps.chargingLimitRepository.clearByStationId.mockRejectedValueOnce(new Error('db down'));
++
++    await handler.handle(message);
++
++    expect(deps.logger.error).toHaveBeenCalledWith(
++      'Failed to clear charging limit',
++      expect.any(Error),
++    );
++    expect(deps.chargingLimitRepository.active()).toHaveLength(3);
++    expect(sentResponse(deps.ocppSender, message)).toEqual({});
++  });
++});
+diff --git a/packages/types/index.ts b/packages/types/index.ts
+index 43b4b957d..7384850af 100644
+--- a/packages/types/index.ts
++++ b/packages/types/index.ts
+@@ -100,6 +100,8 @@ export * from './src/interfaces/dto/authorization-dto.js';
+ export * from './src/interfaces/dto/boot-dto.js';
+ export * from './src/interfaces/dto/certificate-dto.js';
+ export * from './src/interfaces/dto/change-configuration-dto.js';
++// ha-citrine patch (0004-ocpp2-charging-limits)
++export * from './src/interfaces/dto/charging-limit-dto.js';
+ export * from './src/interfaces/dto/charging-needs-dto.js';
+ export * from './src/interfaces/dto/charging-profile-dto.js';
+ export * from './src/interfaces/dto/charging-schedule-dto.js';
+diff --git a/packages/types/src/interfaces/dto/charging-limit-dto.ts b/packages/types/src/interfaces/dto/charging-limit-dto.ts
+new file mode 100644
+index 000000000..ebe72c903
+--- /dev/null
++++ b/packages/types/src/interfaces/dto/charging-limit-dto.ts
+@@ -0,0 +1,39 @@
++// SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
++//
++// SPDX-License-Identifier: Apache-2.0
++
++import { z } from 'zod';
++import { BaseSchema } from './types/base-dto.js';
++
++// ha-citrine patch (0004-ocpp2-charging-limits): a limit reported by NotifyChargingLimit.
++export const ChargingLimitSchema = BaseSchema.extend({
++  id: z.number().int().optional(),
++  stationId: z.number().int(),
++  evseId: z.number().int().nullable().optional(),
++  // OCPP 2.1 widens the 2.0.1 enum to any string of up to 20 characters.
++  chargingLimitSource: z.string().max(20),
++  isGridCritical: z.boolean().nullable().optional(),
++  isLocalGeneration: z.boolean().nullable().optional(),
++  // The request's chargingSchedule array, stored as the station sent it.
++  chargingSchedule: z.array(z.unknown()).nullable().optional(),
++  isActive: z.boolean(),
++  clearedAt: z.iso.datetime().nullable().optional(),
++});
++
++export const ChargingLimitProps = ChargingLimitSchema.keyof().enum;
++
++export type ChargingLimitDto = z.infer<typeof ChargingLimitSchema>;
++
++export const ChargingLimitCreateSchema = ChargingLimitSchema.omit({
++  id: true,
++  tenant: true,
++  updatedAt: true,
++  createdAt: true,
++});
++
++export type ChargingLimitCreate = z.infer<typeof ChargingLimitCreateSchema>;
++
++export const chargingLimitSchemas = {
++  ChargingLimit: ChargingLimitSchema,
++  ChargingLimitCreate: ChargingLimitCreateSchema,
++};
+diff --git a/packages/types/src/interfaces/dto/types/enums.ts b/packages/types/src/interfaces/dto/types/enums.ts
+index 3e53c257d..a0bc963aa 100644
+--- a/packages/types/src/interfaces/dto/types/enums.ts
++++ b/packages/types/src/interfaces/dto/types/enums.ts
+@@ -69,6 +69,9 @@ export const ChargingProfilePurposeEnumSchema = z.enum([
+   'ChargingStationMaxProfile',
+   'TxDefaultProfile',
+   'TxProfile',
++  // ha-citrine patch (0004-ocpp2-charging-limits): OCPP 2.1 purposes.
++  'PriorityCharging',
++  'LocalGeneration',
+ ]);
+ 
+ export const ChargingRateUnitEnumSchema = z.enum(['W', 'A']);

@@ -22,6 +22,7 @@ const DIR = 'packages/ocpp/src/handlers/requests/2';
 // A patch that changes several files lists them in `files` (each as above) and
 // the files it adds in `creates`; markers counts its tags in each file.
 const H = 'packages/ocpp/src/handlers';
+const HASURA = 'apps/ocpp-server/db/hasura-metadata/databases/default/tables';
 const PATCHES = {
   '0001-ocpp21-charging-needs.patch': {
     file: `${DIR}/notify-ev-charging-needs-request-ocpp-2-handler.ts`,
@@ -56,6 +57,52 @@ const PATCHES = {
       ...['set-der-control', 'get-der-control', 'clear-der-control']
         .map(a => ({file: `${H}/responses/2/${a}-response-ocpp-21-handler.ts`, markers: 1})),
       {file: 'packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts', markers: 0},
+    ],
+  },
+  '0004-ocpp2-charging-limits.patch': {
+    files: [
+      ...[['public_ChargingStations', 'f2b63170f76fa2ca32907907881b3b118a3a8e15'],
+        ['public_Tenants', '11850185580b4147d3fac5b56109a8ba28a91d54'],
+        ['tables', 'aa087279d509b04ccd92d33dce0dfa0823dbf831']]
+        .map(([t, blob]) => ({file: `${HASURA}/${t}.yaml`, blob, fixture: `hasura-${t}.v2.1.0.yaml`, markers: 1})),
+      {file: 'packages/dal/index.ts',
+        blob: '028636c677a00b732339a2478179d9694017d2ca', fixture: 'dal-index.v2.1.0.ts', markers: 2},
+      {file: 'packages/dal/src/db/drizzle/index.ts',
+        blob: '15b74ff1dbdf148fe831a94d7e1fdee0f33d6937', fixture: 'dal-drizzle-index.v2.1.0.ts', markers: 2},
+      {file: 'packages/dal/src/db/drizzle/schema/index.ts',
+        blob: '98fe7d94abe7a469a8cb9d54547bf133e1882ff5', fixture: 'dal-drizzle-schema-index.v2.1.0.ts', markers: 1},
+      {file: 'packages/dal/src/db/sequelize/index.ts',
+        blob: '7db948dbdf214455c9661b0e3e7a11c6c375bd97', fixture: 'dal-sequelize-index.v2.1.0.ts', markers: 2},
+      {file: 'packages/dal/src/db/sequelize/util.ts',
+        blob: '77deb8174f0858744806cd68703baf5cca9da4e4', fixture: 'dal-sequelize-util.v2.1.0.ts', markers: 1},
+      {file: 'packages/dal/src/models/index.ts',
+        blob: '6a82d973b551806ef37cad756e7c69e36d710fff', fixture: 'dal-models-index.v2.1.0.ts', markers: 1},
+      {file: 'packages/dal/src/models/table-name.ts',
+        blob: 'e2f1d641e3a2971f06532851d2fefd6cf8ad1386', fixture: 'dal-table-name.v2.1.0.ts', markers: 1},
+      {file: 'packages/dal/src/repositories/repositories.ts',
+        blob: 'c7da36b564a1e923fb1dbe5c2b22d07f976940d9', fixture: 'dal-repositories.v2.1.0.ts', markers: 1},
+      {file: `${H}/requests/2/cleared-charging-limit-request-ocpp-2-handler.ts`,
+        blob: 'd09d166911c00dca7fef471fb51706618a39e940', fixture: 'cleared-charging-limit-request-ocpp-2-handler.v2.1.0.ts', markers: 2},
+      {file: `${H}/requests/2/notify-charging-limit-request-ocpp-2-handler.ts`,
+        blob: '8c4efd1c3406369908836ded85e1936c56a89e91', fixture: 'notify-charging-limit-request-ocpp-2-handler.v2.1.0.ts', markers: 2},
+      {file: 'packages/ocpp/src/server/container.ts',
+        blob: '25059a61aadcb33edb9beaa59d6ee78694f78351', fixture: 'ocpp-container.v2.1.0.ts', markers: 4},
+      {file: 'packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts',
+        blob: '5134eb9c9b9a50e59d3d488103ee5f63b5625f55', fixture: 'certificate-and-misc-requests.test.v2.1.0.ts', markers: 0},
+      {file: 'packages/types/index.ts',
+        blob: '43b4b957d199c01840649923e46b424e9b735b5b', fixture: 'types-index.v2.1.0.ts', markers: 1},
+      {file: 'packages/types/src/interfaces/dto/types/enums.ts',
+        blob: '3e53c257de612cd621fec033c37f7d03a8d8f988', fixture: 'dto-enums.v2.1.0.ts', markers: 1},
+    ],
+    creates: [
+      {file: `${HASURA}/public_ChargingLimits.yaml`, markers: 1},
+      {file: 'apps/ocpp-server/db/migrations/20261026120000-create-charging-limits.ts', markers: 1},
+      {file: 'packages/dal/src/db/drizzle/schema/charging-limit.ts', markers: 1},
+      {file: 'packages/dal/src/models/charging-limit.ts', markers: 1},
+      {file: 'packages/dal/src/repositories/drizzle/charging-limit.ts', markers: 1},
+      {file: 'packages/dal/src/repositories/sequelize/charging-limit.ts', markers: 1},
+      {file: 'packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts', markers: 1},
+      {file: 'packages/types/src/interfaces/dto/charging-limit-dto.ts', markers: 1},
     ],
   },
 };

@@ -59,6 +59,8 @@ jobs:
             packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts \
             packages/ocpp/test/handlers/requests/2/authorize-request-ocpp-21-handler.test.ts \
             packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts \
+            packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts \
+            packages/ocpp/test/handlers/requests/2/certificate-and-misc-requests.test.ts \
             packages/ocpp/test/apis/ocpp/smart-charging-endpoint-list.test.ts
   private-stack:
     strategy:
