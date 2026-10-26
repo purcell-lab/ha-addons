@@ -434,13 +434,19 @@ def tx_profile(profile_id, txid, start_text, periods):
 
 def charging_needs_checks(csms):
     """NotifyEVChargingNeeds (ev_charging_needs) carries the needs the
-    patched Josev sends over ISO 15118-20 (ev_model.py defaults: allow
-    discharge down to 30 %, target 80 %, departure in 24 h)."""
+    patched Josev sends over ISO 15118-20 (ev_model.py defaults: plug in at
+    50 %, allow discharge down to 30 %, target 80 %, 60 kWh). EVerest
+    2026.10 maps the energy requests and the V2X window, not DepartureTime
+    or TargetSOC."""
     needs = csms.calls("NotifyEVChargingNeeds")
     assert needs, "no NotifyEVChargingNeeds"
     charging = needs[-1]["chargingNeeds"]
     assert charging.get("v2xChargingParameters"), charging  # ISO 15118-20 needs (libocpp's test)
-    assert isinstance(charging.get("departureTime"), str), charging  # date-time from DepartureTime
+    v2x = charging["v2xChargingParameters"]
+    # Schedule exchange comes before any energy flows, so the SoC is still 50 %.
+    expected = {"evTargetEnergyRequest": 18000, "evMaxEnergyRequest": 30000, "evMinEnergyRequest": -12000,
+                "evMinV2XEnergyRequest": -12000, "evMaxV2XEnergyRequest": 30000}
+    assert {k: v2x.get(k) for k in expected} == expected, charging
     ui = http("/api/status")["ev"]
     assert ui["needs"]["mode"] == "allow_discharge" and ui["iso20"]["min_soc"] == 30, ui
     return {"count": len(needs), "requestedEnergyTransfer": charging.get("requestedEnergyTransfer"),

@@ -226,9 +226,10 @@ import minus export energy since plug-in. The EV reports this SoC as
 `PresentSOC`, and the Status page shows it with the minimum and target SoC.
 
 The table "What the EV sends" lists each ISO 15118-20 value with the
-NotifyEVChargingNeeds field it maps to (`departureTime`,
-`v2xChargingParameters.targetSoC`, `evMinEnergyRequest`,
-`evMinV2XEnergyRequest`, `maxDischargePower` and so on). "Charging needs at
+NotifyEVChargingNeeds field it maps to (`v2xChargingParameters`
+`evTargetEnergyRequest`, `evMinEnergyRequest`, `evMinV2XEnergyRequest`,
+`maxDischargePower` and so on). EVerest 2026.10 does not map
+`DepartureTime`, `TargetSOC` or `PresentSOC` into the message. "Charging needs at
 the CSMS" lists the NotifyEVChargingNeeds the station sent and the CSMS's
 replies.
 
@@ -470,8 +471,11 @@ With `ev_charging_needs: true` the station sends the EV's needs to the CSMS
 in NotifyEVChargingNeeds: EVerest's ISO 15118-20 module (Evse15118D20,
 mapped to EVSE 1) publishes them on its `extensions` interface and OCPPmulti
 sends them through its `extensions_15118` requirement. For ISO 15118-20
-EVerest sends `DC_BPT` with `v2xChargingParameters`, `departureTime` and
-`controlMode`.
+EVerest sends `requestedEnergyTransfer` `DC_BPT`, `controlMode`
+`DynamicControl`, `mobilityNeedsMode` `EVCC` and `v2xChargingParameters`:
+the energy requests and V2X window from the EV, and charge and discharge
+power, current and voltage limits (discharge as negative values). It does
+not map `DepartureTime`, `TargetSOC` or `PresentSOC`.
 
 It is off by default. On OCPP 2.1 libocpp stops the transaction
 (`ReqEnergyTransferRejected`, K19.FR.16) when the CSMS answers Rejected to

@@ -432,25 +432,27 @@ function showEv(ev, si, app) {
   const departure = typeof iso.departure_time === "number" ? span(iso.departure_time) +
     " (" + local((iso.at + iso.departure_time) * 1000, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + ")" : "–";
   const rows = [
-    ["DepartureTime", "departureTime", departure],
-    ["TargetSOC", "v2xChargingParameters.targetSoC", pct(iso.target_soc)],
+    ["DepartureTime", "(not mapped by EVerest 2026.10)", departure],
+    ["TargetSOC", "(not mapped by EVerest 2026.10)", pct(iso.target_soc)],
     ["MinimumSOC", "(in evMinEnergyRequest)", pct(iso.min_soc)],
-    ["PresentSOC", "dcChargingParameters.stateOfCharge", pct(iso.present_soc)],
+    ["PresentSOC", "(not mapped by EVerest 2026.10)", pct(iso.present_soc)],
     ["EVTargetEnergyRequest", "evTargetEnergyRequest", wh(iso.target_wh)],
     ["EVMaximumEnergyRequest", "evMaxEnergyRequest", wh(iso.max_wh)],
     ["EVMinimumEnergyRequest", "evMinEnergyRequest", wh(iso.min_wh)],
     ["EVMinimumV2XEnergyRequest", "evMinV2XEnergyRequest", iso.v2x_min_wh == null ? "none (no discharge window)" : wh(iso.v2x_min_wh)],
     ["EVMaximumV2XEnergyRequest", "evMaxV2XEnergyRequest", iso.v2x_max_wh == null ? "none" : wh(iso.v2x_max_wh)],
-    ["EVMaximumDischargePower", "maxDischargePower", typeof iso.max_discharge_w === "number" ? fmt(iso.max_discharge_w) + " W" : "–"],
+    ["EVMaximumDischargePower", "maxDischargePower (negative)", typeof iso.max_discharge_w === "number" ? fmt(iso.max_discharge_w) + " W" : "–"],
     ["EVMaximumDischargeCurrent", "maxDischargeCurrent", typeof iso.max_discharge_a === "number" ? fmt(iso.max_discharge_a) + " A" : "–"],
     ["RemainingTimeToTargetSOC", "–", span(iso.remaining_time_to_target_soc)],
-    ["BatteryEnergyCapacity", "dcChargingParameters.evEnergyCapacity", typeof iso.battery_capacity_wh === "number" ? fmt(iso.battery_capacity_wh) + " Wh" : "–"],
+    ["BatteryEnergyCapacity", "(not mapped by EVerest 2026.10)", typeof iso.battery_capacity_wh === "number" ? fmt(iso.battery_capacity_wh) + " Wh" : "–"],
   ];
   const body = $("evsends").tBodies[0]; body.replaceChildren();
   for (const [isoName, ocppName, value] of rows) {
     const row = body.insertRow();
     row.insertCell().append(tag(isoName, "iso"));
-    const oc = row.insertCell(); if (ocppName.startsWith("(") || ocppName === "–") oc.textContent = ocppName; else oc.append(tag(ocppName));
+    const oc = row.insertCell();
+    if (ocppName.startsWith("(") || ocppName === "–") oc.textContent = ocppName;
+    else { const [name, note] = ocppName.split(" "); oc.append(tag("v2xChargingParameters." + name)); if (note) oc.append(" " + note); }
     cell(row, value, "num");
   }
   $("needsmeta").textContent = app.ev_charging_needs
@@ -466,7 +468,8 @@ function showNeedsMessages(events) {
     cell(row, ev.status || "pending", "st-" + (ev.status || "pending"));
     cell(row, n.requestedEnergyTransfer || "–");
     const v = n.v2xChargingParameters || {};
-    cell(row, [n.controlMode, v.targetSoC != null ? "targetSoC " + v.targetSoC + " %" : null,
+    cell(row, [n.controlMode, v.evTargetEnergyRequest != null ? "target " + signed(v.evTargetEnergyRequest) + " Wh" : null,
+      v.evMinV2XEnergyRequest != null ? "V2X minimum " + signed(v.evMinV2XEnergyRequest) + " Wh" : null,
       n.departureTime ? "departure " + local(n.departureTime) : null].filter(Boolean).join(", ") || "–");
   }
   if (!(events || []).length) cell(body.insertRow(), "None sent").colSpan = 4;
