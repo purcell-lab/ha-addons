@@ -59,6 +59,7 @@ jobs:
           pnpm --filter "@citrineos/ocpp-server..." build
           pnpm exec vitest run \
             packages/ocpp/test/handlers/requests/2/notify-report-and-charging-needs.test.ts \
+            packages/ocpp/test/handlers/requests/2/transaction-event-request-ocpp-2-handler.test.ts \
             packages/ocpp/test/handlers/requests/2/authorize-request-ocpp-21-handler.test.ts \
             packages/ocpp/test/handlers/requests/2/der-control-ocpp-21-handlers.test.ts \
             packages/ocpp/test/handlers/requests/2/charging-limit-requests-ocpp-2-handlers.test.ts \

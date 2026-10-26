@@ -103,7 +103,7 @@ still needs `archive_and_rebind` once.
 | `archive_and_rebind` | `false` | One-start operator action to archive state and allow a new binding. |
 | `ha_control` | `false` | Starts the Home Assistant control bridge (see Home Assistant control). |
 | `csms_ca_certificate` | Empty | `wss://` only. A PEM file under `/ssl/` (`.pem` or `.crt`) holding the CSMS's self-signed root CA, or its self-signed server certificate. It then replaces the system CA store as the only trust anchor. Empty uses the system CA store. Refused with `ws://`; ignored while `csms_url` is empty. |
-| `ev_charging_needs` | `false` | Sends the EV's ISO 15118-20 needs to the CSMS in NotifyEVChargingNeeds (OCPPmulti `extensions_15118`). On OCPP 2.1 a Rejected reply ends the transaction, and the CitrineOS lab App currently rejects needs that arrive before its transaction exists ([ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)); see EV charging needs. |
+| `ev_charging_needs` | `false` | Sends the EV's ISO 15118-20 needs to the CSMS in NotifyEVChargingNeeds (OCPPmulti `extensions_15118`). On OCPP 2.1 a Rejected reply ends the transaction. The CitrineOS lab App answers NoChargingProfile from 0.12.0; earlier versions reject needs that arrive before the transaction exists ([ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)). See EV charging needs. |
 | `tx_sample_interval_s` | `5` | Seconds between transaction MeterValues samples sent to the CSMS (`SampledDataTxUpdatedInterval`), 1 to 60. Change it in the App configuration and restart; no rebuild. |
 
 **Basic Auth.** Security Profiles 1 and 2 send the charge-point ID as the
@@ -480,14 +480,16 @@ not map `DepartureTime`, `TargetSOC` or `PresentSOC`.
 It is off by default. On OCPP 2.1 libocpp stops the transaction
 (`ReqEnergyTransferRejected`, K19.FR.16) when the CSMS answers Rejected to
 ISO 15118-20 needs, and the station sends them at schedule exchange, before
-TransactionEvent Started (`TxStartPoints` is `PowerPathClosed`). The
-CitrineOS lab App accepts DC_BPT and V2X needs
-(`patches/0001-ocpp21-charging-needs.patch`) but still answers Rejected
-when it has no active transaction, which ends every V2G session:
-[ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106). Turn the
-option on with a CSMS that answers Accepted, Processing or
-NoChargingProfile; pull request CI does so against its mock CSMS and checks
-the message. The Status page shows each NotifyEVChargingNeeds and the reply.
+TransactionEvent Started (`TxStartPoints` is `PowerPathClosed`). Turn the
+option on only with a CSMS that answers Accepted, Processing or
+NoChargingProfile. The CitrineOS lab App does from 0.12.0: it stores the
+needs, links them to the transaction when it starts and answers
+NoChargingProfile
+([ha-addons#106](https://github.com/purcell-lab/ha-addons/issues/106)).
+Earlier versions answer Rejected before the transaction exists, which ends
+every V2G session. Pull request CI checks the message against its mock CSMS,
+and the CitrineOS native trial runs with the option on. The Status page shows
+each NotifyEVChargingNeeds and the reply.
 
 ### CSMS requirements
 
