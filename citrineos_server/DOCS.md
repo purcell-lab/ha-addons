@@ -162,6 +162,14 @@ source, makes the earlier one inactive. It also adds the OCPP 2.1 purposes
 `PriorityCharging` and `LocalGeneration` to CitrineOS's own profile-purpose
 list (the OCPP schemas already had them).
 
+**OCPP 2.1 route schemas patch** (`patches/0005-ocpp2-route-schema-definitions.patch`).
+Upstream registers each message route's body schema with a version prefix but
+its nested definitions under their bare names. OCPP 2.0.1 and 2.1 share those
+names and 2.0.1 is registered first, so every OCPP 2.1 route checked nested
+objects against the 2.0.1 definitions: a 2.1 `SetChargingProfile` with purpose
+`LocalGeneration` or `PriorityCharging` was refused with 400
+`FST_ERR_VALIDATION`. The patch gives definitions the same version prefix.
+
 **DER control patch (OCPP 2.1)** (`patches/0003-ocpp21-der-control.patch`).
 Upstream v2.1.0 knows the OCPP 2.1 DER actions by name only: it has no schemas,
 routes or handlers for them, so a station's `ReportDERControl`,

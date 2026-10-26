@@ -14,6 +14,11 @@
   `ChargingLimits` table ([ha-addons#87](https://github.com/purcell-lab/ha-addons/issues/87));
   `GET /lab/charging-limits` lists them and `ha_reader` may read them.
   `/lab/control-policy` gains `local_energy`.
+- Source patch `0005-ocpp2-route-schema-definitions.patch`: OCPP 2.1 message
+  routes validate against the 2.1 schema definitions. Upstream resolved every
+  route's nested definitions to the OCPP 2.0.1 ones, so a 2.1 SetChargingProfile
+  with purpose `LocalGeneration` or `PriorityCharging` was refused with 400
+  ([ha-addons#95](https://github.com/purcell-lab/ha-addons/issues/95)).
 - CI: a scripted OCPP 2.1 station on the Plugfest listener reports and clears an
   EMS limit and receives a LocalGeneration profile through the gateway
   (`TEST_EMS`).

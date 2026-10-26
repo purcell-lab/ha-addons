@@ -105,6 +105,15 @@ const PATCHES = {
       {file: 'packages/types/src/interfaces/dto/charging-limit-dto.ts', markers: 1},
     ],
   },
+  '0005-ocpp2-route-schema-definitions.patch': {
+    files: [
+      {file: 'packages/base/src/util/endpoints/route-schemas.ts',
+        blob: '1ebdbdf4eaef308125cd282f575cf4247307ef24', fixture: 'route-schemas.v2.1.0.ts', markers: 1},
+    ],
+    creates: [
+      {file: 'packages/base/test/util/endpoints/route-schemas.test.ts', markers: 1},
+    ],
+  },
 };
 // The upstream files a patch changes, and every file it touches.
 const changes = entry => entry.files ?? [entry];
