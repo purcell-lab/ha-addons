@@ -707,3 +707,60 @@ test('DER events query filters and sorts only on columns ha_reader may select',a
   // The selected fields: the block after the argument list.
   for(const c of DER_EVENTS_QUERY.match(/limit: \$limit\)\s*\{([^}]*)\}/)[1].trim().split(/\s+/))assert.ok(cols.includes(c),c);
 });
+test('local energy: LocalGeneration profiles and the OCPP 2.1 EMS operation modes within lab bounds',async()=>{
+  const {LOCAL_GENERATION,localEnergyPolicy,OPERATION_MODES}=await import('../rootfs/control-policy.mjs');
+  const set=new URL('http://lab/ocpp/2.1/smartcharging/setChargingProfile?identifier='+STATION+'&tenantId=1');
+  const set201=new URL('http://lab/ocpp/2.0.1/smartcharging/setChargingProfile?identifier='+STATION+'&tenantId=1');
+  const clear=new URL('http://lab/ocpp/2.1/smartcharging/clearChargingProfile?identifier='+STATION+'&tenantId=1');
+  const lg=(over={},sched={},evseId=0)=>({evseId,chargingProfile:{id:9100,stackLevel:1,chargingProfilePurpose:'LocalGeneration',
+    chargingProfileKind:'Absolute',chargingSchedule:[{id:1,startSchedule:'2026-10-26T00:00:00Z',duration:86400,chargingRateUnit:'W',
+      chargingSchedulePeriod:[{startPeriod:0,limit:0},{startPeriod:28800,limit:7000},{startPeriod:57600,limit:0}],...sched}],...over}});
+  assert.equal(validateCommand(set,lg()),true);
+  assert.equal(validateCommand(set,lg({},{},1)),true);
+  assert.equal(validateCommand(set,lg({chargingProfileKind:'Relative'},{startSchedule:undefined})),true);
+  for(const bad of [lg({},{},2),lg({id:9001}),lg({id:9200}),lg({transactionId:'test-123'}),lg({},{duration:86401}),
+    lg({},{chargingRateUnit:'A'}),lg({},{chargingSchedulePeriod:[{startPeriod:0,limit:26000}]}),
+    lg({},{chargingSchedulePeriod:[{startPeriod:0,limit:5000,setpoint:5000}]}),
+    lg({},{chargingSchedulePeriod:[{startPeriod:0,limit:5000,operationMode:'ChargingOnly'}]}),
+    lg({},{chargingSchedulePeriod:Array.from({length:49},(_,i)=>({startPeriod:i,limit:1000}))})])
+    assert.equal(validateCommand(set,bad),false,JSON.stringify(bad.chargingProfile).slice(0,120));
+  assert.equal(validateCommand(set201,lg()),false,'LocalGeneration is OCPP 2.1 only');
+  // Set and clear regardless of the session: an active transaction does not block it.
+  const busy={data:{ChargingStations:[{id:7,tenantId:1,ocppConnectionName:STATION,protocol:'ocpp2.1',isOnline:true}],
+    Transactions:[{stationId:7,tenantId:1,transactionId:'test-123',isActive:true}]}};
+  assert.equal(targetAllows(set,lg(),busy),true);
+  assert.equal(targetAllows(clear,{chargingProfileId:9150},busy),true);
+  assert.equal(targetAllows(clear,{chargingProfileId:9001},busy),false,'the TxProfile still waits for closure');
+  // EMS operation modes: bounds only, the station or EMS chooses the power.
+  const tx=mode=>({...profile(),chargingProfile:{...profile().chargingProfile,chargingSchedule:[{...profile().chargingProfile.chargingSchedule[0],
+    chargingSchedulePeriod:[{startPeriod:0,limit:7000,dischargeLimit:-5000,operationMode:mode}]}]}});
+  for(const mode of ['ExternalLimits','ExternalSetpoint','LocalLoadBalancing'])
+    assert.equal(validateCommand(set,tx(mode)),true,mode);
+  const withSetpoint=tx('LocalLoadBalancing');withSetpoint.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].setpoint=1000;
+  assert.equal(validateCommand(set,withSetpoint),false,'no setpoint in a local mode');
+  const noDischarge=tx('ExternalLimits');delete noDischarge.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].dischargeLimit;
+  assert.equal(validateCommand(set,noDischarge),false,'dischargeLimit required');
+  assert.equal(validateCommand(set,tx('LocalFrequency')),false,'frequency modes need curves');
+  assert.deepEqual(OPERATION_MODES,['ChargingOnly','CentralSetpoint','ExternalLimits','ExternalSetpoint','LocalLoadBalancing']);
+  assert.deepEqual(localEnergyPolicy().local_generation.ids,LOCAL_GENERATION.ids);
+});
+test('local energy: the station EMS limits read back',async()=>{
+  const {chargingLimits,CHARGING_LIMITS_QUERY,CHARGING_LIMITS_LIMIT}=await import('../rootfs/control-policy.mjs');
+  const row=(o={})=>({id:1,evseId:1,chargingLimitSource:'EMS',isGridCritical:false,isLocalGeneration:true,
+    chargingSchedule:[{id:1,chargingRateUnit:'W',chargingSchedulePeriod:[{startPeriod:0,limit:3000}]}],isActive:true,
+    clearedAt:null,createdAt:'2026-10-26T00:00:00Z',...o});
+  const r=chargingLimits({data:{ChargingLimits:[row(),row({id:2,isActive:false,clearedAt:'2026-10-26T01:00:00Z',evseId:null,chargingSchedule:null})]}});
+  assert.equal(r.active.length,1);
+  assert.deepEqual(r.active[0],{evse_id:1,source:'EMS',grid_critical:false,local_generation:true,active:true,
+    schedule:row().chargingSchedule,reported_at:'2026-10-26T00:00:00Z',cleared_at:null});
+  assert.equal(r.recent.length,2);
+  for(const bad of [{},{data:{ChargingLimits:[row({isActive:'yes'})]}},{data:{ChargingLimits:[row({id:0})]}},
+    {data:{ChargingLimits:Array(CHARGING_LIMITS_LIMIT+1).fill(row())}}])
+    assert.equal(chargingLimits(bad),null);
+  // Every field the query filters, sorts or selects is an ha_reader column.
+  const meta=JSON.parse((await import('node:fs')).readFileSync(new URL('../rootfs/metadata.json',import.meta.url)));
+  const cols=meta.sources[0].tables.find(t=>t.table.name==='ChargingLimits').select_permissions[0].permission.columns;
+  const used=[...CHARGING_LIMITS_QUERY.matchAll(/([A-Za-z]+): \{_eq/g),...CHARGING_LIMITS_QUERY.matchAll(/\{([A-Za-z]+): desc\}/g)].map(m=>m[1]);
+  for(const c of [...used,...CHARGING_LIMITS_QUERY.match(/limit: \$limit\)\s*\{([^}]*)\}/)[1].trim().split(/\s+/)])
+    assert.ok(cols.includes(c),c);
+});

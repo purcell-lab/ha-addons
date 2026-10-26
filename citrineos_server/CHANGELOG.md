@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.11.0
+
+- OCPP 2.1 smart charging with a local EMS and local generation on the
+  command station (`command_control_enabled`, OCPP 2.1):
+  - TxProfile periods may use the operation modes `ExternalLimits`,
+    `ExternalSetpoint` and `LocalLoadBalancing` (limit and discharge limit, no
+    setpoint: the station or local EMS chooses the power);
+  - `LocalGeneration` profiles (EVSE 0 or 1, ids 9100 to 9199, up to a day,
+    charging limits only), set and cleared whatever the station's transactions.
+- EMS limits: source patch `0004-ocpp2-charging-limits.patch` stores the
+  station's `NotifyChargingLimit` and `ClearedChargingLimit` in a new
+  `ChargingLimits` table ([ha-addons#87](https://github.com/purcell-lab/ha-addons/issues/87));
+  `GET /lab/charging-limits` lists them and `ha_reader` may read them.
+  `/lab/control-policy` gains `local_energy`.
+- Source patch `0005-ocpp2-route-schema-definitions.patch`: OCPP 2.1 message
+  routes validate against the 2.1 schema definitions. Upstream resolved every
+  route's nested definitions to the OCPP 2.0.1 ones, so a 2.1 SetChargingProfile
+  with purpose `LocalGeneration` or `PriorityCharging` was refused with 400
+  ([ha-addons#95](https://github.com/purcell-lab/ha-addons/issues/95)).
+- CI: a scripted OCPP 2.1 station on the Plugfest listener reports and clears an
+  EMS limit and receives a LocalGeneration profile through the gateway
+  (`TEST_EMS`).
+
 ## 0.10.0
 
 - OCPP 2.1 DER control (lab, opt-in): `der_commands_enabled` (default

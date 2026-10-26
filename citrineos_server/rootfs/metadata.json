@@ -137,6 +137,15 @@
           "limit": 20,
           "allow_aggregations": false
         }}]
+      },
+      {
+        "table": {"schema": "public", "name": "ChargingLimits"},
+        "select_permissions": [{"role": "ha_reader", "permission": {
+          "columns": ["id","stationId","evseId","chargingLimitSource","isGridCritical","isLocalGeneration","chargingSchedule","isActive","clearedAt","createdAt"],
+          "filter": {"tenantId": {"_eq": "X-Hasura-Tenant-Id"}},
+          "limit": 20,
+          "allow_aggregations": false
+        }}]
       }
     ]
   }]
