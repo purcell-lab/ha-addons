@@ -96,6 +96,28 @@ inbound drop firewall (lower HA security rating). Per-install test PKI,
 `SIM-EV-` identity, disconnected default, Ingress-only UI, never installed or
 connected automatically. Known EVerest limitations are listed in the docs.
 
+The Status page (0.3.2 and later) is a wide two-column layout:
+
+- **Charging station, on the left.** The values that change every few
+  seconds come first: power, direction, meter, DC voltage and current. Below
+  them are what the CSMS asked for and the price. The charging profile JSON,
+  charging needs, pricing messages, DER control and diagnostics are folded
+  away behind twist arrows.
+- **Simulated EV, on the right.** It is laid out like a car dashboard: a
+  state-of-charge ring with the target and discharge floor marked, estimated
+  range, and what the car is doing. Below that are the cable buttons (Plug
+  in, Stop charging, Unplug) and the charging preference: charge by a time,
+  or allow discharge down to a floor. The ISO 15118-20 details are folded
+  away.
+
+On a narrow screen the two columns stack, with the station first.
+
+![V2G simulator Status page: charging station on the left discharging at -1.8 kW to a CentralSetpoint TxProfile, simulated EV dashboard on the right at 50 % supplying the grid](docs/images/everest_v2g_simulator-status.png)
+
+*A live session on the Green at 12:40 (+10:00) on 27 Oct 2026: OCPP 2.1 and
+ISO 15118-20 DC_BPT. The car is supplying the grid at -1760 W, following a
+CentralSetpoint from CitrineOS.*
+
 See [setup and limitations](everest_v2g_simulator/DOCS.md).
 
 ### nem_price_forecaster
