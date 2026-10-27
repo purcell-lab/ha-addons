@@ -106,7 +106,7 @@ async function refreshStatus() {
     s = await r.json();
   } catch (e) {
     $("conn").textContent = "Status unavailable"; $("conn").className = "pill bad";
-    setLive([]); drawPower(null); return;
+    setLive([]); drawPower(null); $("powervalue").textContent = "\u2013"; return;
   }
   const app = s.app || {};
   const conn = val(s.ocpp_connection);
@@ -130,18 +130,19 @@ async function refreshStatus() {
   const dirIcon = t === "pos" ? "in" : t === "neg" ? "out" : "swap";
   const it = tone(typeof i.DC === "number" ? i.DC : null, 0.5);
   const ev = s.ev || {};
+  // EVerest reports "Charging" in both directions; the direction carries the sign.
+  $("powervalue").textContent = w === null ? "\u2013" : signed(w / 1000, 1);
+  $("powerhero").className = "hero-value " + t;
+  $("powertag").textContent = w !== null && w < 0 ? "Power.Active.Export" : "Power.Active.Import";
+  const dp = $("direction"); dp.className = "dirpill " + t; dp.replaceChildren(icon(dirIcon), dir);
+  $("evsestate").textContent = si.state ? "EVSE state: " + si.state : "";
   setLive([
-    // EVerest reports "Charging" in both directions; the Direction chip carries the sign.
-    ["State", si.state || "\u2013", "state", "idle"],
-    ["Direction", dir, dirIcon, t],
-    ["Power", signed(w) + " W", "bolt", t, [w < 0 ? "Power.Active.Export" : "Power.Active.Import"]],
     ["Meter import", fmt(e.total, 1) + " Wh", "in", "pos", ["Energy.Active.Import.Register"]],
     ["Meter export", fmt(x.total, 1) + " Wh", "out", "neg", ["Energy.Active.Export.Register"]],
     ["DC voltage", fmt(v.DC, 1) + " V", "volt", "idle", ["Voltage"]],
     ["DC current", signed(i.DC, 1) + " A", "amp", it, [typeof i.DC === "number" && i.DC < 0 ? "Current.Export" : "Current.Import"]],
-    ["EV SoC", typeof ev.soc === "number" ? fmt(ev.soc, 1) + " %" : "\u2013", "battery", "idle", ["SoC"]],
+    ["SoC reported", typeof ev.soc === "number" ? fmt(ev.soc, 1) + " %" : "\u2013", "battery", "idle", ["SoC"]],
     ["Rated power", "\u00b1" + fmt(app.max_power_kw) + " kW", "gauge", "idle"],
-    ...priceChips(s.session_cost),
   ]);
   drawPower(w, app.max_power_kw);
   announce(dir);
@@ -161,7 +162,7 @@ async function refreshStatus() {
   } else { cell(body.insertRow(), "No schedule published yet").colSpan = 4; }
   showPrice(s.session_cost);
   showDer(s.der);
-  showEv(ev, si, app);
+  showEv(ev, si, app, w);
 }
 
 // OCPP 2.1 DER control: the active set the CSMS's controls produce, as
@@ -209,16 +210,6 @@ const local = (t, opts) => {
 };
 const clock = (t) => local(t, { hour: "2-digit", minute: "2-digit" });
 
-// Live-reading chips for the latest session cost: price now, and the next price with its start.
-function priceChips(entry) {
-  const p = entry && entry.value;
-  const cur = (p && p.currency) || "";
-  const now = p && p.kwh_price != null ? money(p.kwh_price, cur) + "/kWh" : "\u2013";
-  const next = p && p.next_kwh_price != null ? money(p.next_kwh_price) + (p.next_at ? " from " + clock(p.next_at) : "") : "\u2013";
-  return [["Price now", now, "price", "idle", ["CostUpdated customData"]],
-          ["Next price", next, "price", "idle", ["CostUpdated customData"]],
-          ["Total cost", p && p.total_cost != null ? money(p.total_cost, cur) : "\u2013", "price", "idle", ["totalCost"]]];
-}
 const duration = (s) => typeof s !== "number" ? "–" : s % 3600 === 0 ? fmt(s / 3600) + " h" : s % 60 === 0 ? fmt(s / 60) + " min" : fmt(s) + " s";
 
 function setGrid(el, items) {
@@ -338,7 +329,7 @@ for (const b of document.querySelectorAll("button[data-cmd]")) {
     b.disabled = true;
     try {
       const r = await fetch("api/ev/" + b.dataset.cmd, { method: "POST", headers: { "X-HA-EVerest": "1" } });
-      $("cmdmsg").textContent = r.ok ? "Sent: " + b.textContent : "Command failed (" + r.status + ")";
+      $("cmdmsg").textContent = r.ok ? "Sent: " + b.textContent.trim() : "Command failed (" + r.status + ")";
     } catch (e) { $("cmdmsg").textContent = "Command failed"; }
     finally { b.disabled = false; refreshStatus(); }
   });
@@ -402,16 +393,58 @@ function kv(el, items) {
   }));
 }
 
-function showEv(ev, si, app) {
+// The EV's own charging screen: SoC ring with the discharge floor and target,
+// what the car is doing, and when it reaches the target.
+const RING = 2 * Math.PI * 52;
+const KWH_PER_100KM = 18;  // range estimate only, shown as such
+function tick(id, value) {
+  const el = $(id), ok = typeof value === "number" && isFinite(value);
+  el.style.display = ok ? "" : "none";
+  if (!ok) return;
+  const a = value / 100 * 2 * Math.PI;
+  el.setAttribute("x1", (60 + 45 * Math.cos(a)).toFixed(2)); el.setAttribute("y1", (60 + 45 * Math.sin(a)).toFixed(2));
+  el.setAttribute("x2", (60 + 59 * Math.cos(a)).toFixed(2)); el.setAttribute("y2", (60 + 59 * Math.sin(a)).toFixed(2));
+}
+const PLUGGED_OUT = ["Unplugged", "Disabled", ""];
+function dashState(state, t) {
+  if (PLUGGED_OUT.includes(state || "")) return "Not plugged in";
+  if (state === "AuthRequired") return "Waiting for authorisation";
+  if (state === "Preparing") return "Connecting to the charger";
+  if (state === "Finished") return "Charging session finished";
+  if (/Paused/.test(state || "")) return "Charging paused";
+  return t === "pos" ? "Charging" : t === "neg" ? "Supplying the grid" : "Plugged in, idle";
+}
+
+function showEv(ev, si, app, w) {
   const iso = ev.iso20 || {}, needs = ev.needs || {}, info = (ev.ev_info && ev.ev_info.value) || {};
   const soc = typeof ev.soc === "number" ? ev.soc : null;
-  $("socvalue").textContent = soc === null ? "–" : fmt(soc, 1);
-  $("socfill").style.width = (soc || 0) + "%";
+  const t = tone(w);
+  const allow = needs.mode === "allow_discharge";
+  const target = typeof iso.target_soc === "number" ? iso.target_soc : needs.target_soc;
+  const floor = allow ? (typeof iso.min_soc === "number" ? iso.min_soc : needs.min_soc) : null;
+  $("socvalue").textContent = soc === null ? "\u2013" : fmt(soc);
   $("socmeter").setAttribute("aria-valuenow", soc === null ? 0 : Math.round(soc));
-  const floor = iso.min_soc, target = iso.target_soc;
-  $("socmin").style.left = (floor || 0) + "%"; $("socmin").hidden = typeof floor !== "number";
-  $("soctarget").style.left = (target || 0) + "%"; $("soctarget").hidden = typeof target !== "number";
-  $("soclegend").textContent = "minimum " + pct(floor) + ", target " + pct(target);
+  $("socmeter").setAttribute("aria-valuetext", soc === null ? "unknown" : fmt(soc) + " percent");
+  $("socmeter").className = "ring " + (t === "pos" ? "charging" : t === "neg" ? "discharging" : "idle");
+  $("ringfill").setAttribute("stroke-dasharray", ((soc || 0) / 100 * RING).toFixed(1) + " " + RING.toFixed(1));
+  tick("socmin", floor); tick("soctarget", target);
+  const kwh = soc === null ? null : soc / 100 * (ev.capacity_wh || 0) / 1000;
+  $("rangevalue").textContent = kwh === null ? "\u2013 km" : "\u2248 " + fmt(kwh / KWH_PER_100KM * 100) + " km";
+  const state = si.state || "";
+  $("dashstate").textContent = dashState(state, t);
+  const dpw = $("dashpower");
+  dpw.className = "dash-power " + (t === "pos" ? "charging" : t === "neg" ? "discharging" : "");
+  dpw.textContent = w === null || PLUGGED_OUT.includes(state) ? "" :
+    t === "pos" ? "+" + fmt(w / 1000, 1) + " kW into the battery" : t === "neg" ? fmt(-w / 1000, 1) + " kW to the grid" : "0 kW";
+  $("dashtarget").textContent = pct(target);
+  $("dashfloor").textContent = allow ? pct(floor) : "No discharge";
+  if (t === "pos" && soc !== null && typeof target === "number" && soc < target && ev.capacity_wh) {
+    $("dashwhenlabel").textContent = "Time to target";
+    $("dashwhen").textContent = span((target - soc) / 100 * ev.capacity_wh / w * 3600);
+  } else {
+    $("dashwhenlabel").textContent = "Ready by";
+    $("dashwhen").textContent = needs.ready_by ? clock(needs.ready_by * 1000) : allow ? "Any time" : "\u2013";
+  }
   $("socnote").textContent = ev.in_session
     ? "Battery model: " + fmt((ev.capacity_wh || 0) / 1000) + " kWh, from the charger's import and export meter since plug-in."
     : "Unplugged: the EV plugs in at " + pct(needs.start_soc) + ".";
@@ -505,6 +538,10 @@ function modeFields() {
     ? "Charge by: the EV asks to reach the target by the ready-by time. Its minimum SoC is the target, so it offers no discharge (EVMaximumDischargePower 0 W)."
     : "Allow discharge: the EV may be discharged down to the minimum SoC and stops offering discharge there. Ready by is optional (24 hours if empty).";
 }
+function showSliders() {
+  $("targetout").textContent = form.elements.target_soc.value + " %";
+  $("minout").textContent = form.elements.min_soc.value + " %";
+}
 function fillNeeds(n) {
   if (!n || !n.mode) return;
   form.elements.mode.value = n.mode;
@@ -512,9 +549,9 @@ function fillNeeds(n) {
   form.elements.min_soc.value = n.min_soc;
   form.elements.start_soc.value = n.start_soc;
   form.elements.ready_by.value = toLocalInput(n.ready_by);
-  modeFields();
+  modeFields(); showSliders();
 }
-form.addEventListener("input", () => { needsDirty = true; });
+form.addEventListener("input", () => { needsDirty = true; showSliders(); });
 form.addEventListener("change", modeFields);
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -525,11 +562,16 @@ form.addEventListener("submit", async (event) => {
   try {
     const r = await fetch("api/ev/needs", { method: "POST", headers: { "X-HA-EVerest": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const reply = await r.json().catch(() => ({}));
-    $("needsmsg").textContent = r.ok ? "Applied. The EV sends these needs from its next ISO 15118-20 message." : "Not applied: " + (reply.error || r.status);
+    $("needsmsg").textContent = r.ok ? "Saved. The EV sends these needs from its next ISO 15118-20 message." : "Not saved: " + (reply.error || r.status);
     if (r.ok) needsDirty = false;
-  } catch (e) { $("needsmsg").textContent = "Not applied: request failed"; }
+  } catch (e) { $("needsmsg").textContent = "Not saved: request failed"; }
   finally { $("needsapply").disabled = false; refreshStatus(); }
 });
+
+for (const d of document.querySelectorAll("details.fold[id]")) {
+  try { if (localStorage.getItem("fold:" + d.id) === "1") d.open = true; } catch (e) { /* storage blocked */ }
+  d.addEventListener("toggle", () => { try { localStorage.setItem("fold:" + d.id, d.open ? "1" : "0"); } catch (e) { /* ignore */ } });
+}
 
 refreshStatus(); refreshProfiles(); refreshDiagnostics();
 setInterval(refreshStatus, 1000); setInterval(refreshProfiles, 4000); setInterval(refreshDiagnostics, 15000);

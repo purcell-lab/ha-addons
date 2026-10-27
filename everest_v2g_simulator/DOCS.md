@@ -171,9 +171,27 @@ name), and either case queues an `InvalidCsmsCertificate` security event.
 
 ## Using the simulated EV
 
-The Status page opens with the simulated EV: its state of charge, the cable
-controls, its charging needs, the ISO 15118-20 session and what the EV sends.
-The header shows the connection, the station ID, the offered OCPP versions,
+The Status page keeps the two ends of the cable apart. On a wide screen
+(from 1100 px) the **charging station** is on the left and the **simulated
+EV** on the right; on a narrow one the station comes first. Each side puts
+what changes every second at the top and the raw data and diagnostics at the
+end, folded behind twist arrows that the browser remembers.
+
+- **Charging station**: power as a signed kW readout with its direction, the
+  import/export bar and the last 2 minutes, then the meter, voltage and
+  current; what the CSMS asked for (the last charging profile and the
+  effective limit); the price. Folded: the profile JSON and recent requests,
+  the NotifyEVChargingNeeds messages and replies, the price schedule and
+  pricing messages, DER control, and the discovery self-test.
+- **Simulated EV**, drawn as the car's own charging screen: the state of
+  charge on a ring with the discharge floor and the target marked, what the
+  car is doing (charging, supplying the grid, waiting for authorisation),
+  the time to the target or the ready-by time, and an estimated range (at
+  18 kWh per 100 km, an estimate only). Then the cable buttons and the
+  charging preference. Folded: the ISO 15118-20 session and what the EV
+  sends.
+
+The header shows the connection, the station ID,
 whether NotifyEVChargingNeeds is on, and the OCPP Security Profile in colour:
 red for 0 and 1 (no TLS), amber for 2 (TLS with Basic Auth), green for 3 and
 above (TLS with a client certificate). Violet tags name the OCPP 2.1
@@ -193,8 +211,8 @@ from the CSMS.
   (V2G_SECC_Ongoing_Performance_Time); 0.1.10 to 0.1.13 waited 3 minutes,
   earlier versions 60 s. A later start is handled by the EV watchdog below.
   Cable check and pre-charge take about 15 s.
-- **EV stop session**: the EV ends the ISO 15118 session and unplugs.
-- **Unplug now**: immediate unplug, which ends any transaction.
+- **Stop charging**: the EV ends the ISO 15118 session and unplugs.
+- **Unplug**: immediate unplug, which ends any transaction.
 
 **Charging needs.** An ISO 15118-20 EV never chooses charge or discharge;
 it states its needs and the charger, steered by the CSMS, sets power and

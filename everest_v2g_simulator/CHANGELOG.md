@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.2
+
+- Status page for a wide screen: the charging station on the left and the
+  simulated EV on the right (stacked below 1100 px, station first). Live
+  values at the top of each side; raw data and diagnostics folded behind
+  twist arrows that the browser remembers.
+- The station leads with power as a signed kW readout and its direction,
+  then what the CSMS asked for (last profile, effective limit) and the
+  price.
+- The simulated EV is drawn as the car's charging screen: a state of charge
+  ring with the discharge floor and target, what the car is doing, time to
+  target or ready-by, an estimated range, cable buttons, and the charging
+  preference with sliders.
+- Development: `tests/ui_preview.py` previews the page with recorded API
+  responses and renders screenshots, no image needed. Pull request CI runs
+  short `ui` image checks, and skips the CitrineOS native trial, when only
+  the page, changelog or version changes.
+
 ## 0.3.1
 
 - HA control: an `everest_v2g_command` event without `charge_point_id` is

@@ -6,6 +6,7 @@ on:
       - "everest_v2g_simulator/**"
       - "everest_runtime_source/**"
       - ".github/workflows/citrine-v2g-integration.yml"
+      - ".github/scripts/everest_image_needed.sh"
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,6 +33,22 @@ jobs:
             msg="Skipped: needs the V2G App csms_basic_auth_password option (V2G 0.1.4, not yet released). main carries the released 0.1.3."
             echo "::notice::$msg"; echo "$msg" >> "$GITHUB_STEP_SUMMARY"
           fi
+  changes:
+    # A pull request that changes only the V2G Status page, changelog or
+    # version skips the native trial: the page plays no part in it
+    # (everest_image_needed.sh). Manual runs have no diff and always run it.
+    runs-on: ubuntu-24.04
+    outputs:
+      checks: ${{ steps.diff.outputs.checks }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: sh .github/scripts/everest_image_needed.sh everest_v2g_simulator
   runtime:
     # The V2G App's EVerest runtime: pinned and public, or built locally
     # (everest_runtime_source/ is compiled by the job below).
@@ -58,9 +75,10 @@ jobs:
     with:
       arches: '[{"runner": "ubuntu-24.04", "arch": "amd64"}]'
   native-v2g:
-    needs: [requires, runtime, runtime-source]
+    needs: [changes, requires, runtime, runtime-source]
     if: >-
-      always() && needs.requires.outputs.ready == 'true' && needs.runtime.result == 'success'
+      always() && needs.changes.outputs.checks != 'ui'
+      && needs.requires.outputs.ready == 'true' && needs.runtime.result == 'success'
       && (needs.runtime-source.result == 'success' || needs.runtime-source.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
