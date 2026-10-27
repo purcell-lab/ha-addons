@@ -71,6 +71,29 @@ For 0.2.0 that runtime does not exist yet:
 5. **Merge** only after explicit approval. Install, start and connection
    remain separate approvals.
 
+## Changing the Status page quickly
+
+The Status page (`rootfs/opt/ha-everest/www/`) is static and only talks to
+`ui_server.py`, so a layout change needs neither EVerest nor an image:
+
+- **Preview** with recorded API responses, in a browser, in seconds:
+  `python3 everest_v2g_simulator/tests/ui_preview.py`, then
+  `http://127.0.0.1:8099/?scenario=charging` (also `unplugged`, `auth`,
+  `discharging`). `--screenshots DIR` renders every scenario at 1440 and
+  390 px and fails on a script error or horizontal overflow.
+- **Pull request CI** sees a change to only the page, `CHANGELOG.md`, the
+  preview or the `config.yaml` version line
+  (`.github/scripts/everest_image_needed.sh`) and runs the `ui` image
+  checks (`tests/ci_image_checks.sh`, `CHECKS=ui`): build, packaging, and
+  the page served byte for byte, about a minute instead of about 8. The
+  CitrineOS native trial (`citrine-v2g-integration.yml`) is skipped for such
+  a change. `test_ui_preview.py` runs in the focused tests.
+- **On a host that builds the App** (the main HA), the image layers before
+  `COPY rootfs/` are cached, so updating to a page-only version rebuilds in
+  seconds.
+
+The release gate (step 2 above) always runs the full checks.
+
 ## Rules
 
 - A published version is never replaced. Fixes need a version bump and a

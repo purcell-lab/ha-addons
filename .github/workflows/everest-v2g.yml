@@ -22,10 +22,13 @@ concurrency:
 jobs:
   changes:
     # Documentation that the image never contains (DOCS.md, VALIDATION.md,
-    # RELEASE.md) does not need the 12 to 15 minute image build.
+    # RELEASE.md) needs no image. A change to only the Status page, changelog
+    # or version runs the ui image checks (about a minute) instead of the
+    # charging sessions (about 8 minutes); see everest_image_needed.sh.
     runs-on: ubuntu-24.04
     outputs:
       images: ${{ steps.diff.outputs.images }}
+      checks: ${{ steps.diff.outputs.checks }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -119,9 +122,9 @@ jobs:
             --build-arg EVEREST_RUNTIME="${{ needs.runtime.outputs.ref }}" \
             -t "$IMAGE" everest_v2g_simulator
           docker image ls "$IMAGE"
-      - name: Minimum viable image checks (the publish job runs the full gate)
+      - name: Image checks, ${{ needs.changes.outputs.checks }} (the publish job runs the full gate)
         env:
-          CHECKS: minimal
+          CHECKS: ${{ needs.changes.outputs.checks == 'ui' && 'ui' || 'minimal' }}
         run: sh everest_v2g_simulator/tests/ci_image_checks.sh "$IMAGE"
   published-image:
     # Merge gate: the Green follows main (green-mirror.yml) and pulls this

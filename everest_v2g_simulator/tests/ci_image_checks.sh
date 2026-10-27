@@ -8,6 +8,11 @@
 # TxProfile steps, the wss:// (Security Profile 2) checks, the fail-closed,
 # self-test, listener and firewall checks.
 # Offline, recovery, 2.0.1 fallback, pinned 2.0.1 and watchdog run at release.
+# CHECKS=ui (pull request CI when only the Status page, changelog or version
+# changed, see .github/scripts/everest_image_needed.sh) runs the packaging
+# and EXI checks, then starts the App offline and checks that it serves the
+# page from this commit, byte for byte, with its security headers. No
+# charging session: the page is static and talks only to ui_server.py.
 set -eu
 IMAGE="$1"
 TESTS=everest_v2g_simulator/tests
@@ -15,7 +20,8 @@ CHECKS="${CHECKS:-full}"
 case "$CHECKS" in
   full) SCENARIOS="offline recovery v2g21 fallback pinned201 watchdog tls" ;;
   minimal) SCENARIOS="v2g21 tls" ;;
-  *) echo "CHECKS must be full or minimal"; exit 2 ;;
+  ui) SCENARIOS="" ;;
+  *) echo "CHECKS must be full, minimal or ui"; exit 2 ;;
 esac
 echo "== Checks: $CHECKS ($SCENARIOS)"
 
@@ -52,6 +58,48 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
 
 echo "== EXI codec round trip on the slim Java runtime"
 docker run --rm -v "$PWD/$TESTS:/tests:ro" --entrypoint python3 "$IMAGE" /tests/exi_roundtrip.py
+
+if [ "$CHECKS" = ui ]; then
+  echo "== Status page served from this commit"
+  name="v2g-ui-$$"
+  trap 'docker logs "$name" 2>&1 | tail -60; docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+  docker create --network none --cap-add NET_ADMIN --name "$name" "$IMAGE" >/dev/null
+  docker cp "$TESTS/offline-options.json" "$name":/data/options.json
+  docker start "$name" >/dev/null
+  ready=no
+  for _ in $(seq 60); do
+    if docker exec "$name" python3 -c 'import json, urllib.request; s=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/status")); assert s["evse"]["session_info"]["value"]["state"] == "Unplugged"' 2>/dev/null; then
+      ready=yes; break
+    fi
+    sleep 2
+  done
+  test "$ready" = yes || { echo "App did not reach an Unplugged state"; exit 1; }
+  www=everest_v2g_simulator/rootfs/opt/ha-everest/www
+  for f in index.html app.js style.css; do
+    path=$f; [ "$f" = index.html ] && path=""
+    docker exec "$name" python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen("http://127.0.0.1:8000/" + sys.argv[1]).read())' "$path" > "/tmp/$name-$f"
+    cmp "/tmp/$name-$f" "$www/$f" || { echo "$f served by the image differs from $www/$f"; exit 1; }
+    echo "served: $f ($(wc -c < "$www/$f") bytes)"
+  done
+  # nginx (the Ingress port) admits only the Supervisor (172.30.32.2), so this
+  # local request is refused; its headers (added "always") still carry the
+  # page's Content-Security-Policy.
+  docker exec "$name" python3 -c 'import urllib.error, urllib.request
+try:
+    urllib.request.urlopen("http://127.0.0.1:8099/")
+    raise SystemExit("nginx served a non-Supervisor peer")
+except urllib.error.HTTPError as e:
+    assert e.code == 403, e.code
+    csp = e.headers.get("Content-Security-Policy", "")
+assert "script-src '"'"'self'"'"'" in csp and "style-src '"'"'self'"'"'" in csp, csp
+print("nginx: 403 to a non-Supervisor peer; CSP:", csp)' || { echo "nginx did not refuse with the page CSP"; exit 1; }
+  docker stop --time 25 "$name" >/dev/null
+  test "$(docker inspect -f '{{.State.ExitCode}}' "$name")" = "0"
+  trap - EXIT
+  docker rm "$name" >/dev/null
+  echo "== UI checks passed for $IMAGE"
+  exit 0
+fi
 
 echo "== Acceptance (no network): $SCENARIOS"
 docker tag "$IMAGE" everest-v2g:test
