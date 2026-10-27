@@ -69,7 +69,10 @@ def der_round_trip(request, until, commander):
         assert status == 200 and isinstance(body.get("events"), list), body
         return next((e for e in body.get("events", []) if e["action"] == "NotifyDERStartStop"
                      and e["payload"].get("controlId") == "ha-ci-der-1" and e["payload"].get("started")), None)
-    notified = until(started, "NotifyDERStartStop for the control", 30)
+    # The App's HaGridSupport re-evaluates DER directives every 60 s (and once
+    # when a control is set); a control starting between two evaluations is
+    # notified at the next one.
+    notified = until(started, "NotifyDERStartStop for the control", 75)
     request_id = secrets.randbelow(2**31)
     status, got = request(route("get"), body={"requestId": request_id, "controlType": "LimitMaxDischarge"},
                           extra=auth)
