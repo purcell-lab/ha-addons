@@ -138,6 +138,15 @@ After install:
 - In the matching HA integration, set the sidecar URL to
   `http://localhost:8765`.
 
+### imatra_server
+
+Imatra cloud ISO 15118-2 server (Chargetronic, Apache-2.0), built from the
+pinned upstream source on your machine, with its own internal Postgres,
+Valkey and Mosquitto. Operator current limits through its API; no OCPP yet.
+Lab use with simulators only.
+
+See [setup, ports and licences](imatra_server/DOCS.md).
+
 ## Sync from upstream
 
 ```bash
