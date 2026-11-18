@@ -143,7 +143,8 @@ log "ok: only 8080 and 8883 reachable; 1883, Postgres, Valkey, API and health po
 # --- restart: the same CA, the device back online ------------------------------------
 ca1=$(docker exec imatra sha256sum /pki/ca.crt | cut -d' ' -f1)
 docker stop -t 30 imatra >/dev/null
-docker logs imatra 2>&1 | tail -5 | grep -q 'stopping' || fail "no graceful stop"
+docker logs imatra 2>&1 | tail -60 | grep -q '\[imatra-ha\] stopping' || fail "no graceful stop"
+docker logs imatra 2>&1 | tail -10 | grep -q 'database system is shut down' || fail "Postgres not shut down cleanly"
 docker start imatra >/dev/null
 for _ in $(seq 1 180); do curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1 && break; sleep 1; done
 ca2=$(docker exec imatra sha256sum /pki/ca.crt | cut -d' ' -f1)
