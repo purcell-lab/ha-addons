@@ -1,8 +1,9 @@
-name: Imatra ISO 15118-2 Lab
+name: Imatra ISO 15118-2 Lab and OCPP bridge
 on:
   pull_request:
     paths:
       - "imatra_server/**"
+      - "imatra_ocpp/**"
       - ".github/workflows/imatra.yml"
   workflow_dispatch:
 permissions:
@@ -17,7 +18,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m pip install PyYAML==6.0.2
       - run: python3 -m unittest discover -s imatra_server/tests -p test_packaging.py -v
-      - run: bash -n imatra_server/rootfs/opt/imatra-ha/run.sh && bash -n imatra_server/tests/e2e.sh
+      - run: python3 -m unittest discover -s imatra_ocpp/tests -p test_packaging.py -v
+      - run: |
+          for f in imatra_server/rootfs/opt/imatra-ha/run.sh imatra_server/tests/e2e.sh \
+                   imatra_ocpp/rootfs/opt/imatra-ocpp/run.sh imatra_ocpp/tests/ocpp_phase.sh; do bash -n "$f"; done
       - run: git diff --check
   e2e:
     # The App image as the Supervisor builds it, with the Imatra test harness

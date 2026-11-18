@@ -63,7 +63,10 @@ jq -n --arg key "$KEY" --arg dev "$DEV" '{
 docker network create imatra-lab >/dev/null
 docker network create --internal --ipv6 --subnet fd15:118::/64 v2g >/dev/null
 run_app() {
+  # Aliases: "mqtt" (the broker name in the device certificates) and the
+  # Supervisor-style name the OCPP bridge App derives (<repo hash>-imatra-server).
   docker run -d --init --name imatra --hostname imatra-server --network imatra-lab --network-alias mqtt \
+    --network-alias ci0000ab-imatra-server \
     -v "$WORK/data:/data" -v "$WORK/share:/share" -p 127.0.0.1:18080:8080 "$APP" >/dev/null
 }
 run_app
@@ -126,6 +129,11 @@ if jq -e '[.sessions[] | select(.limits_applied > 0)] | length > 0' >/dev/null <
 else
   log "warning: no session summary counts the limit; sessions: $(jq -c '[.sessions[] | {end_reason, limits_applied}]' <<<"$LAST")"
   echo "warning: limit confirmed but not counted in a session summary (station replug timing)" >> "$SUMMARY"
+fi
+
+# --- OCPP in the control path: the bridge App against a mock CSMS ---------------
+if [ "${SKIP_OCPP:-0}" != 1 ]; then
+  KEY=$KEY API=$API WORK=$WORK bash "$HERE/../imatra_ocpp/tests/ocpp_phase.sh" || fail "OCPP phase"
 fi
 
 # --- network boundary: only 8080 and 8883 answer from another container ---------------

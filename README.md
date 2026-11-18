@@ -142,10 +142,20 @@ After install:
 
 Imatra cloud ISO 15118-2 server (Chargetronic, Apache-2.0), built from the
 pinned upstream source on your machine, with its own internal Postgres,
-Valkey and Mosquitto. Operator current limits through its API; no OCPP yet.
-Lab use with simulators only.
+Valkey and Mosquitto. Operator current limits through its API; OCPP comes
+from the Imatra OCPP Bridge App below. Lab use with simulators only.
 
 See [setup, ports and licences](imatra_server/DOCS.md).
+
+### imatra_ocpp
+
+OCPP 2.1 / 2.0.1 bridge for the Imatra server App, built from
+[purcell-lab/imatra-ocpp](https://github.com/purcell-lab/imatra-ocpp)
+(Apache-2.0). Each Imatra device appears to a CSMS such as CitrineOS as a
+charging station; SetChargingProfile is answered Accepted only after the
+device confirms the limit. No ports.
+
+See [setup and options](imatra_ocpp/DOCS.md).
 
 ## Sync from upstream
 
