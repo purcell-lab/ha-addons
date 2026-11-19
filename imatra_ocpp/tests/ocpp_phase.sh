@@ -7,7 +7,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 : "${KEY:?}" "${API:?}" "${WORK:?}"
-BRIDGE=imatra-ocpp-app:ci
+BRIDGE=${BRIDGE_IMAGE:-imatra-ocpp-app:ci}  # BRIDGE_IMAGE: test an image already built
 SUMMARY=${GITHUB_STEP_SUMMARY:-/dev/null}
 log()  { echo "[ocpp] $*"; }
 fail() { echo "[ocpp] FAIL: $*" >&2; docker logs --tail 80 bridge 2>&1 | sed 's/^/[bridge] /'; docker logs csms 2>&1 | tail -40 | sed 's/^/[csms] /'; exit 1; }
@@ -15,8 +15,8 @@ cleanup() { docker rm -f bridge csms >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 arch=$(uname -m); case "$arch" in x86_64) arch=amd64 ;; aarch64|arm64) arch=aarch64 ;; esac
-docker build -q --build-arg BUILD_ARCH="$arch" -t "$BRIDGE" "$HERE" >/dev/null
-log "bridge image built"
+[ -n "${BRIDGE_IMAGE:-}" ] || docker build -q --build-arg BUILD_ARCH="$arch" -t "$BRIDGE" "$HERE" >/dev/null
+log "bridge image ready"
 
 wait_csms() { # jq-condition seconds what
   for _ in $(seq 1 "$2"); do

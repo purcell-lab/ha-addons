@@ -141,7 +141,7 @@ After install:
 ### imatra_server
 
 Imatra cloud ISO 15118-2 server (Chargetronic, Apache-2.0), built from the
-pinned upstream source on your machine, with its own internal Postgres,
+pinned upstream source in GitHub Actions and published as a prebuilt image, with its own internal Postgres,
 Valkey and Mosquitto. Operator current limits through its API; OCPP comes
 from the Imatra OCPP Bridge App below. Lab use with simulators only.
 

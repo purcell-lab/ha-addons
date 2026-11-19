@@ -5,6 +5,7 @@ on:
       - "imatra_server/**"
       - "imatra_ocpp/**"
       - ".github/workflows/imatra.yml"
+      - ".github/workflows/imatra-publish.yml"
   workflow_dispatch:
 permissions:
   contents: read

@@ -16,7 +16,7 @@ class Packaging(unittest.TestCase):
 
     def test_local_build_only_no_privileges(self):
         c = self.config
-        self.assertNotIn("image", c)
+        self.assertEqual(c["image"], "ghcr.io/purcell-lab/{arch}-imatra-server")
         self.assertEqual(c["slug"], "imatra_server")
         self.assertEqual(sorted(c["arch"]), ["aarch64", "amd64"])
         for key in ("host_network", "hassio_api", "homeassistant_api", "docker_api", "ingress"):

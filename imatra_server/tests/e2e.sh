@@ -11,7 +11,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 HARNESS_DIR=${HARNESS_DIR:?set HARNESS_DIR to the imatra.test_harness checkout}
 WORK=${WORK:-$(mktemp -d)}
-APP=imatra-app:ci
+APP=${APP_IMAGE:-imatra-app:ci}  # APP_IMAGE: test an image already built (the release gate)
 DEV=dev-01
 API=http://127.0.0.1:18080/v1
 SUMMARY=${GITHUB_STEP_SUMMARY:-/dev/null}
@@ -48,7 +48,7 @@ cleanup
 # --- build -------------------------------------------------------------------
 arch=$(uname -m); case "$arch" in x86_64) arch=amd64 ;; aarch64|arm64) arch=aarch64 ;; esac
 start=$(date +%s)
-docker build -q --build-arg BUILD_ARCH="$arch" -t "$APP" "$HERE" >/dev/null
+[ -n "${APP_IMAGE:-}" ] || docker build -q --build-arg BUILD_ARCH="$arch" -t "$APP" "$HERE" >/dev/null
 echo "app_build_seconds=$(( $(date +%s) - start ))" >> "$SUMMARY"
 docker build -q -t imatra-station:ci "$HARNESS_DIR/station" >/dev/null
 docker build -q -t imatra-ev:ci "$HARNESS_DIR/ev" >/dev/null

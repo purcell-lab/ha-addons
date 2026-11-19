@@ -11,9 +11,11 @@ about 1.2 GB together; CI records the actual use of this App.
 
 ## What is inside
 
-One container, built from source on your machine at the pinned upstream
-commit (v0.1.0). Nothing from upstream is stored in this repository; the App
-holds only the build and start-up scaffolding.
+One container, built in GitHub Actions from the pinned upstream source
+(v0.1.0) and published to GitHub's container registry, so Home Assistant only
+downloads it. Nothing from upstream is stored in this repository; it holds the
+build and start-up scaffolding, and the image carries the upstream LICENSE,
+NOTICE and PATENTS.md.
 
 | Service | Listens on |
 |---|---|
@@ -64,8 +66,6 @@ event feed.
 
 ## Not included yet
 
-- OCPP. A separate adapter (an OCPP 2.1 / 2.0.1 charging-station client to
-  CitrineOS) comes next.
 - ISO 15118-20, DC, bidirectional charging and Plug & Charge (not in Imatra).
 - The Imatra test harness. It is PolyForm Internal Use 1.0.0 (no
   distribution), so it is never bundled or published here. CI fetches and

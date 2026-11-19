@@ -1,7 +1,8 @@
 name: Imatra ISO 15118-2 Lab
 version: "0.1.0"
 slug: imatra_server
-description: Imatra cloud ISO 15118-2 server (Apache-2.0, built from the pinned upstream source) with its own internal Postgres, Valkey and Mosquitto. Lab use with simulators; no OCPP yet.
+image: ghcr.io/purcell-lab/{arch}-imatra-server
+description: Imatra cloud ISO 15118-2 server (Apache-2.0, built from the pinned upstream source) with its own internal Postgres, Valkey and Mosquitto. Lab use with simulators; OCPP through the Imatra OCPP Bridge App.
 url: https://github.com/purcell-lab/ha-addons
 arch:
   - aarch64

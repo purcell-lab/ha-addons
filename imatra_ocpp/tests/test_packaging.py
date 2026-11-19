@@ -13,9 +13,9 @@ class Packaging(unittest.TestCase):
         self.config = yaml.safe_load((APP / "config.yaml").read_text())
         self.dockerfile = (APP / "Dockerfile").read_text()
 
-    def test_no_ports_no_privileges_local_build(self):
+    def test_no_ports_no_privileges_prebuilt_image(self):
         c = self.config
-        self.assertNotIn("image", c)
+        self.assertEqual(c["image"], "ghcr.io/purcell-lab/{arch}-imatra-ocpp")
         self.assertNotIn("ports", c)
         for key in ("host_network", "hassio_api", "homeassistant_api", "docker_api", "ingress"):
             self.assertIs(c[key], False, key)
