@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- imatra-ocpp at commit `711a011`: event-feed polling is no longer logged
+  every second; failures still are.
+
 ## 0.1.0
 
 - First release: imatra-ocpp at commit `2220214`. Each Imatra device is an
