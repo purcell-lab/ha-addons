@@ -1,6 +1,6 @@
 # imatra-ocpp (Apache-2.0, https://github.com/purcell-lab/imatra-ocpp) as a
 # Home Assistant App, installed from the pinned commit's source archive.
-ARG IMATRA_OCPP_COMMIT=9f4ce68f777bfb3771b360fec31fac054c86c793
+ARG IMATRA_OCPP_COMMIT=75301d3e20db4a149997768dfab7a197aa8f159a
 
 FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ARG BUILD_ARCH
@@ -8,7 +8,7 @@ ARG IMATRA_OCPP_COMMIT
 LABEL io.hass.name="Imatra OCPP Bridge" \
       io.hass.description="Imatra devices as OCPP 2.1 / 2.0.1 charging stations" \
       io.hass.type="addon" \
-      io.hass.version="0.1.4" \
+      io.hass.version="0.1.5" \
       io.hass.arch="${BUILD_ARCH}" \
       org.opencontainers.image.source="https://github.com/purcell-lab/ha-addons" \
       org.opencontainers.image.licenses="Apache-2.0"

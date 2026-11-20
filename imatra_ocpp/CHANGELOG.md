@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- imatra-ocpp at commit `75301d3`: the EV's state of charge, which Imatra reads
+  over DIN 70121, is sent to the CSMS as a SoC sampled value (Percent,
+  location EV) in a TransactionEvent Updated.
+
 ## 0.1.4
 
 - imatra-ocpp at commit `9f4ce68`: a SetChargingProfile equal to the limit the

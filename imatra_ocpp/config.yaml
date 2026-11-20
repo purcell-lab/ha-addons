@@ -1,5 +1,5 @@
 name: Imatra OCPP Bridge
-version: "0.1.4"
+version: "0.1.5"
 slug: imatra_ocpp
 image: ghcr.io/purcell-lab/{arch}-imatra-ocpp
 description: Puts OCPP in the Imatra control path. Each Imatra ISO 15118-2 device becomes an OCPP 2.1 / 2.0.1 charging station towards CitrineOS; charging profiles become confirmed Imatra current limits.
