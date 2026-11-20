@@ -1,5 +1,5 @@
 name: Imatra Test Harness (internal use)
-version: "0.1.0"
+version: "0.1.1"
 slug: imatra_harness
 description: Imatra test station and ISO 15118-2 test EV (Josev) on a virtual link, as one simulated device against the Imatra ISO 15118-2 Lab App. Built on your Home Assistant; the harness is PolyForm Internal Use 1.0.0 and is fetched only after you accept its licence.
 url: https://github.com/purcell-lab/ha-addons
@@ -27,6 +27,7 @@ options:
   broker_name: ""
   replug_s: 30
   ev_pause_s: 20
+  charge_loop_cycles: 30
 schema:
   accept_licence: bool
   device_id: match(^[a-z0-9][a-z0-9-]{2,62}$)
@@ -34,3 +35,4 @@ schema:
   broker_name: str?
   replug_s: int(0,3600)
   ev_pause_s: int(1,3600)
+  charge_loop_cycles: int(1,100000)

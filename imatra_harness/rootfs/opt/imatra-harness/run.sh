@@ -79,7 +79,11 @@ log "V2G link up: station v2g0 (fd15:118::10), EV v2g1 (fd15:118::20)"
 
 # --- EV: Josev without TLS (own PKI mode has no V2G signer) -----------------------
 mkdir -p "$DATA/ev/pki/iso15118_2/certs"
-jq '.useTls=false | .enforceTls=false' "$H/ev/evcc_config.json" > "$DATA/ev/evcc_config.json"
+# charge_loop_cycles sets the EV's ChargingStatus loops per session (about
+# 0.7 s each), so a session can outlast a multi-step control test.
+LOOPS=$(opt charge_loop_cycles); LOOPS=${LOOPS:-30}
+jq --argjson n "$LOOPS" '.useTls=false | .enforceTls=false | .chargeLoopCycle=$n' \
+  "$H/ev/evcc_config.json" > "$DATA/ev/evcc_config.json"
 export NETWORK_INTERFACE=v2g1 PKI_PATH="$DATA/ev/pki/" EVCC_CONFIG_PATH="$DATA/ev/evcc_config.json" LOG_LEVEL=INFO
 PAUSE=$(opt ev_pause_s)
 
