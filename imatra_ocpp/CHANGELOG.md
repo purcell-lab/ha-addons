@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- imatra-ocpp at commit `9f4ce68`: a SetChargingProfile equal to the limit the
+  device already confirmed is accepted at once and renewed. Before, it timed
+  out as NotConfirmed and the rollback cancelled the limit.
+
 ## 0.1.3
 
 - imatra-ocpp at commit `2d14e99`: the Imatra limit is cancelled when a
