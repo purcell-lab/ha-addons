@@ -1,0 +1,56 @@
+name: Imatra ISO 15118-2 Lab and OCPP bridge
+on:
+  pull_request:
+    paths:
+      - "imatra_server/**"
+      - "imatra_ocpp/**"
+      - ".github/workflows/imatra.yml"
+      - ".github/workflows/imatra-publish.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: imatra-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-safety:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install PyYAML==6.0.2
+      - run: python3 -m unittest discover -s imatra_server/tests -p test_packaging.py -v
+      - run: python3 -m unittest discover -s imatra_ocpp/tests -p test_packaging.py -v
+      - run: |
+          for f in imatra_server/rootfs/opt/imatra-ha/run.sh imatra_server/tests/e2e.sh \
+                   imatra_ocpp/rootfs/opt/imatra-ocpp/run.sh imatra_ocpp/tests/ocpp_phase.sh; do bash -n "$f"; done
+      - run: git diff --check
+  e2e:
+    # The App image as the Supervisor builds it, with the Imatra test harness
+    # station and EV. The harness is PolyForm Internal Use 1.0.0: fetched and
+    # built here at run time only, never pushed or published.
+    needs: focused-safety
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the test harness (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: Chargetronic/imatra.test_harness
+          ref: e1e9dfc522e6b2ca9b83fa7f1150858c9bdd7594
+          path: harness
+          persist-credentials: false
+      - name: App end to end (${{ matrix.arch }})
+        env:
+          HARNESS_DIR: ${{ github.workspace }}/harness
+        run: |
+          echo "### ${{ matrix.arch }}" >> "$GITHUB_STEP_SUMMARY"
+          bash imatra_server/tests/e2e.sh
