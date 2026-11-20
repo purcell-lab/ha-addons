@@ -37,7 +37,7 @@ share the built image or `/data`.
 | `broker_name` | (= host) | Name in the broker certificate, if `broker_dns` is set (e.g. `imatra.purcell.id.au`). Mapped to the server App in this App's `/etc/hosts` only |
 | `replug_s` | `30` | Station replug interval (s) |
 | `ev_pause_s` | `20` | Pause between EV sessions (s) |
-| `charge_loop_cycles` | `30` | EV ChargingStatus loops per session, about 0.7 s each. Raise it for long control tests (900 is about 10 minutes) |
+| `charge_loop_cycles` | `30` | EV ChargingStatus loops per session. The rate varies (about 0.3 s per loop measured on the Green, so 1200 is about 6 minutes); allow a wide margin for long control tests |
 
 ## How it runs
 
