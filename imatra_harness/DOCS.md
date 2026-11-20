@@ -47,4 +47,5 @@ share the built image or `/data`.
   mode). The EV runs without TLS, because own PKI mode has no V2G signer.
 - No SLAC, PLC, control pilot or meter: the link is virtual.
 
-Memory: roughly 150 to 250 MB (Java for the EXI codec plus two Python processes).
+Memory: about 380 MB in CI at session start (Java for the EXI codec plus two
+Python processes). Check headroom before starting it next to CitrineOS.
