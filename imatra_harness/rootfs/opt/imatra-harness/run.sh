@@ -82,8 +82,18 @@ mkdir -p "$DATA/ev/pki/iso15118_2/certs"
 # charge_loop_cycles sets the EV's ChargingStatus loops per session (about
 # 0.3 s each on the Green), so a session can outlast a multi-step control test.
 LOOPS=$(opt charge_loop_cycles); LOOPS=${LOOPS:-30}
-jq --argjson n "$LOOPS" '.useTls=false | .enforceTls=false | .chargeLoopCycle=$n' \
+# ev_protocol: ISO_15118_2 (default) or DIN_SPEC_70121. A DIN-only EV asks for
+# DC (DIN allows no AC); Imatra only reads its SoC, then it charges on PWM.
+PROTO=$(opt ev_protocol); PROTO=${PROTO:-ISO_15118_2}
+case "$PROTO" in
+  ISO_15118_2) MODE=AC_three_phase_core ;;
+  DIN_SPEC_70121) MODE=DC_extended ;;
+  *) die "ev_protocol must be ISO_15118_2 or DIN_SPEC_70121" ;;
+esac
+jq --argjson n "$LOOPS" --arg p "$PROTO" --arg m "$MODE" \
+  '.useTls=false | .enforceTls=false | .chargeLoopCycle=$n | .supportedProtocols=[$p] | .energyTransferMode=$m' \
   "$H/ev/evcc_config.json" > "$DATA/ev/evcc_config.json"
+log "test EV offers $PROTO ($MODE)"
 export NETWORK_INTERFACE=v2g1 PKI_PATH="$DATA/ev/pki/" EVCC_CONFIG_PATH="$DATA/ev/evcc_config.json" LOG_LEVEL=INFO
 PAUSE=$(opt ev_pause_s)
 

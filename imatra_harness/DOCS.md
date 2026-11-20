@@ -38,6 +38,7 @@ share the built image or `/data`.
 | `replug_s` | `30` | Station replug interval (s) |
 | `ev_pause_s` | `20` | Pause between EV sessions (s) |
 | `charge_loop_cycles` | `30` | EV ChargingStatus loops per session. The rate varies (about 0.3 s per loop measured on the Green, so 1200 is about 6 minutes); allow a wide margin for long control tests |
+| `ev_protocol` | `ISO_15118_2` | Protocol the test EV offers. `DIN_SPEC_70121` makes a DIN-only EV (DC_extended, SoC 10 % from the Josev simulator): Imatra reads its SoC, then the EV charges on the station PWM |
 
 ## How it runs
 

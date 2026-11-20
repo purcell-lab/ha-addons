@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- New option `ev_protocol` (default `ISO_15118_2`, as before). `DIN_SPEC_70121`
+  makes the test EV DIN-only, so Imatra reads its state of charge.
+
 ## 0.1.1
 
 - New option `charge_loop_cycles` (default 30, as before): the test EV's
