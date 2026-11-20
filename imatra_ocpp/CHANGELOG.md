@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- imatra-ocpp at commit `2d14e99`: the Imatra limit is cancelled when a
+  session ends. Before, the last TxProfile limit stayed on the device for its
+  full duration (default 3600 s) and the next session started limited.
+
 ## 0.1.2
 
 - imatra-ocpp at commit `4868f8f`: OCPP timestamps are sent in UTC with
