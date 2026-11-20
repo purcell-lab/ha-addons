@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- imatra-ocpp at commit `4868f8f`: OCPP timestamps are sent in UTC with
+  milliseconds (`...T08:06:35.753Z`). CitrineOS rejected Imatra local-offset
+  times with FormatViolation on TransactionEvent.
+
 ## 0.1.1
 
 - imatra-ocpp at commit `711a011`: event-feed polling is no longer logged
