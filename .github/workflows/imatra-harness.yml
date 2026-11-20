@@ -1,0 +1,31 @@
+name: Imatra Test Harness App
+# Lints the scaffolding, then builds the App locally and runs it against the
+# prebuilt Imatra server image. The built image is never pushed: the harness
+# is PolyForm Internal Use 1.0.0 and is fetched at run time only.
+on:
+  pull_request:
+    paths:
+      - "imatra_harness/**"
+      - ".github/workflows/imatra-harness.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: imatra-harness-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-safety:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install PyYAML==6.0.2
+      - run: python3 -m unittest discover -s imatra_harness/tests -p test_packaging.py -v
+      - run: bash -n imatra_harness/rootfs/opt/imatra-harness/run.sh && bash -n imatra_harness/tests/e2e.sh
+      - run: git diff --check
+  e2e:
+    needs: focused-safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash imatra_harness/tests/e2e.sh
