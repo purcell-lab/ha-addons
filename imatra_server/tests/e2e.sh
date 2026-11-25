@@ -17,11 +17,40 @@ API=http://127.0.0.1:18080/v1
 SUMMARY=${GITHUB_STEP_SUMMARY:-/dev/null}
 
 log()  { echo "[e2e] $*"; }
-fail() { echo "[e2e] FAIL: $*" >&2; dump; exit 1; }
+fail() { echo "[e2e] FAIL: $*" >&2; capture "failure: $*"; dump; exit 1; }
 dump() {
   docker logs --tail 150 imatra 2>&1 | sed 's/^/[app] /' || true
   docker logs --tail 60 station 2>&1 | sed 's/^/[station] /' || true
   docker logs --tail 40 ev 2>&1 | sed 's/^/[ev] /' || true
+}
+# Diagnostics for Chargetronic/imatra.iso15118_server#15: the domain events,
+# session summaries and projector orphans for $DEV, read from the running App
+# before any restart or teardown (orphans are kept one hour). Taken once, on a
+# failure or when no session summary counts the limit. Never fails the run.
+CAPTURE_FILE=${CAPTURE_FILE:-${CAPTURE_DIR:-$WORK}/imatra-limit-capture.txt}
+CAPTURED=0
+capture() { # reason
+  [ "$CAPTURED" = 0 ] || return 0
+  CAPTURED=1
+  mkdir -p "$(dirname "$CAPTURE_FILE")" 2>/dev/null || true
+  {
+    echo "reason: $1"
+    echo "time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "run: ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-local}/actions/runs/${GITHUB_RUN_ID:-none} (attempt ${GITHUB_RUN_ATTEMPT:-1})"
+    echo "commit: ${GITHUB_SHA:-$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)}"
+    echo "arch: $(uname -m)"
+    echo "image: $APP"
+    echo
+    # The database password stays inside the container; it is never printed.
+    docker exec -i imatra sh -c 'PGPASSWORD=$(sed -n "s/^POSTGRES_PASSWORD=//p" /data/secrets.env) \
+      exec /usr/lib/postgresql/16/bin/psql -X -P pager=off -h 127.0.0.1 -U imatra imatra -e' <<SQL 2>&1
+SELECT seq, dseq, time, type, data->>'plug' AS plug FROM domain_events WHERE device_id = '$DEV' AND type IN ('session.started', 'session.ended', 'limit.applied', 'v2g.started') ORDER BY seq DESC LIMIT 60;
+SELECT summary_id, plug_id, started_at, ended_at, end_reason, limits_applied FROM session_summaries WHERE device_id = '$DEV' ORDER BY started_at DESC LIMIT 20;
+SELECT seq, time, plug FROM projector_orphans WHERE device_id = '$DEV' ORDER BY seq;
+SQL
+    echo "psql exit: $?"
+  } > "$CAPTURE_FILE" 2>&1 || true
+  log "diagnostics captured to $CAPTURE_FILE"
 }
 KEY=$(openssl rand -hex 24)
 api() { curl -fsS -H "X-API-Key: $KEY" -H 'Content-Type: application/json' "$@"; }
@@ -129,6 +158,8 @@ if jq -e '[.sessions[] | select(.limits_applied > 0)] | length > 0' >/dev/null <
 else
   log "warning: no session summary counts the limit; sessions: $(jq -c '[.sessions[] | {end_reason, limits_applied}]' <<<"$LAST")"
   echo "warning: limit confirmed but not counted in a session summary (station replug timing)" >> "$SUMMARY"
+  [ -z "${GITHUB_OUTPUT:-}" ] || echo "limit_uncounted=true" >> "$GITHUB_OUTPUT"
+  capture "no session summary counts the limit"
 fi
 
 # --- OCPP in the control path: the bridge App against a mock CSMS ---------------
