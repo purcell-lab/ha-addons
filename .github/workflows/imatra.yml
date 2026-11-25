@@ -49,8 +49,34 @@ jobs:
           path: harness
           persist-credentials: false
       - name: App end to end (${{ matrix.arch }})
+        id: e2e
         env:
           HARNESS_DIR: ${{ github.workspace }}/harness
+          # e2e.sh reads the database here, before its restart and teardown,
+          # on a failure or when no session summary counts the limit
+          # (Chargetronic/imatra.iso15118_server#15).
+          CAPTURE_FILE: ${{ runner.temp }}/imatra-capture/imatra-limit-capture-${{ matrix.arch }}.txt
         run: |
           echo "### ${{ matrix.arch }}" >> "$GITHUB_STEP_SUMMARY"
           bash imatra_server/tests/e2e.sh
+      - name: Limit diagnostics to the summary
+        if: always() && (failure() || steps.e2e.outputs.limit_uncounted == 'true')
+        continue-on-error: true
+        env:
+          CAPTURE_FILE: ${{ runner.temp }}/imatra-capture/imatra-limit-capture-${{ matrix.arch }}.txt
+        run: |
+          {
+            echo "#### Limit diagnostics (${{ matrix.arch }})"
+            echo '```'
+            cat "$CAPTURE_FILE" 2>/dev/null || echo "no capture file (the App container was not running)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Upload limit diagnostics
+        if: always() && (failure() || steps.e2e.outputs.limit_uncounted == 'true')
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: imatra-limit-capture-${{ matrix.arch }}
+          path: ${{ runner.temp }}/imatra-capture/
+          if-no-files-found: warn
+          retention-days: 14
