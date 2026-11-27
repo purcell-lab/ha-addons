@@ -1,0 +1,102 @@
+name: Publish Imatra App images
+# Builds the Imatra Apps in GitHub Actions so Home Assistant pulls a prebuilt
+# image instead of compiling Go, Caddy and Python on the host (slow on a
+# Home Assistant Green). Publication is an explicit maintainer action: push a
+# tag imatra_server-v<version> or imatra_ocpp-v<version> matching that App's
+# config.yaml. Both images are built and must pass the full lab end to end
+# (station, EV, OCPP 2.1 and 2.0.1 bridge) before the tagged one is pushed.
+# Pull requests and branch pushes never publish. No run overwrites an image.
+# The Imatra test harness (PolyForm Internal Use) is used here only; it is
+# never pushed or published.
+on:
+  push:
+    tags:
+      - "imatra_server-v*"
+      - "imatra_ocpp-v*"
+permissions:
+  contents: read
+concurrency:
+  group: imatra-publish-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match the App version and image
+        run: |
+          app="${GITHUB_REF_NAME%-v*}"
+          case "$app" in
+            imatra_server) expected=ghcr.io/purcell-lab/{arch}-imatra-server ;;
+            imatra_ocpp) expected=ghcr.io/purcell-lab/{arch}-imatra-ocpp ;;
+            *) echo "::error::unknown App '$app'"; exit 1 ;;
+          esac
+          version=$(sed -n 's/^version: "\(.*\)"$/\1/p' "$app/config.yaml")
+          test "$GITHUB_REF_NAME" = "$app-v$version" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match $app/config.yaml version $version"; exit 1; }
+          test "$(sed -n 's/^image: //p' "$app/config.yaml")" = "$expected" || {
+            echo "::error::$app/config.yaml image is not $expected"; exit 1; }
+          a=${{ matrix.arch }}
+          v_srv=$(sed -n 's/^version: "\(.*\)"$/\1/p' imatra_server/config.yaml)
+          v_ocpp=$(sed -n 's/^version: "\(.*\)"$/\1/p' imatra_ocpp/config.yaml)
+          {
+            echo "APP=$app"; echo "VERSION=$version"; echo "SOURCE_SHA=$(git rev-parse HEAD)"
+            echo "SERVER_IMAGE=ghcr.io/purcell-lab/$a-imatra-server:$v_srv"
+            echo "OCPP_IMAGE=ghcr.io/purcell-lab/$a-imatra-ocpp:$v_ocpp"
+            echo "IMAGE=$(echo "$expected" | sed "s/{arch}/$a/")"
+          } >> "$GITHUB_ENV"
+          echo "Publishing $app $version from $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Log in to GHCR (job token, this repository's packages only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Refuse to overwrite a published version
+        run: |
+          if docker manifest inspect "$IMAGE:$VERSION" > /dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION already exists. Bump the App version instead."; exit 1
+          fi
+      - name: Build both images
+        run: |
+          for pair in "imatra_server $SERVER_IMAGE" "imatra_ocpp $OCPP_IMAGE"; do
+            set -- $pair
+            docker build --build-arg BUILD_ARCH=${{ matrix.arch }} \
+              --label org.opencontainers.image.source=https://github.com/purcell-lab/ha-addons \
+              --label org.opencontainers.image.revision="$SOURCE_SHA" \
+              -t "$2" "$1"
+          done
+      - name: Fetch the test harness (pinned, run time only)
+        uses: actions/checkout@v4
+        with:
+          repository: Chargetronic/imatra.test_harness
+          ref: e1e9dfc522e6b2ca9b83fa7f1150858c9bdd7594
+          path: harness
+          persist-credentials: false
+      - name: Release gate (the full lab end to end on these images)
+        env:
+          HARNESS_DIR: ${{ github.workspace }}/harness
+        run: APP_IMAGE="$SERVER_IMAGE" BRIDGE_IMAGE="$OCPP_IMAGE" bash imatra_server/tests/e2e.sh
+      - name: Push (version tag only, no latest)
+        id: push
+        run: |
+          docker push "$IMAGE:$VERSION"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION" | cut -d@ -f2)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published $IMAGE:$VERSION@$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
