@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-- First release. Imatra ISO 15118-2 server v0.1.0 (commit `c7f030c`) built
+- First release. Imatra ISO 15118-2 server v0.1.0 (commit `c007614`, with the replug fix for Chargetronic/imatra.iso15118_server#15) built
   from source in GitHub Actions and published as a prebuilt image: one container with its own Postgres 16, Valkey 8 and
   Mosquitto. Services listen on 127.0.0.1; only the gateway (8080) and the
   device broker (8883, mutual TLS) can be published.

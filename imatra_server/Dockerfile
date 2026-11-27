@@ -11,7 +11,7 @@
 #
 # The Imatra test harness (PolyForm Internal Use) is not part of this App.
 
-ARG IMATRA_COMMIT=c7f030c9d6b03426e0c183139b5a57e0b09e91b7
+ARG IMATRA_COMMIT=c007614f34a10fbd5241222156bbbfa02e05dc6b
 ARG LIBCBV2G_TAG=v0.3.2
 
 # --- upstream source, pinned ---
